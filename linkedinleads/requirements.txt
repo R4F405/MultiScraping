@@ -1,0 +1,12 @@
+playwright
+playwright-stealth
+pandas
+requests
+python-dotenv
+beautifulsoup4
+openpyxl
+fastapi
+uvicorn[standard]
+httpx
+pytest
+cryptography>=41.0.0

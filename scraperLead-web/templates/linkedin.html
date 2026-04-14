@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}LinkedIn — Scraper Lead{% endblock %}
+
+{% block head %}
+<style>
+  .li-section { display: none; animation: liFadeIn 0.18s ease; }
+  .li-section.active { display: block; }
+  @keyframes liFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .li-nav-tab {
+    position: relative;
+    padding-bottom: 12px;
+    transition: color 0.15s ease;
+  }
+  .li-nav-tab::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, #0077B5, #00A0DC);
+    opacity: 0; transition: opacity 0.2s ease;
+  }
+  .li-nav-tab.active::after { opacity: 1; }
+  @keyframes pulse-blue {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  .dot-pulse { animation: pulse-blue 2s infinite; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="linkedin-form-page" data-health='{{ health | tojson }}'>
+
+  {% if state in ('timeout', 'upstream_error') %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 mb-5 text-sm">
+      <p class="font-medium">{{ message | default('No se pudo consultar LinkedInLeads en este momento.') }}</p>
+      <p class="mt-0.5 text-amber-700 text-xs">Asegúrate de que el backend está corriendo: <code>cd linkedinleads && uvicorn backend.main:app --port 8003</code></p>
+    </div>
+  {% endif %}
+
+  <!-- Header -->
+  <div class="flex items-center justify-between gap-4 mb-6">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#0077B5]/15 to-[#00A0DC]/15 flex items-center justify-center shrink-0">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="#0077B5">
+          <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+          <rect x="2" y="9" width="4" height="12"/>
+          <circle cx="4" cy="4" r="2"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold text-slate-800 leading-tight">LinkedIn Leads</h1>
+        <p class="text-slate-400 text-xs">Extracción de contactos de conexiones de LinkedIn</p>
+      </div>
+    </div>
+
+    <!-- Status pills -->
+    <div class="flex items-center gap-2 flex-wrap justify-end">
+      <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1.5">
+        <span id="li-status-dot" class="w-2 h-2 rounded-full bg-slate-300 shrink-0"></span>
+        <span id="li-status-text" class="text-xs font-medium text-slate-600">—</span>
+      </div>
+      <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1.5">
+        <span class="text-xs text-slate-400">Cuentas:</span>
+        <span id="li-accounts-count" class="text-xs font-semibold text-slate-700">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nav tabs -->
+  <div class="flex gap-5 border-b border-slate-200 mb-6 overflow-x-auto no-scrollbar">
+    <button class="li-nav-tab active text-sm font-semibold text-slate-800 whitespace-nowrap" data-section="extraccion">Extracción</button>
+    <button class="li-nav-tab text-sm font-medium text-slate-400 hover:text-slate-600 whitespace-nowrap" data-section="cuentas">Cuentas</button>
+    <button class="li-nav-tab text-sm font-medium text-slate-400 hover:text-slate-600 whitespace-nowrap" data-section="historial">Historial</button>
+    <button class="li-nav-tab text-sm font-medium text-slate-400 hover:text-slate-600 whitespace-nowrap" data-section="contactos">Contactos</button>
+  </div>
+
+  <!-- ── EXTRACCIÓN ─────────────────────────────────────────────────── -->
+  <div id="li-section-extraccion" class="li-section active">
+
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">Configurar extracción</h2>
+
+      <!-- Account selector -->
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">Cuenta LinkedIn</label>
+        <select id="li-account-select"
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+          <option value="">— Selecciona una cuenta —</option>
+        </select>
+        <p class="text-xs text-slate-400 mt-1">Si no ves cuentas, ve a la pestaña <strong>Cuentas</strong> para añadir una.</p>
+      </div>
+
+      <!-- No account warning -->
+      <div id="li-no-account-warning" class="hidden mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm">
+        Selecciona una cuenta para poder iniciar la extracción.
+      </div>
+
+      <!-- Mode -->
+      <div class="mb-4" id="li-mode-section">
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">Modo</label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex items-start gap-3 p-3 rounded-xl border-2 border-[#0077B5] bg-[#0077B5]/5 cursor-pointer" id="li-mode-index-card">
+            <input type="radio" name="li-mode" value="index" class="mt-0.5 accent-[#0077B5]" checked>
+            <div>
+              <p class="text-sm font-semibold text-slate-800">Index</p>
+              <p class="text-xs text-slate-500 mt-0.5">Recopila los slugs de todas tus conexiones (rápido, bajo riesgo)</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 p-3 rounded-xl border-2 border-slate-200 bg-white cursor-pointer" id="li-mode-enrich-card">
+            <input type="radio" name="li-mode" value="enrich" class="mt-0.5 accent-[#0077B5]">
+            <div>
+              <p class="text-sm font-semibold text-slate-800">Enrich</p>
+              <p class="text-xs text-slate-500 mt-0.5">Visita perfiles y extrae datos completos (emails, empresa, cargo…)</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Max contacts (only for enrich) -->
+      <div class="mb-5" id="li-max-contacts-row">
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">Contactos a enriquecer</label>
+        <input id="li-max-contacts" type="number" value="20" min="1" max="20"
+               class="w-32 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+        <span id="li-max-contacts-label" class="text-xs text-slate-400 ml-2">máx. 20 por ejecución (límite anti-baneo)</span>
+      </div>
+
+      <!-- Alert -->
+      <div id="li-alert" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4"></div>
+
+      <!-- Buttons -->
+      <div class="flex items-center gap-3">
+        <button id="li-start-btn"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0077B5] hover:bg-[#006099] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Iniciar
+        </button>
+        <span id="li-running-badge" class="hidden text-xs font-medium text-[#0077B5] bg-[#0077B5]/10 px-3 py-1.5 rounded-full dot-pulse">Ejecutando…</span>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div id="li-progress-card" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-sm font-semibold text-slate-700" id="li-progress-label">Procesando…</p>
+        <span id="li-progress-pct" class="text-xs text-slate-500">0%</span>
+      </div>
+      <div class="w-full bg-slate-100 rounded-full h-2 mb-3">
+        <div id="li-progress-bar" class="h-2 rounded-full bg-gradient-to-r from-[#0077B5] to-[#00A0DC] transition-all" style="width:0%"></div>
+      </div>
+      <p id="li-progress-detail" class="text-xs text-slate-500"></p>
+    </div>
+
+  </div>
+
+  <!-- ── CUENTAS ─────────────────────────────────────────────────────── -->
+  <div id="li-section-cuentas" class="li-section">
+
+    <!-- Add account form -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">Añadir cuenta LinkedIn</h2>
+      <p class="text-xs text-slate-500 mb-4">El login se realiza en segundo plano con Chrome. LinkedIn puede pedir verificación por email. La contraseña se cifra y no se almacena en claro.</p>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Email *</label>
+          <input id="li-add-email" type="email" placeholder="correo@ejemplo.com"
+                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Contraseña *</label>
+          <input id="li-add-password" type="password" placeholder="••••••••"
+                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Nombre visible (opcional)</label>
+          <input id="li-add-name" type="text" placeholder="Mi cuenta personal"
+                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Proxy (opcional)</label>
+          <input id="li-add-proxy" type="text" placeholder="user:pass@host:port"
+                 class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+        </div>
+      </div>
+      <div id="li-add-alert" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mt-3"></div>
+      <button id="li-add-btn"
+              class="mt-4 px-5 py-2.5 rounded-xl bg-[#0077B5] hover:bg-[#006099] text-white text-sm font-semibold transition disabled:opacity-50">
+        Iniciar sesión
+      </button>
+      <p id="li-add-status" class="hidden mt-2 text-xs text-slate-500"></p>
+    </div>
+
+    <!-- Accounts list -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">Cuentas registradas</h2>
+      <div id="li-accounts-list">
+        <p class="text-sm text-slate-400 text-center py-6">Cargando cuentas…</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── HISTORIAL ──────────────────────────────────────────────────── -->
+  <div id="li-section-historial" class="li-section">
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-slate-700">Historial de ejecuciones</h2>
+        <button id="li-reload-history" class="text-xs text-slate-400 hover:text-slate-600 transition">Actualizar</button>
+      </div>
+      <div id="li-history-body">
+        <p class="text-sm text-slate-400 text-center py-8">Cargando historial…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONTACTOS ──────────────────────────────────────────────────── -->
+  <div id="li-section-contactos" class="li-section">
+
+    <!-- Filters + export -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4 flex flex-wrap gap-3 items-center">
+      <input id="li-search-input" type="text" placeholder="Buscar por nombre, empresa, cargo…"
+             class="flex-1 min-w-48 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+      <select id="li-filter-account"
+              class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none">
+        <option value="">Todas las cuentas</option>
+      </select>
+      <select id="li-filter-type"
+              class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none">
+        <option value="all">Todos</option>
+        <option value="email">Con email</option>
+        <option value="phone">Con teléfono</option>
+        <option value="email_phone">Email + teléfono</option>
+      </select>
+      <button id="li-export-btn"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium transition disabled:opacity-40">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Exportar CSV
+      </button>
+    </div>
+
+    <!-- Stats row -->
+    <div class="flex gap-3 mb-4 flex-wrap">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex-1 min-w-32">
+        <p class="text-xs text-slate-400 mb-0.5">Total contactos</p>
+        <p id="li-total-count" class="text-lg font-bold text-slate-800">—</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex-1 min-w-32">
+        <p class="text-xs text-slate-400 mb-0.5">Con email</p>
+        <p id="li-email-count" class="text-lg font-bold text-[#0077B5]">—</p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex-1 min-w-32">
+        <p class="text-xs text-slate-400 mb-0.5">Con teléfono</p>
+        <p id="li-phone-count" class="text-lg font-bold text-slate-600">—</p>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Nombre</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Cargo / Empresa</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Ubicación</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Email</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Teléfono</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Scrapeado</th>
+            </tr>
+          </thead>
+          <tbody id="li-contacts-tbody">
+            <tr><td colspan="6" class="text-center text-slate-400 py-10">Cargando contactos…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Pagination -->
+      <div id="li-pagination" class="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
+        <span id="li-pagination-info" class="text-xs text-slate-400"></span>
+        <div class="flex gap-2">
+          <button id="li-prev-btn" class="px-3 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Anterior</button>
+          <button id="li-next-btn" class="px-3 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Siguiente</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+  import { initLinkedInForm } from '{{ url_for("static", path="js/modules/linkedin-form.js") }}?v=6';
+  initLinkedInForm();
+</script>
+{% endblock %}

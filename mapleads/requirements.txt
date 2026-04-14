@@ -1,0 +1,9 @@
+curl_cffi
+fastapi
+uvicorn[standard]
+aiosqlite
+dnspython
+python-dotenv
+pytest
+pytest-asyncio
+httpx

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leads — MapLeads</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="sidebar-logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+        </div>
+        <span class="sidebar-logo-text">MapLeads</span>
+      </a>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Buscar</div>
+      <a href="/" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Obtener Leads</span>
+      </a>
+
+      <div class="sidebar-section-label">Datos</div>
+      <a href="/databases" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        <span>Bases de datos</span>
+      </a>
+      <a href="/history" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Historial</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-proxy" id="sidebar-proxy" style="display:none">
+        <div class="sidebar-proxy-label">Proxies</div>
+        <div class="sidebar-proxy-row">
+          <span class="sidebar-proxy-dot green" id="sp-dot"></span>
+          <span id="sp-label">—</span>
+        </div>
+        <div class="sidebar-proxy-bar-bg">
+          <div class="sidebar-proxy-bar-fill green" id="sp-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <div class="shell-main">
+    <div class="page-wrap">
+
+      <!-- Job detail header (shown when job_id param present) -->
+      <div id="job-header" class="job-detail-header" style="display:none">
+        <a href="/history" class="job-detail-back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Historial
+        </a>
+        <div class="job-detail-info">
+          <div class="job-detail-query" id="job-header-query">—</div>
+          <div class="job-detail-meta" id="job-header-meta">—</div>
+        </div>
+        <div class="job-detail-stats" id="job-header-stats"></div>
+        <button id="export-btn-header" class="btn btn-secondary" style="font-size:13px;padding:8px 16px" disabled>
+          Exportar CSV
+        </button>
+      </div>
+
+      <!-- All leads header (no job_id) -->
+      <div id="all-header" style="display:none;margin-bottom:20px">
+        <h1 class="page-title">Todos los leads</h1>
+        <p class="page-subtitle">Historial completo de leads extraídos.</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="filter-bar">
+          <input id="filter-name" type="text" placeholder="Buscar por nombre..." oninput="applyFilters()" />
+          <label class="checkbox-label">
+            <input id="filter-email" type="checkbox" onchange="applyFilters()" />
+            Solo con email
+          </label>
+          <button class="btn btn-secondary" onclick="loadLeads()">Recargar</button>
+          <span id="results-count" class="results-count" style="margin-left:auto"></span>
+          <button id="export-btn" class="btn btn-secondary">Exportar CSV</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Dirección</th>
+                <th>Teléfono</th>
+                <th>Web</th>
+                <th>Email</th>
+                <th>Estado email</th>
+                <th>Categoría</th>
+                <th>Rating</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="leads-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="pagination" style="display:none">
+          <button id="page-first" class="page-btn" title="Primera página">«</button>
+          <button id="page-prev"  class="page-btn" title="Anterior">‹</button>
+          <span id="page-info" class="page-info"></span>
+          <button id="page-next"  class="page-btn" title="Siguiente">›</button>
+          <button id="page-last"  class="page-btn" title="Última página">»</button>
+        </div>
+
+        <div id="empty-state" class="empty-state" style="display:none">
+          <div class="empty-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <p>No hay leads para mostrar.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const PAGE_SIZE = 25;
+let allLeads = [];
+let filteredLeads = [];
+let currentPage = 1;
+
+// Read job_id from URL params
+const urlParams = new URLSearchParams(window.location.search);
+const JOB_ID = urlParams.get("job_id");
+
+function escHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function emailStatusClass(status) {
+  if (status === "valid")   return "email-valid";
+  if (status === "invalid") return "email-invalid";
+  return "email-pending";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// ── Header setup ──────────────────────────────────────────
+async function setupHeader() {
+  if (JOB_ID) {
+    document.getElementById("job-header").style.display = "flex";
+    document.title = `Leads #${JOB_ID} — MapLeads`;
+    try {
+      const res = await fetch(`/api/jobs/${JOB_ID}`);
+      if (res.ok) {
+        const job = await res.json();
+        document.getElementById("job-header-query").textContent = job.query || JOB_ID;
+        document.getElementById("job-header-meta").textContent =
+          `${job.location || "Sin ubicación"} · ${fmtDate(job.started_at)} · ${job.status}`;
+        document.getElementById("job-header-stats").innerHTML = `
+          <div class="recent-stat">
+            <div class="recent-stat-value">${job.total ?? 0}</div>
+            <div class="recent-stat-label">Negocios</div>
+          </div>
+          <div class="recent-stat">
+            <div class="recent-stat-value">${job.emails_found ?? 0}</div>
+            <div class="recent-stat-label">Emails</div>
+          </div>
+        `;
+        document.getElementById("export-btn-header").disabled = false;
+      }
+    } catch (_) {}
+  } else {
+    document.getElementById("all-header").style.display = "block";
+  }
+}
+
+// ── Export ────────────────────────────────────────────────
+function setupExport() {
+  const handler = () => {
+    if (JOB_ID) window.location.href = `/api/export/${JOB_ID}`;
+  };
+  const btn = document.getElementById("export-btn");
+  const btnH = document.getElementById("export-btn-header");
+  if (btn) btn.addEventListener("click", handler);
+  if (btnH) btnH.addEventListener("click", handler);
+}
+
+// ── Load leads ────────────────────────────────────────────
+async function loadLeads() {
+  const url = JOB_ID ? `/api/leads?job_id=${JOB_ID}` : "/api/leads";
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return;
+    allLeads = await res.json();
+    applyFilters();
+    const expBtn = document.getElementById("export-btn");
+    if (expBtn) expBtn.disabled = !allLeads.length || !JOB_ID;
+  } catch (_) {}
+}
+
+function applyFilters() {
+  const nameFilter = document.getElementById("filter-name").value.toLowerCase();
+  const onlyEmail  = document.getElementById("filter-email").checked;
+  filteredLeads = allLeads;
+  if (nameFilter) filteredLeads = filteredLeads.filter(l => (l.business_name || "").toLowerCase().includes(nameFilter));
+  if (onlyEmail)  filteredLeads = filteredLeads.filter(l => l.email);
+  currentPage = 1;
+  renderPage(1);
+  const count = document.getElementById("results-count");
+  if (count) count.textContent = `${filteredLeads.length} leads`;
+}
+
+// ── Pagination ────────────────────────────────────────────
+function renderPage(page) {
+  const total = filteredLeads.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const tbody = document.getElementById("leads-tbody");
+  const empty = document.getElementById("empty-state");
+
+  if (!total) {
+    if (tbody) tbody.innerHTML = "";
+    if (empty) empty.style.display = "block";
+    updatePagination(0);
+    return;
+  }
+  if (empty) empty.style.display = "none";
+
+  const start  = (currentPage - 1) * PAGE_SIZE;
+  const slice  = filteredLeads.slice(start, start + PAGE_SIZE);
+
+  tbody.innerHTML = "";
+  for (const lead of slice) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td title="${escHtml(lead.business_name)}">${escHtml(lead.business_name) || "—"}</td>
+      <td title="${escHtml(lead.address)}">${escHtml(lead.address) || "—"}</td>
+      <td>${escHtml(lead.phone) || "—"}</td>
+      <td class="link-cell">${lead.website
+        ? `<a href="${escHtml(lead.website)}" target="_blank" rel="noopener">${escHtml(lead.website)}</a>`
+        : "—"}</td>
+      <td class="${emailStatusClass(lead.email_status)}">${escHtml(lead.email) || "—"}</td>
+      <td>${escHtml(lead.email_status) || "—"}</td>
+      <td title="${escHtml(lead.category)}">${escHtml(lead.category) || "—"}</td>
+      <td>${lead.rating ?? "—"}</td>
+      <td>
+        <button class="btn btn-danger" onclick="deleteLead(${lead.id}, this.closest('tr'))">✕</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  updatePagination(total);
+}
+
+function updatePagination(total) {
+  const pag = document.getElementById("pagination");
+  const info = document.getElementById("page-info");
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (!pag) return;
+  pag.style.display = total > PAGE_SIZE ? "flex" : "none";
+  if (info) {
+    const start = (currentPage - 1) * PAGE_SIZE + 1;
+    const end = Math.min(currentPage * PAGE_SIZE, total);
+    info.textContent = `${start}–${end} de ${total}`;
+  }
+  document.getElementById("page-first").disabled = currentPage <= 1;
+  document.getElementById("page-prev").disabled  = currentPage <= 1;
+  document.getElementById("page-next").disabled  = currentPage >= totalPages;
+  document.getElementById("page-last").disabled  = currentPage >= totalPages;
+}
+
+document.getElementById("page-first")?.addEventListener("click", () => renderPage(1));
+document.getElementById("page-prev")?.addEventListener("click",  () => renderPage(currentPage - 1));
+document.getElementById("page-next")?.addEventListener("click",  () => renderPage(currentPage + 1));
+document.getElementById("page-last")?.addEventListener("click",  () => renderPage(Math.ceil(filteredLeads.length / PAGE_SIZE)));
+
+async function deleteLead(id, row) {
+  const res = await fetch(`/api/leads/${id}`, { method: "DELETE" });
+  if (res.ok) {
+    allLeads = allLeads.filter(l => l.id !== id);
+    applyFilters();
+    row.remove();
+  }
+}
+
+// ── Sidebar proxy ─────────────────────────────────────────
+async function loadSidebarProxy() {
+  try {
+    const res = await fetch("/api/proxy/status");
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.total_proxies === 0) return;
+    const widget = document.getElementById("sidebar-proxy");
+    if (widget) widget.style.display = "block";
+    const pct = d.daily_requests_limit > 0
+      ? Math.round((d.daily_requests_used / d.daily_requests_limit) * 100) : 0;
+    let color = "green";
+    if (d.available_now <= 2 || pct >= 80) color = "red";
+    else if (d.available_now <= 5 || pct >= 50) color = "yellow";
+    const dot = document.getElementById("sp-dot");
+    const label = document.getElementById("sp-label");
+    const bar = document.getElementById("sp-bar");
+    if (dot) dot.className = `sidebar-proxy-dot ${color}`;
+    if (label) label.textContent = `${d.available_now}/${d.total_proxies} disponibles`;
+    if (bar) { bar.className = `sidebar-proxy-bar-fill ${color}`; bar.style.width = pct + "%"; }
+  } catch (_) {}
+}
+
+setupHeader();
+setupExport();
+loadLeads();
+loadSidebarProxy();
+setInterval(loadSidebarProxy, 30000);
+</script>
+</body>
+</html>

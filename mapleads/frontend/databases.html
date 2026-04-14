@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bases de datos — MapLeads</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="sidebar-logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+        </div>
+        <span class="sidebar-logo-text">MapLeads</span>
+      </a>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Buscar</div>
+      <a href="/" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Obtener Leads</span>
+      </a>
+
+      <div class="sidebar-section-label">Datos</div>
+      <a href="/databases" class="sidebar-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        <span>Bases de datos</span>
+      </a>
+      <a href="/history" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Historial</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-proxy" id="sidebar-proxy" style="display:none">
+        <div class="sidebar-proxy-label">Proxies</div>
+        <div class="sidebar-proxy-row">
+          <span class="sidebar-proxy-dot green" id="sp-dot"></span>
+          <span id="sp-label">—</span>
+        </div>
+        <div class="sidebar-proxy-bar-bg">
+          <div class="sidebar-proxy-bar-fill green" id="sp-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <div class="shell-main">
+    <div class="page-wrap">
+
+      <div style="margin-bottom:28px">
+        <h1 class="page-title">Tus bases de datos</h1>
+        <p class="page-subtitle">Gestiona los contactos y leads extraídos por plataforma.</p>
+      </div>
+
+      <div class="db-grid" id="db-grid">
+        <!-- filled by JS -->
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function escHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function loadSidebarProxy() {
+  try {
+    const res = await fetch("/api/proxy/status");
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.total_proxies === 0) return;
+    const widget = document.getElementById("sidebar-proxy");
+    if (widget) widget.style.display = "block";
+    const pct = d.daily_requests_limit > 0
+      ? Math.round((d.daily_requests_used / d.daily_requests_limit) * 100) : 0;
+    let color = "green";
+    if (d.available_now <= 2 || pct >= 80) color = "red";
+    else if (d.available_now <= 5 || pct >= 50) color = "yellow";
+    const dot = document.getElementById("sp-dot");
+    const label = document.getElementById("sp-label");
+    const bar = document.getElementById("sp-bar");
+    if (dot) dot.className = `sidebar-proxy-dot ${color}`;
+    if (label) label.textContent = `${d.available_now}/${d.total_proxies} disponibles`;
+    if (bar) { bar.className = `sidebar-proxy-bar-fill ${color}`; bar.style.width = pct + "%"; }
+  } catch (_) {}
+}
+
+async function loadDatabases() {
+  const grid = document.getElementById("db-grid");
+  if (!grid) return;
+
+  let gmapsCount = 0;
+  try {
+    const res = await fetch("/api/stats");
+    if (res.ok) {
+      const data = await res.json();
+      gmapsCount = data.google_maps || 0;
+    }
+  } catch (_) {}
+
+  grid.innerHTML = `
+    <!-- Google Maps -->
+    <a href="/leads" class="db-card">
+      <div class="db-card-header">
+        <div class="db-card-icon gmaps">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" fill="#EA4335"/>
+            <circle cx="12" cy="9" r="2.5" fill="white"/>
+          </svg>
+        </div>
+        <div class="db-card-name">Google Maps</div>
+      </div>
+      <div class="db-card-count">${gmapsCount.toLocaleString()}</div>
+      <div class="db-card-count-label">Emails encontrados</div>
+      <div class="db-card-action">
+        Ver base de datos
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+        </svg>
+      </div>
+    </a>
+
+    <!-- Instagram (disabled) -->
+    <div class="db-card disabled">
+      <div class="db-card-header">
+        <div class="db-card-icon instagram">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke="url(#ig2)" stroke-width="2"/>
+            <circle cx="12" cy="12" r="4" stroke="url(#ig2)" stroke-width="2"/>
+            <circle cx="17.5" cy="6.5" r="1" fill="#C13584"/>
+            <defs>
+              <linearGradient id="ig2" x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#F58529"/><stop offset="0.5" stop-color="#C13584"/><stop offset="1" stop-color="#833AB4"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="db-card-name">Instagram</div>
+      </div>
+      <div class="db-card-count" style="color:var(--text-muted)">0</div>
+      <div class="db-card-count-label">Emails encontrados</div>
+      <div class="db-card-action" style="color:var(--text-muted)">
+        <span class="platform-badge soon">Próximamente</span>
+      </div>
+    </div>
+  `;
+}
+
+loadSidebarProxy();
+loadDatabases();
+setInterval(loadSidebarProxy, 30000);
+</script>
+</body>
+</html>

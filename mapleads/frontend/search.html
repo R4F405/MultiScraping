@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Google Maps — MapLeads</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="sidebar-logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+        </div>
+        <span class="sidebar-logo-text">MapLeads</span>
+      </a>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Buscar</div>
+      <a href="/" class="sidebar-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Obtener Leads</span>
+      </a>
+
+      <div class="sidebar-section-label">Datos</div>
+      <a href="/databases" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        <span>Bases de datos</span>
+      </a>
+      <a href="/history" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Historial</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-proxy" id="sidebar-proxy" style="display:none">
+        <div class="sidebar-proxy-label">Proxies</div>
+        <div class="sidebar-proxy-row">
+          <span class="sidebar-proxy-dot green" id="sp-dot"></span>
+          <span id="sp-label">—</span>
+        </div>
+        <div class="sidebar-proxy-bar-bg">
+          <div class="sidebar-proxy-bar-fill green" id="sp-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main content ────────────────────────────────────── -->
+  <div class="shell-main">
+    <div class="page-wrap">
+
+      <!-- Header -->
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+            <div style="width:28px;height:28px;background:#e8f0fe;border-radius:7px;display:flex;align-items:center;justify-content:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" fill="#EA4335"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg>
+            </div>
+            <h1 class="page-title">Google Maps Extraction</h1>
+          </div>
+          <p class="page-subtitle">Extrae emails de negocios locales desde Google Maps</p>
+        </div>
+      </div>
+
+      <!-- Proxy widget -->
+      <div id="proxy-widget" class="proxy-widget" style="display:none">
+        <div class="proxy-indicator">
+          <span id="proxy-dot" class="proxy-dot green"></span>
+          <span id="proxy-label">Proxies: —</span>
+        </div>
+        <div class="proxy-bar-wrap">
+          <span class="proxy-bar-label" id="proxy-requests-label">Requests hoy: —</span>
+          <div class="proxy-bar-bg">
+            <div id="proxy-bar-fill" class="proxy-bar-fill green" style="width:0%"></div>
+          </div>
+          <span class="proxy-bar-label" id="proxy-pct-label">0%</span>
+        </div>
+      </div>
+
+      <div id="alert" class="alert"></div>
+
+      <!-- Search card -->
+      <div class="search-card">
+
+        <div class="query-row">
+          <div class="search-input-wrap">
+            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="query" type="text" class="query-input" placeholder="restaurants, dentistas, fontaneros..." />
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="map-section">
+            <h3 class="section-label">SELECCIONAR UBICACIÓN EN EL MAPA</h3>
+            <div class="radius-row">
+              <span class="radius-text">Radio:</span>
+              <input type="range" id="radius-slider" class="radius-slider" min="1" max="100" value="10" />
+              <span id="radius-label" class="radius-value">10 km</span>
+            </div>
+            <div id="map" class="map-container"></div>
+            <div class="location-row">
+              <div class="location-input-wrap">
+                <svg class="search-icon-sm" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input id="location" type="text" class="location-input" placeholder="Ciudad, zona..." />
+              </div>
+              <button id="go-btn" class="btn-go">Ir</button>
+            </div>
+            <p class="map-hint">Haz clic en el mapa para seleccionar zona · Arrastra el marcador para moverla</p>
+          </div>
+
+          <div class="target-section">
+            <h3 class="section-label">EMAILS OBJETIVO</h3>
+            <div class="counter-wrap">
+              <button id="counter-minus" class="counter-btn" aria-label="Decrease">−</button>
+              <input id="counter-display" type="text" class="counter-display" value="10" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Número de emails objetivo" />
+              <button id="counter-plus" class="counter-btn" aria-label="Increase">+</button>
+            </div>
+            <div class="quick-presets">
+              <button class="preset-btn" data-value="25">25</button>
+              <button class="preset-btn" data-value="50">50</button>
+              <button class="preset-btn" data-value="75">75</button>
+            </div>
+            <p id="counter-hint" class="counter-hint">Puedes escribir cualquier número</p>
+            <div id="capacity-notice" class="capacity-notice" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Loader -->
+        <div id="loader-section" class="loader-section">
+          <div id="loader-spinner" class="loader-spinner"></div>
+          <span id="loader-text" class="loader-text">Cargando emails...</span>
+          <span id="loader-count" class="loader-count">Conectando con Google Maps...</span>
+          <span id="loader-proxy-wait" class="loader-proxy-wait" style="display:none"></span>
+        </div>
+      </div>
+
+      <!-- Start button -->
+      <button id="start-btn" class="btn-start" type="button">
+        Iniciar extracción de Google Maps
+        <span class="btn-arrow">→</span>
+      </button>
+
+      <!-- Results -->
+      <div class="card" id="results-card">
+        <div class="results-toolbar">
+          <span id="results-count" class="results-count"></span>
+          <button id="export-btn" class="btn btn-secondary" disabled>Exportar CSV</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Dirección</th>
+                <th>Teléfono</th>
+                <th>Web</th>
+                <th>Email</th>
+                <th>Estado email</th>
+                <th>Rating</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="pagination" style="display:none">
+          <button id="page-first" class="page-btn" title="Primera página">«</button>
+          <button id="page-prev"  class="page-btn" title="Anterior">‹</button>
+          <span id="page-info" class="page-info"></span>
+          <button id="page-next"  class="page-btn" title="Siguiente">›</button>
+          <button id="page-last"  class="page-btn" title="Última página">»</button>
+        </div>
+
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <p>Lanza una búsqueda para ver los resultados aquí.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/app.js"></script>
+<script>
+// Sidebar proxy mini widget
+async function loadSidebarProxy() {
+  try {
+    const res = await fetch("/api/proxy/status");
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.total_proxies === 0) return;
+    const widget = document.getElementById("sidebar-proxy");
+    if (widget) widget.style.display = "block";
+    const pct = d.daily_requests_limit > 0
+      ? Math.round((d.daily_requests_used / d.daily_requests_limit) * 100) : 0;
+    let color = "green";
+    if (d.available_now <= 2 || pct >= 80) color = "red";
+    else if (d.available_now <= 5 || pct >= 50) color = "yellow";
+    const dot = document.getElementById("sp-dot");
+    const label = document.getElementById("sp-label");
+    const bar = document.getElementById("sp-bar");
+    if (dot) dot.className = `sidebar-proxy-dot ${color}`;
+    if (label) label.textContent = `${d.available_now}/${d.total_proxies} disponibles`;
+    if (bar) { bar.className = `sidebar-proxy-bar-fill ${color}`; bar.style.width = pct + "%"; }
+  } catch (_) {}
+}
+loadSidebarProxy();
+setInterval(loadSidebarProxy, 30000);
+</script>
+</body>
+</html>

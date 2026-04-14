@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Historial — MapLeads</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="sidebar-logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+        </div>
+        <span class="sidebar-logo-text">MapLeads</span>
+      </a>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Buscar</div>
+      <a href="/" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Obtener Leads</span>
+      </a>
+
+      <div class="sidebar-section-label">Datos</div>
+      <a href="/databases" class="sidebar-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        <span>Bases de datos</span>
+      </a>
+      <a href="/history" class="sidebar-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>Historial</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-proxy" id="sidebar-proxy" style="display:none">
+        <div class="sidebar-proxy-label">Proxies</div>
+        <div class="sidebar-proxy-row">
+          <span class="sidebar-proxy-dot green" id="sp-dot"></span>
+          <span id="sp-label">—</span>
+        </div>
+        <div class="sidebar-proxy-bar-bg">
+          <div class="sidebar-proxy-bar-fill green" id="sp-bar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <div class="shell-main">
+    <div class="page-wrap">
+
+      <div class="history-toolbar">
+        <div>
+          <h1 class="page-title">Historial de extracciones</h1>
+          <p class="page-subtitle">Todos los scrapings realizados, con sus resultados.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div class="view-toggle" id="view-toggle">
+            <button class="view-toggle-btn active" id="btn-cards" onclick="setView('cards')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+              </svg>
+              Cards
+            </button>
+            <button class="view-toggle-btn" id="btn-table" onclick="setView('table')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
+                <line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+              Tabla
+            </button>
+          </div>
+          <a href="/search" class="btn btn-secondary" style="font-size:13px;padding:8px 16px;text-decoration:none;">
+            + Nueva extracción
+          </a>
+        </div>
+      </div>
+
+      <!-- Content area -->
+      <div id="jobs-content">
+        <div class="empty-page">
+          <p>Cargando historial...</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+let _jobs = [];
+let _view = 'cards';
+
+function escHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function fmtDuration(start, end) {
+  if (!start || !end) return "—";
+  const ms = new Date(end) - new Date(start);
+  if (ms < 0) return "—";
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  return `${mins}m ${secs % 60}s`;
+}
+
+function statusLabel(s) {
+  if (s === 'done')    return 'Completado';
+  if (s === 'failed')  return 'Error';
+  if (s === 'running') return 'En curso';
+  return s;
+}
+
+const GMAPS_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+  <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" fill="#EA4335"/>
+  <circle cx="12" cy="9" r="2.5" fill="white"/>
+</svg>`;
+
+function renderCards(jobs) {
+  if (!jobs.length) {
+    return `<div class="empty-page">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <p>Aún no tienes extracciones guardadas.</p>
+      <a href="/search">Iniciar primera extracción →</a>
+    </div>`;
+  }
+  return `<div class="jobs-grid">${jobs.map(job => `
+    <a href="/leads?job_id=${escHtml(job.job_id)}" class="job-card">
+      <div class="job-card-top">
+        <div class="job-card-platform">${GMAPS_ICON}</div>
+        <span class="job-status ${job.status}">${statusLabel(job.status)}</span>
+      </div>
+      <div>
+        <div class="job-card-query">${escHtml(job.query)}</div>
+        <div class="job-card-location">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+          ${escHtml(job.location) || "Sin ubicación"}
+        </div>
+      </div>
+      <div class="job-card-stats">
+        <div class="job-stat">
+          <span class="job-stat-value">${job.total ?? 0}</span>
+          <span class="job-stat-label">Negocios</span>
+        </div>
+        <div class="job-stat">
+          <span class="job-stat-value">${job.emails_found ?? 0}</span>
+          <span class="job-stat-label">Emails</span>
+        </div>
+        <div class="job-stat" style="margin-left:auto">
+          <span class="job-card-date">${fmtDate(job.started_at)}</span>
+        </div>
+      </div>
+    </a>
+  `).join("")}</div>`;
+}
+
+function renderTable(jobs) {
+  if (!jobs.length) {
+    return `<div class="empty-page">
+      <p>Aún no tienes extracciones guardadas. <a href="/search">Iniciar primera extracción →</a></p>
+    </div>`;
+  }
+  return `<div class="jobs-table-wrap">
+    <table class="jobs-table">
+      <thead>
+        <tr>
+          <th>Plataforma</th>
+          <th>Búsqueda</th>
+          <th>Ubicación</th>
+          <th>Negocios</th>
+          <th>Emails</th>
+          <th>Duración</th>
+          <th>Fecha</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${jobs.map(job => `
+          <tr onclick="window.location='/leads?job_id=${escHtml(job.job_id)}'">
+            <td>${GMAPS_ICON}</td>
+            <td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(job.query)}</td>
+            <td style="color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(job.location) || "—"}</td>
+            <td style="font-weight:600">${job.total ?? 0}</td>
+            <td style="font-weight:600;color:var(--primary)">${job.emails_found ?? 0}</td>
+            <td style="color:var(--text-muted)">${fmtDuration(job.started_at, job.finished_at)}</td>
+            <td style="color:var(--text-muted)">${fmtDate(job.started_at)}</td>
+            <td><span class="job-status ${job.status}">${statusLabel(job.status)}</span></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function setView(view) {
+  _view = view;
+  document.getElementById("btn-cards").classList.toggle("active", view === "cards");
+  document.getElementById("btn-table").classList.toggle("active", view === "table");
+  render();
+}
+
+function render() {
+  const content = document.getElementById("jobs-content");
+  if (!content) return;
+  content.innerHTML = _view === "cards" ? renderCards(_jobs) : renderTable(_jobs);
+}
+
+async function loadJobs() {
+  try {
+    const res = await fetch("/api/jobs?limit=200");
+    if (!res.ok) return;
+    _jobs = await res.json();
+    render();
+  } catch (_) {
+    document.getElementById("jobs-content").innerHTML = `<div class="empty-page"><p>Error al cargar el historial.</p></div>`;
+  }
+}
+
+async function loadSidebarProxy() {
+  try {
+    const res = await fetch("/api/proxy/status");
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.total_proxies === 0) return;
+    const widget = document.getElementById("sidebar-proxy");
+    if (widget) widget.style.display = "block";
+    const pct = d.daily_requests_limit > 0
+      ? Math.round((d.daily_requests_used / d.daily_requests_limit) * 100) : 0;
+    let color = "green";
+    if (d.available_now <= 2 || pct >= 80) color = "red";
+    else if (d.available_now <= 5 || pct >= 50) color = "yellow";
+    const dot = document.getElementById("sp-dot");
+    const label = document.getElementById("sp-label");
+    const bar = document.getElementById("sp-bar");
+    if (dot) dot.className = `sidebar-proxy-dot ${color}`;
+    if (label) label.textContent = `${d.available_now}/${d.total_proxies} disponibles`;
+    if (bar) { bar.className = `sidebar-proxy-bar-fill ${color}`; bar.style.width = pct + "%"; }
+  } catch (_) {}
+}
+
+loadSidebarProxy();
+loadJobs();
+setInterval(loadSidebarProxy, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+
+{% block title %}{% if job_id %}Leads #{{ job_id }} — Scraper Lead{% else %}Todos los leads — Scraper Lead{% endif %}{% endblock %}
+
+{% block head %}
+<style>
+  .fpill {
+    padding: 5px 11px; font-size: 12px; border: 1px solid #e2e8f0;
+    color: #64748b; cursor: pointer; transition: all .15s; background: white;
+    white-space: nowrap; line-height: 1.4;
+  }
+  .fpill:first-child { border-radius: 8px 0 0 8px; }
+  .fpill:last-child  { border-radius: 0 8px 8px 0; }
+  .fpill + .fpill    { border-left: none; }
+  .fpill.on          { background: #2563eb; color: white; border-color: #2563eb; font-weight: 500; }
+  .fpill:not(.on):hover { background: #f8fafc; }
+  .etab { padding: 6px 14px; font-size: 13px; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; transition: all .15s; background: white; }
+  .etab:first-child { border-radius: 8px 0 0 8px; }
+  .etab:last-child  { border-radius: 0 8px 8px 0; border-left: none; }
+  .etab.on { background: #2563eb; color: white; border-color: #2563eb; font-weight: 500; }
+  .etab:not(.on):hover { background: #f8fafc; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+  {% if job_state in ('upstream_error', 'timeout') or leads_state in ('upstream_error', 'timeout') %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 mb-4 text-sm" role="status" aria-live="polite">
+      <p class="font-medium">{{ leads_message | default(job_message) | default('No se pudo cargar la información solicitada desde el backend.') }}</p>
+      <p class="mt-1 text-amber-700">No se mostrará un vacío silencioso cuando el problema sea de upstream.</p>
+      <div class="mt-2 flex items-center gap-4">
+        <a href="/leads{% if job_id %}?job_id={{ job_id }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
+        <a href="/history" class="underline font-medium text-blue-700">Volver al historial</a>
+      </div>
+    </div>
+  {% endif %}
+
+  {% set status_classes = {'done': 'bg-green-100 text-green-700', 'failed': 'bg-red-100 text-red-700', 'running': 'bg-blue-100 text-blue-700'} %}
+  {% set status_labels = {'done': 'Completado', 'failed': 'Error', 'running': 'En curso'} %}
+  {% set initial_view = 'scrapeos' if job_id else 'todos' %}
+
+  <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800 mb-1">Leads</h1>
+      <p class="text-slate-500 text-sm">Visualiza leads agregados o por scrapeo.</p>
+    </div>
+    <div class="flex bg-slate-100 rounded-lg p-1 gap-1" id="db-view-toggle">
+      <button id="btn-db-todos" type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition {% if initial_view == 'todos' %}bg-white text-slate-700 shadow-sm{% else %}text-slate-500 hover:text-slate-700{% endif %}">
+        Todos
+      </button>
+      <button id="btn-db-scrapeos" type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition {% if initial_view == 'scrapeos' %}bg-white text-slate-700 shadow-sm{% else %}text-slate-500 hover:text-slate-700{% endif %}">
+        Scrapeos
+      </button>
+    </div>
+  </div>
+
+  <div id="db-header">
+    <div id="db-header-todos" class="{% if initial_view != 'todos' %}hidden{% endif %}">
+      <div class="mb-5">
+        <h1 class="text-2xl font-bold text-slate-800 mb-1">Todos los leads</h1>
+        <p class="text-slate-500 text-sm">Historial completo de leads extraídos.</p>
+      </div>
+    </div>
+
+    <div id="db-header-scrape" class="{% if not (initial_view == 'scrapeos' and job_id and job) %}hidden{% endif %}">
+      {% set st = job.get('status', 'done') if job else 'done' %}
+      <div class="flex items-start gap-4 mb-6 flex-wrap">
+        <button id="db-back-to-cards-btn" type="button"
+                class="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 transition mt-1 no-underline flex-shrink-0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Volver a scrapeos
+        </button>
+        <div class="flex-1 min-w-0">
+          <h1 id="db-job-title" class="text-xl font-bold text-slate-800 truncate">{{ job.get('query') if job else '' | default('Job #' ~ (job_id | default(''))) }}</h1>
+          <p class="text-sm text-slate-400 mt-0.5">
+            <span id="db-job-location">{{ job.get('location', 'Sin ubicación') if job else 'Sin ubicación' }}</span>
+            · <span id="db-job-date">{{ job.get('started_at') | format_date if job else '—' }}</span>
+            · <span id="db-job-status-badge" class="text-xs px-1.5 py-0.5 rounded-full font-medium inline-block {{ status_classes.get(st, 'bg-slate-100 text-slate-600') }}">{{ status_labels.get(st, st) }}</span>
+          </p>
+        </div>
+        <div class="flex items-center gap-6 flex-shrink-0">
+          <div class="text-center">
+            <div id="db-job-total" class="text-lg font-bold text-slate-800">{{ job.get('total', 0) if job else 0 }}</div>
+            <div class="text-[10px] text-slate-400">Negocios</div>
+          </div>
+          <div class="text-center">
+            <div id="db-job-emails" class="text-lg font-bold text-blue-600">{{ job.get('emails_found', 0) if job else 0 }}</div>
+            <div class="text-[10px] text-slate-400">Emails</div>
+          </div>
+          <button type="button" data-action="open-export"
+                  class="px-4 py-2 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition">
+            Exportar CSV
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="db-scrapeos-placeholder" class="hidden bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl px-5 py-4 mb-4 text-sm">
+    <p class="font-medium">Selecciona un scrapeo</p>
+    <p class="mt-1 text-amber-700">Cuando eliges un scrapeo aquí, se filtran los leads para esa búsqueda concreta.</p>
+  </div>
+
+  <div id="db-scrapeos-jobs" class="hidden mb-4">
+    {% if jobs_state in ('upstream_error', 'timeout') %}
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-sm text-amber-800">
+        <p class="font-medium">{{ jobs_message | default('No se pudo cargar la lista de scrapeos.') }}</p>
+        <div class="mt-3 flex items-center gap-4">
+          <a href="/leads{% if job_id %}?job_id={{ job_id }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
+          <a href="/history" class="underline font-medium text-blue-700">Ver historial</a>
+        </div>
+      </div>
+    {% elif not jobs %}
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-400 text-sm">
+        Aún no hay scrapeos guardados.
+      </div>
+    {% else %}
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <p class="text-sm font-semibold text-slate-800">Scrapeos guardados</p>
+        <p class="text-xs text-slate-500">{{ jobs | length }} disponibles</p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for j in jobs %}
+          {% set jst = j.get('status', 'done') %}
+          {% set badge_class = status_classes.get(jst, 'bg-slate-100 text-slate-600') %}
+          {% set badge_label = status_labels.get(jst, jst) %}
+          {% set is_selected = job_id and j.get('job_id') and j.get('job_id') | string == job_id | string %}
+          <a href="/leads?job_id={{ j.get('job_id', '') }}"
+             data-scrape-job-id="{{ j.get('job_id', '') }}"
+             class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-3 hover:border-blue-300 hover:shadow-sm transition-all no-underline group {% if is_selected %}border-blue-300 ring-2 ring-blue-100{% endif %}">
+            <div class="flex items-center justify-between">
+              <div class="w-7 h-7 rounded-lg bg-[#e8f0fe] flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" fill="#EA4335"/>
+                  <circle cx="12" cy="9" r="2.5" fill="white"/>
+                </svg>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium {{ badge_class }}">{{ badge_label }}</span>
+            </div>
+            <div>
+              <div class="font-semibold text-slate-800 text-sm truncate">{{ j.get('query') | default('—') }}</div>
+              <div class="flex items-center gap-1 text-slate-400 text-xs mt-0.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/><circle cx="12" cy="9" r="2.5"/>
+                </svg>
+                {{ j.get('location') | default('Sin ubicación') }}
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+              <div class="flex gap-4">
+                <div>
+                  <div class="text-base font-semibold text-slate-800">{{ j.get('total', 0) }}</div>
+                  <div class="text-[10px] text-slate-400">Negocios</div>
+                </div>
+                <div>
+                  <div class="text-base font-semibold text-blue-600">{{ j.get('emails_found', 0) }}</div>
+                  <div class="text-[10px] text-slate-400">Emails</div>
+                </div>
+              </div>
+              <div class="text-xs text-slate-400">{{ j.get('started_at') | format_date }}</div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div id="db-leads-section">
+    <!-- Filters -->
+    <div class="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="filter-name" type="text" placeholder="Buscar por nombre..."
+               class="flex-1 min-w-[160px] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+        <input id="filter-location" type="text" placeholder="Localidad..."
+               class="w-[140px] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+        <button id="reload-leads-btn" type="button" class="px-3 py-2 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition">
+          Recargar
+        </button>
+        <span id="results-count" class="text-sm text-slate-400"></span>
+        <button type="button" data-action="open-export"
+                class="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition ml-auto">
+          Exportar CSV
+        </button>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400 font-medium w-16 text-right flex-shrink-0">Email:</span>
+          <div class="flex">
+            <button type="button" class="fpill on" data-group="email" data-val="">Todos</button>
+            <button type="button" class="fpill" data-group="email" data-val="yes">Verificado</button>
+            <button type="button" class="fpill" data-group="email" data-val="no">Sin email</button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400 font-medium w-16 text-right flex-shrink-0">Teléfono:</span>
+          <div class="flex">
+            <button type="button" class="fpill on" data-group="phone" data-val="">Todos</button>
+            <button type="button" class="fpill" data-group="phone" data-val="yes">Con tel.</button>
+            <button type="button" class="fpill" data-group="phone" data-val="no">Sin tel.</button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400 font-medium w-16 text-right flex-shrink-0">Web:</span>
+          <div class="flex">
+            <button type="button" class="fpill on" data-group="web" data-val="">Todos</button>
+            <button type="button" class="fpill" data-group="web" data-val="yes">Web real</button>
+            <button type="button" class="fpill" data-group="web" data-val="no">Sin web</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Nombre</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Dirección</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Teléfono</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Web</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Estado</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Categoría</th>
+              <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Rating</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="leads-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="pagination" class="hidden flex items-center justify-center gap-2 px-5 py-4 border-t border-slate-100">
+        <button id="page-first" class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">«</button>
+        <button id="page-prev"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">‹</button>
+        <span id="page-info" class="text-xs text-slate-500 mx-2"></span>
+        <button id="page-next"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">›</button>
+        <button id="page-last"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">»</button>
+      </div>
+
+      <div id="empty-state" class="py-16 text-center text-slate-400">
+        <svg class="mx-auto mb-3 opacity-30" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <p class="text-sm">
+          {% if leads_state == 'empty' %}No hay leads para mostrar.
+          {% else %}No hay leads disponibles temporalmente.{% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export modal -->
+  <div id="export-modal"
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       style="display:none; background:rgba(15,23,42,.65); backdrop-filter:blur(2px); padding: 5rem 2rem">
+    <div class="bg-white rounded-2xl shadow-2xl w-full overflow-hidden" style="max-width: 360px; max-height: calc(100vh - 10rem); overflow-y: auto">
+      <div class="px-6 pt-6 pb-5 border-b border-slate-100">
+        <div class="flex items-start justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-slate-800">Exportar CSV</h2>
+            <p id="export-modal-info" class="text-xs text-slate-400 mt-1"></p>
+          </div>
+          <button id="export-close-x-btn" type="button" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition text-sm ml-4 flex-shrink-0">✕</button>
+        </div>
+      </div>
+      <div class="px-6 py-6">
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">¿Cuántos leads exportar?</p>
+        <div class="flex mb-5">
+          <button id="et-all" type="button" class="etab on">Todos</button>
+          <button id="et-num" type="button" class="etab">Número específico</button>
+        </div>
+        <div id="export-num-section" style="display:none">
+          <div class="relative">
+            <input id="export-limit" type="number" min="1" placeholder="Ej: 50"
+                   class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+            <span id="export-limit-max" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></span>
+          </div>
+          <p id="export-limit-error" class="text-xs text-red-500 mt-1.5 hidden"></p>
+        </div>
+      </div>
+      <div class="px-6 pb-6 flex gap-3 border-t border-slate-100 pt-5">
+        <button id="export-cancel-btn" type="button" class="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 text-sm rounded-xl hover:bg-slate-50 transition font-medium">Cancelar</button>
+        <button id="export-confirm-btn" type="button" class="flex-1 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition">Descargar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lead detail modal -->
+  <div id="lead-modal"
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       style="display:none; background:rgba(15,23,42,.65); backdrop-filter:blur(2px); padding: 5rem 2rem">
+    <div class="bg-white rounded-2xl shadow-2xl w-full overflow-hidden" style="max-width: 420px; max-height: calc(100vh - 10rem); overflow-y: auto">
+      <div id="lead-modal-content"></div>
+    </div>
+  </div>
+
+  <div id="leads-page-data" class="hidden" data-job-id="{{ job_id | default('') }}"></div>
+  <script type="application/json" id="initial-leads-json">{{ leads | tojson }}</script>
+  <script type="application/json" id="jobs-json">{{ jobs | tojson }}</script>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PAGE_SIZE = 25;
+let currentJobId = (document.getElementById('leads-page-data')?.dataset.jobId || '').trim();
+if (!currentJobId) currentJobId = null;
+const DB_INITIAL_VIEW = currentJobId ? 'scrapeos' : 'todos';
+let dbView = DB_INITIAL_VIEW;
+
+function setDbViewUi(view) {
+  const btnTodos = document.getElementById('btn-db-todos');
+  const btnScrapeos = document.getElementById('btn-db-scrapeos');
+  const jobsView = document.getElementById('db-scrapeos-jobs');
+  const placeholder = document.getElementById('db-scrapeos-placeholder');
+  const backBtn = document.getElementById('db-back-to-cards-btn');
+  const headerTodos = document.getElementById('db-header-todos');
+  const headerScrape = document.getElementById('db-header-scrape');
+  const leadsSection = document.getElementById('db-leads-section');
+
+  const hasJob = Boolean(currentJobId);
+  const activeTodos = view === 'todos';
+  const activeScrape = view === 'scrapeos';
+
+  if (btnTodos) {
+    btnTodos.className = `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
+      activeTodos ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+    }`;
+  }
+  if (btnScrapeos) {
+    btnScrapeos.className = `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
+      activeScrape ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+    }`;
+  }
+
+  if (activeTodos) {
+    if (placeholder) placeholder.classList.add('hidden');
+    if (jobsView) jobsView.classList.add('hidden');
+    if (headerTodos) headerTodos.classList.remove('hidden');
+    if (headerScrape) headerScrape.classList.add('hidden');
+    if (backBtn) backBtn.classList.add('hidden');
+    if (leadsSection) leadsSection.classList.remove('hidden');
+    highlightSelectedJobUi(null);
+    return;
+  }
+
+  if (!hasJob) {
+    if (placeholder) placeholder.classList.remove('hidden');
+    if (jobsView) jobsView.classList.remove('hidden');
+    if (headerTodos) headerTodos.classList.add('hidden');
+    if (headerScrape) headerScrape.classList.add('hidden');
+    if (backBtn) backBtn.classList.add('hidden');
+    if (leadsSection) leadsSection.classList.add('hidden');
+    highlightSelectedJobUi(null);
+    return;
+  }
+
+  if (placeholder) placeholder.classList.add('hidden');
+  if (jobsView) jobsView.classList.add('hidden');
+  if (headerTodos) headerTodos.classList.add('hidden');
+  if (headerScrape) headerScrape.classList.remove('hidden');
+  if (backBtn) backBtn.classList.remove('hidden');
+  if (leadsSection) leadsSection.classList.remove('hidden');
+  highlightSelectedJobUi(currentJobId);
+}
+
+async function reloadLeadsForMode(mode) {
+  if (mode === 'todos') {
+    try {
+      const res = await fetch('/api/leads?limit=500');
+      if (!res.ok) return;
+      allLeads = await res.json();
+      applyFilters();
+    } catch (_) {}
+    return;
+  }
+  if (!currentJobId) return;
+  try {
+    const selectedJob = findJobFromPayload(currentJobId);
+    const total = selectedJob?.total;
+    const limit = Number.isFinite(Number(total)) && Number(total) > 0 ? Math.min(Number(total), 1000) : 1000;
+    const res = await fetch(`/api/leads?job_id=${encodeURIComponent(currentJobId)}&limit=${encodeURIComponent(String(limit))}`);
+    if (!res.ok) return;
+    allLeads = await res.json();
+    applyFilters();
+  } catch (_) {}
+}
+
+function highlightSelectedJobUi(jobId) {
+  const cards = document.querySelectorAll('#db-scrapeos-jobs a[data-scrape-job-id]');
+  cards.forEach((card) => {
+    const cardId = (card.dataset.scrapeJobId || '').trim();
+    const isSelected = Boolean(jobId) && String(cardId) === String(jobId);
+    card.classList.toggle('border-blue-300', isSelected);
+    card.classList.toggle('ring-2', isSelected);
+    card.classList.toggle('ring-blue-100', isSelected);
+  });
+}
+
+function updateJobHeaderUi(job) {
+  const titleEl = document.getElementById('db-job-title');
+  const locationEl = document.getElementById('db-job-location');
+  const dateEl = document.getElementById('db-job-date');
+  const badgeEl = document.getElementById('db-job-status-badge');
+  const totalEl = document.getElementById('db-job-total');
+  const emailsEl = document.getElementById('db-job-emails');
+  if (!titleEl || !badgeEl || !totalEl || !emailsEl) return;
+  const safeJobId = job?.job_id ? `Job #${job.job_id}` : 'Job #—';
+  titleEl.textContent = job?.query ? String(job.query) : safeJobId;
+  if (locationEl) locationEl.textContent = job?.location ? String(job.location) : 'Sin ubicación';
+  const startedAt = job?.started_at || job?.created_at || null;
+  if (dateEl) {
+    if (startedAt) {
+      const d = new Date(startedAt);
+      dateEl.textContent = Number.isNaN(d.getTime()) ? String(startedAt) : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    } else { dateEl.textContent = '—'; }
+  }
+  const classes = { done: 'bg-green-100 text-green-700', failed: 'bg-red-100 text-red-700', running: 'bg-blue-100 text-blue-700' };
+  const labels = { done: 'Completado', failed: 'Error', running: 'En curso' };
+  const status = job?.status || 'done';
+  badgeEl.className = `text-xs px-1.5 py-0.5 rounded-full font-medium inline-block ${classes[status] || 'bg-slate-100 text-slate-600'}`;
+  badgeEl.textContent = labels[status] || String(status);
+  totalEl.textContent = Number(job?.total ?? 0);
+  emailsEl.textContent = Number(job?.emails_found ?? 0);
+}
+
+function setUrlJobId(jobId) {
+  try {
+    const url = new URL(window.location.href);
+    if (jobId) url.searchParams.set('job_id', String(jobId));
+    else url.searchParams.delete('job_id');
+    window.history.pushState({}, '', url.pathname + url.search);
+  } catch (_) {}
+}
+
+async function setDbView(view) {
+  if (!view) view = dbView;
+  if (view === dbView) {
+    setDbViewUi(view);
+    if (view === 'scrapeos') await reloadLeadsForMode('scrapeos');
+    return;
+  }
+  setDbViewUi(view);
+  dbView = view;
+  if (view === 'todos') await reloadLeadsForMode('todos');
+  if (view === 'scrapeos') await reloadLeadsForMode('scrapeos');
+}
+
+const SOCIAL_DOMAINS = ['instagram.com','tiktok.com','facebook.com','twitter.com','x.com','youtube.com','linkedin.com','pinterest.com','snapchat.com','threads.net'];
+let allLeads = [];
+try { const el = document.getElementById('initial-leads-json'); allLeads = el ? JSON.parse(el.textContent || '[]') : []; } catch (_) { allLeads = []; }
+let jobsPayload = [];
+try { const el = document.getElementById('jobs-json'); jobsPayload = el ? JSON.parse(el.textContent || '[]') : []; } catch (_) { jobsPayload = []; }
+let filteredLeads = [];
+let currentPage = 1;
+const _leadMap = {};
+
+function findJobFromPayload(jobId) {
+  if (!jobId) return null;
+  const target = String(jobId);
+  return Array.isArray(jobsPayload) ? jobsPayload.find(j => String(j?.job_id ?? j?.id ?? '') === target) || null : null;
+}
+
+const fstate = { email: '', phone: '', web: '' };
+function setFpill(btn) {
+  const group = btn.dataset.group;
+  fstate[group] = btn.dataset.val;
+  document.querySelectorAll(`.fpill[data-group="${group}"]`).forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  applyFilters();
+}
+
+function escHtml(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function safeText(value, fallback = '—') { if (value === null || value === undefined) return fallback; const text = String(value).trim(); return text ? text : fallback; }
+function toSafeHttpUrl(value) { if (!value) return null; try { const parsed = new URL(String(value), window.location.origin); if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null; return parsed.href; } catch (_) { return null; } }
+function emailStatusClass(status) { if (status === 'valid') return 'text-green-600 font-medium'; if (status === 'invalid') return 'text-red-500'; return 'text-slate-400'; }
+function isSocialUrl(url) { if (!url) return false; const lower = url.toLowerCase(); return SOCIAL_DOMAINS.some(d => lower.includes(d)); }
+
+function renderPage(page) {
+  const total = filteredLeads.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, page), totalPages);
+  const tbody = document.getElementById('leads-tbody');
+  const empty = document.getElementById('empty-state');
+  if (!total) { if (tbody) tbody.replaceChildren(); if (empty) empty.classList.remove('hidden'); updatePagination(0); return; }
+  if (empty) empty.classList.add('hidden');
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const slice = filteredLeads.slice(start, start + PAGE_SIZE);
+  tbody.replaceChildren();
+  for (const lead of slice) {
+    _leadMap[lead.id] = lead;
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-slate-100 last:border-0 hover:bg-slate-50 transition cursor-pointer';
+    tr.addEventListener('click', () => openLeadModal(lead.id));
+    const makeCell = (className, text, title = null) => { const td = document.createElement('td'); td.className = className; td.textContent = text; if (title) td.title = title; return td; };
+    const businessName = safeText(lead.business_name);
+    const address = safeText(lead.address);
+    const phone = safeText(lead.phone);
+    const email = safeText(lead.email);
+    const emailStatus = safeText(lead.email_status);
+    const category = safeText(lead.category);
+    const rating = safeText(lead.rating);
+    tr.appendChild(makeCell('px-4 py-3 font-medium text-slate-800 max-w-[160px] truncate', businessName, businessName));
+    tr.appendChild(makeCell('px-4 py-3 text-slate-500 max-w-[160px] truncate', address, address));
+    tr.appendChild(makeCell('px-4 py-3 text-slate-600', phone));
+    const websiteTd = document.createElement('td');
+    websiteTd.className = 'px-4 py-3 max-w-[140px] truncate';
+    const safeWebsite = toSafeHttpUrl(lead.website);
+    if (safeWebsite) { const a = document.createElement('a'); a.href = safeWebsite; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'text-blue-600 hover:underline text-xs'; a.textContent = safeText(lead.website); a.addEventListener('click', e => e.stopPropagation()); websiteTd.appendChild(a); } else { websiteTd.textContent = '—'; }
+    tr.appendChild(websiteTd);
+    tr.appendChild(makeCell(`px-4 py-3 ${emailStatusClass(lead.email_status)}`, email));
+    tr.appendChild(makeCell('px-4 py-3 text-slate-500 text-xs', emailStatus));
+    tr.appendChild(makeCell('px-4 py-3 text-slate-500 text-xs max-w-[120px] truncate', category, category));
+    tr.appendChild(makeCell('px-4 py-3 text-slate-600', rating));
+    const actionsTd = document.createElement('td'); actionsTd.className = 'px-4 py-3';
+    const deleteBtn = document.createElement('button'); deleteBtn.type = 'button'; deleteBtn.className = 'w-7 h-7 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition text-xs flex items-center justify-center'; deleteBtn.textContent = '✕';
+    deleteBtn.addEventListener('click', e => { e.stopPropagation(); deleteLead(lead.id); });
+    actionsTd.appendChild(deleteBtn); tr.appendChild(actionsTd);
+    tbody.appendChild(tr);
+  }
+  updatePagination(total);
+}
+
+function updatePagination(total) {
+  const pag = document.getElementById('pagination'); const info = document.getElementById('page-info');
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (!pag) return;
+  pag.style.display = total > PAGE_SIZE ? 'flex' : 'none';
+  if (info) { const s = (currentPage - 1) * PAGE_SIZE + 1; const e = Math.min(currentPage * PAGE_SIZE, total); info.textContent = `${s}–${e} de ${total}`; }
+  document.getElementById('page-first').disabled = currentPage <= 1;
+  document.getElementById('page-prev').disabled  = currentPage <= 1;
+  document.getElementById('page-next').disabled  = currentPage >= totalPages;
+  document.getElementById('page-last').disabled  = currentPage >= totalPages;
+}
+
+function applyFilters(keepPage = false) {
+  const nameFilter = (document.getElementById('filter-name').value || '').toLowerCase();
+  const locationFilter = (document.getElementById('filter-location').value || '').toLowerCase();
+  filteredLeads = allLeads;
+  if (nameFilter)     filteredLeads = filteredLeads.filter(l => (l.business_name || '').toLowerCase().includes(nameFilter));
+  if (locationFilter) filteredLeads = filteredLeads.filter(l => (l.address || '').toLowerCase().includes(locationFilter));
+  if (fstate.email === 'yes') filteredLeads = filteredLeads.filter(l => l.email_status === 'valid');
+  if (fstate.email === 'no')  filteredLeads = filteredLeads.filter(l => !l.email);
+  if (fstate.phone === 'yes') filteredLeads = filteredLeads.filter(l => l.phone);
+  if (fstate.phone === 'no')  filteredLeads = filteredLeads.filter(l => !l.phone);
+  if (fstate.web === 'yes')   filteredLeads = filteredLeads.filter(l => l.website && !isSocialUrl(l.website));
+  if (fstate.web === 'no')    filteredLeads = filteredLeads.filter(l => !l.website || isSocialUrl(l.website));
+  renderPage(keepPage ? currentPage : 1);
+  const count = document.getElementById('results-count');
+  if (count) count.textContent = filteredLeads.length ? `${filteredLeads.length} leads` : '';
+}
+
+async function reloadLeads() { await reloadLeadsForMode(dbView); }
+async function deleteLead(id) { const res = await fetch(`/api/leads/${id}`, { method: 'DELETE' }); if (res.ok) { allLeads = allLeads.filter(l => l.id !== id); delete _leadMap[id]; applyFilters(true); } }
+
+let _exportMode = 'all';
+function setExportTab(mode) { _exportMode = mode; document.getElementById('et-all').classList.toggle('on', mode === 'all'); document.getElementById('et-num').classList.toggle('on', mode === 'num'); document.getElementById('export-num-section').style.display = mode === 'num' ? 'block' : 'none'; if (mode === 'num') { const inp = document.getElementById('export-limit'); inp.max = filteredLeads.length; document.getElementById('export-limit-max').textContent = `máx ${filteredLeads.length}`; validateExportLimit(); } }
+function validateExportLimit() { const inp = document.getElementById('export-limit'); const err = document.getElementById('export-limit-error'); const btn = document.getElementById('export-confirm-btn'); const val = parseInt(inp.value); const max = filteredLeads.length; if (isNaN(val) || val <= 0) { err.textContent = 'Introduce un número mayor que 0.'; err.classList.remove('hidden'); btn.disabled = true; btn.classList.add('opacity-50','cursor-not-allowed'); return false; } if (val > max) { err.textContent = `Solo hay ${max} leads disponibles.`; err.classList.remove('hidden'); inp.value = max; btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); return false; } err.classList.add('hidden'); btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); return true; }
+function buildCsvBlob(leads) { const cols = ['Nombre','Dirección','Teléfono','Web','Email','Estado email','Categoría','Rating','URL Maps','Fecha']; const keys = ['business_name','address','phone','website','email','email_status','category','rating','maps_url','scraped_at']; const esc = v => `"${(v ?? '').toString().replace(/"/g,'""')}"`; const rows = leads.map(l => keys.map(k => esc(l[k])).join(',')); return new Blob(['\uFEFF' + [cols.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' }); }
+function doExport() { _exportMode = 'all'; document.getElementById('et-all').classList.add('on'); document.getElementById('et-num').classList.remove('on'); document.getElementById('export-num-section').style.display = 'none'; document.getElementById('export-limit').value = ''; document.getElementById('export-limit-error').classList.add('hidden'); const btn = document.getElementById('export-confirm-btn'); btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); const info = document.getElementById('export-modal-info'); if (info) info.textContent = `${filteredLeads.length} leads con los filtros actuales`; document.getElementById('export-modal').style.display = 'flex'; }
+function closeExportModal() { document.getElementById('export-modal').style.display = 'none'; }
+function confirmExport() { let leads; if (_exportMode === 'num') { if (!validateExportLimit()) return; const lim = parseInt(document.getElementById('export-limit').value); leads = filteredLeads.slice(0, lim); } else { leads = filteredLeads; } if (!leads.length) { closeExportModal(); return; } const blob = buildCsvBlob(leads); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; const exportKey = dbView === 'todos' ? 'todos' : (currentJobId || 'scrape'); a.download = `leads_${exportKey}_${Date.now()}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); closeExportModal(); }
+
+function openLeadModal(id) {
+  const lead = _leadMap[id]; if (!lead) return;
+  const content = document.getElementById('lead-modal-content'); if (!content) return;
+  content.replaceChildren();
+  const createLabel = text => { const span = document.createElement('span'); span.className = 'text-[10px] font-semibold text-slate-400 uppercase tracking-widest'; span.textContent = text; return span; };
+  const createField = (label, valueNode) => { const wrapper = document.createElement('div'); wrapper.className = 'flex flex-col gap-1.5'; wrapper.appendChild(createLabel(label)); const value = document.createElement('div'); value.className = 'text-sm text-slate-700 leading-relaxed'; value.appendChild(valueNode); wrapper.appendChild(value); return wrapper; };
+  const header = document.createElement('div'); header.className = 'px-6 pt-6 pb-5 border-b border-slate-100 flex items-start gap-3';
+  const headerInfo = document.createElement('div'); headerInfo.className = 'flex-1 min-w-0';
+  const title = document.createElement('h2'); title.className = 'text-lg font-bold text-slate-800 truncate'; title.textContent = safeText(lead.business_name); headerInfo.appendChild(title);
+  if (lead.category) { const cat = document.createElement('p'); cat.className = 'text-xs text-slate-500 mt-1 font-medium'; cat.textContent = safeText(lead.category); headerInfo.appendChild(cat); }
+  const headerActions = document.createElement('div'); headerActions.className = 'flex items-center gap-2 flex-shrink-0';
+  if (lead.rating !== null && lead.rating !== undefined && String(lead.rating).trim() !== '') { const ratingWrap = document.createElement('div'); ratingWrap.className = 'flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5'; const star = document.createElement('span'); star.className = 'text-amber-400 text-sm'; star.textContent = '★'; const rating = document.createElement('span'); rating.className = 'text-sm font-bold text-amber-700'; rating.textContent = safeText(lead.rating); ratingWrap.appendChild(star); ratingWrap.appendChild(rating); headerActions.appendChild(ratingWrap); }
+  const closeIconBtn = document.createElement('button'); closeIconBtn.type = 'button'; closeIconBtn.className = 'w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition text-sm'; closeIconBtn.textContent = '✕'; closeIconBtn.addEventListener('click', closeLeadModal); headerActions.appendChild(closeIconBtn);
+  header.appendChild(headerInfo); header.appendChild(headerActions); content.appendChild(header);
+  const body = document.createElement('div'); body.className = 'px-6 py-5 flex flex-col gap-5';
+  const row1 = document.createElement('div'); row1.className = 'grid grid-cols-2 gap-x-6 gap-y-5';
+  const addressNode = document.createElement('span'); addressNode.className = 'break-words'; addressNode.textContent = safeText(lead.address); row1.appendChild(createField('Dirección', addressNode));
+  const phoneNode = document.createElement('span'); phoneNode.textContent = safeText(lead.phone); row1.appendChild(createField('Teléfono', phoneNode)); body.appendChild(row1);
+  const websiteWrap = document.createElement('div'); websiteWrap.className = 'flex flex-col gap-1.5'; websiteWrap.appendChild(createLabel('Sitio web'));
+  const websiteValue = document.createElement('div');
+  const safeWebsite = toSafeHttpUrl(lead.website);
+  if (safeWebsite) { const a = document.createElement('a'); a.href = safeWebsite; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'text-blue-600 hover:underline text-sm break-all'; a.textContent = safeText(lead.website); websiteValue.appendChild(a); if (isSocialUrl(lead.website)) { const badge = document.createElement('span'); badge.className = 'ml-1.5 text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-medium'; badge.textContent = 'Red social'; websiteValue.appendChild(badge); } } else { const empty = document.createElement('span'); empty.className = 'text-slate-400 text-sm'; empty.textContent = '—'; websiteValue.appendChild(empty); }
+  websiteWrap.appendChild(websiteValue); body.appendChild(websiteWrap);
+  const row2 = document.createElement('div'); row2.className = 'grid grid-cols-2 gap-x-6 gap-y-5';
+  const emailWrap = document.createElement('div'); emailWrap.className = 'flex flex-col gap-1.5'; emailWrap.appendChild(createLabel('Email')); const emailValue = document.createElement('div'); emailValue.className = `text-sm ${emailStatusClass(lead.email_status)}`; emailValue.textContent = safeText(lead.email); emailWrap.appendChild(emailValue); row2.appendChild(emailWrap);
+  const statusWrap = document.createElement('div'); statusWrap.className = 'flex flex-col gap-1.5'; statusWrap.appendChild(createLabel('Estado'));
+  const badge = document.createElement('span'); const st = lead.email_status || 'pending'; const badgeMap = { valid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full', text: '✓ Verificado' }, invalid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full', text: '✕ Inválido' }, pending: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-full', text: '· Pendiente' } }; const badgeCfg = badgeMap[st] || badgeMap.pending; badge.className = badgeCfg.className; badge.textContent = badgeCfg.text; statusWrap.appendChild(badge); row2.appendChild(statusWrap); body.appendChild(row2);
+  const mapsWrap = document.createElement('div'); mapsWrap.className = 'flex flex-col gap-1.5'; mapsWrap.appendChild(createLabel('URL Google Maps'));
+  const mapsValue = document.createElement('div'); const safeMapsUrl = toSafeHttpUrl(lead.maps_url);
+  if (safeMapsUrl) { const a = document.createElement('a'); a.href = safeMapsUrl; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'text-blue-600 hover:underline text-xs break-all'; a.textContent = safeText(lead.maps_url); mapsValue.appendChild(a); } else { const empty = document.createElement('span'); empty.className = 'text-slate-400 text-sm'; empty.textContent = '—'; mapsValue.appendChild(empty); }
+  mapsWrap.appendChild(mapsValue); body.appendChild(mapsWrap);
+  const scrapedAtText = lead.scraped_at ? new Date(lead.scraped_at).toLocaleString('es-ES', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+  const scrapedNode = document.createElement('span'); scrapedNode.textContent = scrapedAtText; body.appendChild(createField('Extraído el', scrapedNode)); content.appendChild(body);
+  const footer = document.createElement('div'); footer.className = 'px-6 pb-6 flex gap-3 border-t border-slate-100 pt-5';
+  const deleteBtn = document.createElement('button'); deleteBtn.type = 'button'; deleteBtn.className = 'px-4 py-2.5 border border-red-200 text-red-500 text-sm rounded-xl hover:bg-red-50 transition font-medium'; deleteBtn.textContent = 'Eliminar'; deleteBtn.addEventListener('click', async () => { await deleteLead(lead.id); closeLeadModal(); });
+  const closeBtn = document.createElement('button'); closeBtn.type = 'button'; closeBtn.className = 'ml-auto px-6 py-2.5 bg-slate-800 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 transition'; closeBtn.textContent = 'Cerrar'; closeBtn.addEventListener('click', closeLeadModal);
+  footer.appendChild(deleteBtn); footer.appendChild(closeBtn); content.appendChild(footer);
+  document.getElementById('lead-modal').style.display = 'flex';
+}
+
+function closeLeadModal() { document.getElementById('lead-modal').style.display = 'none'; }
+
+document.getElementById('page-first')?.addEventListener('click', () => renderPage(1));
+document.getElementById('page-prev')?.addEventListener('click',  () => renderPage(currentPage - 1));
+document.getElementById('page-next')?.addEventListener('click',  () => renderPage(currentPage + 1));
+document.getElementById('page-last')?.addEventListener('click',  () => renderPage(Math.ceil(filteredLeads.length / PAGE_SIZE)));
+document.getElementById('filter-name')?.addEventListener('input', () => applyFilters());
+document.getElementById('filter-location')?.addEventListener('input', () => applyFilters());
+document.getElementById('reload-leads-btn')?.addEventListener('click', reloadLeads);
+document.getElementById('btn-db-todos')?.addEventListener('click', () => { currentJobId = null; setUrlJobId(null); setDbView('todos'); });
+document.getElementById('btn-db-scrapeos')?.addEventListener('click', () => setDbView('scrapeos'));
+document.getElementById('db-back-to-cards-btn')?.addEventListener('click', async () => { currentJobId = null; setUrlJobId(null); await setDbView('scrapeos'); document.getElementById('db-scrapeos-jobs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+document.getElementById('db-scrapeos-jobs')?.addEventListener('click', (e) => {
+  const link = e.target?.closest ? e.target.closest('a[data-scrape-job-id]') : null; if (!link) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  e.preventDefault();
+  const jobId = (link.dataset.scrapeJobId || '').trim(); if (!jobId) return;
+  currentJobId = jobId; setUrlJobId(jobId);
+  setDbView('scrapeos').then(async () => {
+    await reloadLeadsForMode('scrapeos');
+    const selectedJob = findJobFromPayload(jobId);
+    if (selectedJob) { updateJobHeaderUi(selectedJob); } else { try { const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`); if (res.ok) { const job = await res.json(); updateJobHeaderUi(job); } } catch (_) {} }
+    document.getElementById('db-leads-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+document.querySelectorAll('.fpill').forEach(btn => btn.addEventListener('click', () => setFpill(btn)));
+document.querySelectorAll('[data-action="open-export"]').forEach(btn => btn.addEventListener('click', doExport));
+document.getElementById('et-all')?.addEventListener('click', () => setExportTab('all'));
+document.getElementById('et-num')?.addEventListener('click', () => setExportTab('num'));
+document.getElementById('export-limit')?.addEventListener('input', validateExportLimit);
+document.getElementById('export-confirm-btn')?.addEventListener('click', confirmExport);
+document.getElementById('export-close-x-btn')?.addEventListener('click', closeExportModal);
+document.getElementById('export-cancel-btn')?.addEventListener('click', closeExportModal);
+document.getElementById('lead-modal')?.addEventListener('click', e => { if (e.target?.id === 'lead-modal') closeLeadModal(); });
+
+setDbViewUi(DB_INITIAL_VIEW);
+applyFilters();
+</script>
+{% endblock %}

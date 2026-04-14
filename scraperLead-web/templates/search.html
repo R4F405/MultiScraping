@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Google Maps — Scraper Lead{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    #map { height: 340px; width: 100%; border-radius: 12px; z-index: 0; }
+    .leaflet-container { font-family: Inter, system-ui, sans-serif; }
+    .map-pin-icon { background: none; border: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { width: 22px; height: 22px; border: 3px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+    .spinner.paused { animation-play-state: paused; }
+  </style>
+{% endblock %}
+
+{% block content %}
+
+  {% if proxy_state in ('upstream_error', 'timeout', 'unavailable') %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 mb-4 text-sm" role="status" aria-live="polite">
+      <p class="font-medium">{{ proxy_message | default('No se pudo consultar el estado del backend en este momento.') }}</p>
+      <p class="mt-1 text-amber-700">Puedes continuar, pero algunas acciones pueden fallar temporalmente.</p>
+      <a href="/search" class="inline-block mt-2 underline font-medium text-amber-900">Reintentar estado</a>
+    </div>
+  {% endif %}
+
+  <!-- Header -->
+  <div class="flex items-center gap-3 mb-4">
+    <div class="w-9 h-9 bg-[#e8f0fe] rounded-xl flex items-center justify-center flex-shrink-0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <defs>
+          <linearGradient id="gm_hdr" x1="12" y1="2" x2="12" y2="22" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#EA4335"/>
+            <stop offset="100%" stop-color="#B31412"/>
+          </linearGradient>
+        </defs>
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="url(#gm_hdr)"/>
+        <circle cx="12" cy="9" r="3" fill="white"/>
+        <circle cx="12" cy="9" r="1.3" fill="#EA4335"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="text-xl font-bold text-slate-800">Google Maps Extraction</h1>
+      <p class="text-slate-500 text-sm">Extrae emails de negocios locales desde Google Maps</p>
+    </div>
+  </div>
+
+  <!-- Proxy widget -->
+  <div id="proxy-widget" class="bg-white border border-slate-200 rounded-xl px-5 py-2.5 flex items-center gap-4 mb-4 hidden">
+    <div class="flex items-center gap-2">
+      <span id="proxy-dot" class="w-2.5 h-2.5 rounded-full bg-green-400 flex-shrink-0"></span>
+      <span id="proxy-label" class="text-sm text-slate-600 font-medium">Proxies: —</span>
+    </div>
+    <div class="flex items-center gap-3 flex-1">
+      <span class="text-xs text-slate-400" id="proxy-requests-label">Requests hoy: —</span>
+      <div class="flex-1 bg-slate-100 rounded-full h-1.5 max-w-[120px]">
+        <div id="proxy-bar-fill" class="h-1.5 rounded-full bg-green-400 transition-all" style="width:0%"></div>
+      </div>
+      <span class="text-xs text-slate-400" id="proxy-pct-label">0%</span>
+    </div>
+  </div>
+
+  <div id="alert" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm"></div>
+
+  <!-- Search card -->
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-4">
+
+    <!-- Query input -->
+    <div class="relative mb-6">
+      <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="query" type="text" placeholder="restaurants, dentistas, fontaneros..."
+             class="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
+    </div>
+
+    <!-- Two column -->
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 items-stretch">
+
+      <!-- Map section -->
+      <div class="flex flex-col">
+        <h3 class="text-[10px] font-semibold tracking-widest text-slate-400 uppercase mb-3">Seleccionar ubicación en el mapa</h3>
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-sm text-slate-500">Radio:</span>
+          <input type="range" id="radius-slider" min="1" max="50" value="10"
+                 class="flex-1 accent-blue-600" />
+          <span id="radius-label" class="text-sm font-medium text-slate-700 w-14 text-right">10 km</span>
+        </div>
+        <div id="map" class="flex-1" style="min-height:300px"></div>
+        <div class="flex gap-2 mt-3">
+          <div class="relative flex-1">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="location" type="text" placeholder="Ciudad, zona..."
+                   class="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+          </div>
+          <button id="go-btn" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition">Ir</button>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">Haz clic en el mapa para seleccionar zona · Arrastra el marcador para moverla · Radio permitido: 1-50 km</p>
+      </div>
+
+      <!-- Counter section -->
+      <div class="bg-slate-50 rounded-xl p-5 border border-slate-100 flex flex-col gap-3">
+        <h3 class="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">Emails objetivo</h3>
+
+        <!-- Counter input -->
+        <div class="flex items-center gap-2">
+          <button id="counter-minus" class="w-9 h-9 flex-shrink-0 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 text-lg font-light transition">−</button>
+          <input id="counter-display" type="text" value="10" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+                 class="min-w-0 flex-1 text-center text-2xl font-bold text-blue-600 border border-slate-200 bg-white rounded-lg py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+          <button id="counter-plus" class="w-9 h-9 flex-shrink-0 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:bg-slate-100 text-lg font-light transition">+</button>
+        </div>
+
+        <!-- Presets -->
+        <div class="flex gap-2">
+          <button class="preset-btn flex-1 min-w-0 py-1.5 text-sm border border-slate-200 bg-white rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition font-medium" data-value="25">25</button>
+          <button class="preset-btn flex-1 min-w-0 py-1.5 text-sm border border-slate-200 bg-white rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition font-medium" data-value="50">50</button>
+          <button class="preset-btn flex-1 min-w-0 py-1.5 text-sm border border-slate-200 bg-white rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition font-medium" data-value="75">75</button>
+        </div>
+
+        <p class="text-xs text-slate-400">Puedes escribir cualquier número</p>
+        <div id="capacity-notice" class="hidden text-xs rounded-lg px-3 py-2"></div>
+
+        <!-- Spacer -->
+        <div class="flex-1"></div>
+
+        <!-- Loader inside panel -->
+        <div id="loader-section" class="hidden flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-slate-200">
+          <div id="loader-spinner" class="spinner"></div>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <span id="loader-text" class="text-xs font-medium text-slate-700 truncate">Cargando emails...</span>
+            <span id="loader-count" class="text-[11px] text-slate-500 truncate">Conectando con Google Maps...</span>
+            <span id="loader-proxy-wait" class="hidden text-[11px] text-amber-600 font-medium"></span>
+          </div>
+        </div>
+
+        <!-- Start button inside panel -->
+        <button id="start-btn" type="button"
+                class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2 transition">
+          Iniciar extracción
+          <span class="btn-arrow">→</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results card -->
+  <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden" id="results-card">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <span id="results-count" class="text-sm font-medium text-slate-600"></span>
+      <button id="export-btn" class="px-4 py-2 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
+        Exportar CSV
+      </button>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 border-b border-slate-100">
+          <tr>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Nombre</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Dirección</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Teléfono</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Web</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Email</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Estado</th>
+            <th class="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Rating</th>
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="pagination" class="hidden flex items-center justify-center gap-2 px-5 py-4 border-t border-slate-100">
+      <button id="page-first" class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">«</button>
+      <button id="page-prev"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">‹</button>
+      <span id="page-info" class="text-xs text-slate-500 mx-2"></span>
+      <button id="page-next"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">›</button>
+      <button id="page-last"  class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition">»</button>
+    </div>
+
+    <div id="empty-state" class="py-16 text-center text-slate-400">
+      <svg class="mx-auto mb-3 opacity-30" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <p class="text-sm">Lanza una búsqueda para ver los resultados aquí.</p>
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endblock %}

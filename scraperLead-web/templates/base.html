@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Scraper Lead{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full bg-slate-50 font-[Inter,system-ui,sans-serif]">
+
+<div class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-56 flex-shrink-0 bg-slate-900 flex flex-col overflow-y-auto overflow-x-hidden">
+
+    <!-- Logo -->
+    <div class="px-4 pt-5 pb-4">
+      <a href="/" class="flex items-center gap-2.5 no-underline">
+        <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5"/>
+          </svg>
+        </div>
+        <span class="text-white font-semibold text-[15px] tracking-tight">Scraper Lead</span>
+      </a>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-2 pb-4 space-y-0.5">
+
+      <p class="text-[10px] font-semibold tracking-[0.08em] text-white/30 uppercase px-2 pt-3 pb-1 select-none">Buscar</p>
+
+      {% set is_home = request.url.path == "/" %}
+      <a href="/"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_home %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Obtener Leads
+      </a>
+
+      {% set is_gmaps = request.url.path.startswith("/search") or request.url.path.startswith("/leads") %}
+      <a href="/search"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_gmaps %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"/><circle cx="12" cy="9" r="2.5"/>
+        </svg>
+        Google Maps
+      </a>
+
+      {% set is_instagram = request.url.path.startswith("/instagram") %}
+      <a href="/instagram"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_instagram %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+        </svg>
+        Instagram
+      </a>
+
+      {% set is_linkedin = request.url.path.startswith("/linkedin") %}
+      <a href="/linkedin"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_linkedin %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>
+        </svg>
+        LinkedIn
+      </a>
+
+      <p class="text-[10px] font-semibold tracking-[0.08em] text-white/30 uppercase px-2 pt-4 pb-1 select-none">Datos</p>
+
+      {% set is_databases = request.url.path == "/databases" %}
+      <a href="/databases"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_databases %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+        Bases de datos
+      </a>
+
+      {% set is_history = request.url.path == "/history" %}
+      <a href="/history"
+         class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
+                {% if is_history %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        Historial
+      </a>
+    </nav>
+
+    <!-- Proxy widget -->
+    {% set proxy = proxy_status | default({}) %}
+    {% set ps_available = proxy.get('available_now', 0) if proxy else 0 %}
+    {% set ps_total = proxy.get('total_proxies', 0) if proxy else 0 %}
+    {% set ps_used = proxy.get('daily_requests_used', 0) if proxy else 0 %}
+    {% set ps_limit = proxy.get('daily_requests_limit', 1) if proxy else 1 %}
+    {% set ps_daily_pct = ((ps_used / ps_limit) * 100) | round | int if ps_limit > 0 else 0 %}
+    {% set ps_is_warning = ps_available <= 5 or ps_daily_pct >= 50 %}
+    {% set ps_is_critical = ps_available <= 2 or ps_daily_pct >= 80 %}
+    {% if ps_is_critical %}{% set ps_color = 'bg-red-500' %}
+    {% elif ps_is_warning %}{% set ps_color = 'bg-yellow-400' %}
+    {% else %}{% set ps_color = 'bg-green-400' %}{% endif %}
+    {% set ps_empty = ps_total <= 0 %}
+
+    <div id="sidebar-proxy" class="mx-3 mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="w-2 h-2 rounded-full {% if ps_empty %}bg-green-400{% else %}{{ ps_color }}{% endif %} shrink-0" id="sp-dot"></span>
+        <span class="text-[11px] font-medium text-slate-300" id="sp-label">
+          {% if ps_empty %}— disponibles{% else %}{{ ps_available }}/{{ ps_total }} disponibles{% endif %}
+        </span>
+      </div>
+      <div class="w-full bg-white/10 rounded-full h-1.5">
+        <div id="sp-bar"
+             class="h-1.5 rounded-full {% if ps_empty %}bg-green-400{% else %}{{ ps_color }}{% endif %} transition-all"
+             style="width: 0%"></div>
+      </div>
+      {% if not ps_empty %}
+        <p class="text-[10px] text-slate-500 mt-1.5">{{ ps_used | format_number }} / {{ ps_limit | format_number }} req. hoy</p>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 overflow-y-auto">
+    <div class="max-w-5xl mx-auto px-6 py-8">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+</div>
+
+{% block scripts %}{% endblock %}
+<script src="{{ url_for('static', path='js/app.js') }}" type="module"></script>
+</body>
+</html>
