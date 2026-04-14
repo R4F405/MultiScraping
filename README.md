@@ -1,10 +1,8 @@
-# Leads Suite
+# Multi Scraper
 
 Suite para captar leads desde Google Maps, Instagram y LinkedIn, con panel web unificado.
 
 ## Instalacion rapida
-
-### Quickstart (60 segundos)
 
 #### macOS / Linux
 
