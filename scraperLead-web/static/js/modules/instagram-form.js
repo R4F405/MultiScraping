@@ -421,6 +421,18 @@ export function initInstagramForm() {
           }
           showAlert('Extracción completada.', 'ok');
           await loadUsage();
+        } else if (job.status === 'completed_partial') {
+          if (modeLabel === 'dorking') { stopPoll(dorkingPollInterval); dorkingPollInterval = null; }
+          else { stopPoll(followersPollInterval); followersPollInterval = null; }
+          if (exportBtnEl) exportBtnEl.disabled = false;
+          await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
+          if (igView === 'scrapeos') {
+            await renderJobsList();
+          }
+          const emails = Math.max(0, Number(job?.emails_found ?? 0));
+          const total = Math.max(0, Number(job?.total ?? 0));
+          showAlert(`Objetivo no alcanzado: ${emails}/${total || '?'} emails. Se guardaron los resultados parciales.`, 'warn');
+          await loadUsage();
         } else if (job.status === 'waiting_rate_window') {
           const nextRetryRaw = String(job?.next_retry_at || '').trim();
           let retryLabel = 'en unos minutos';
@@ -748,6 +760,7 @@ export function initInstagramForm() {
         if (s === 'running') return 'bg-blue-100 text-blue-700';
         if (s === 'waiting_rate_window') return 'bg-amber-100 text-amber-800';
         if (s === 'rate_limited') return 'bg-amber-100 text-amber-800';
+        if (s === 'completed_partial') return 'bg-amber-100 text-amber-800';
         return 'bg-green-100 text-green-700';
       };
       const statusLabel = (s) => {
@@ -755,6 +768,7 @@ export function initInstagramForm() {
         if (s === 'running') return 'En curso';
         if (s === 'waiting_rate_window') return 'Pausado';
         if (s === 'rate_limited') return 'Límite';
+        if (s === 'completed_partial') return 'Parcial';
         return 'Completado';
       };
       const modeColor = (m) => m === 'dorking' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600';

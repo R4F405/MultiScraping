@@ -7,3 +7,7 @@ python-dotenv
 pytest
 pytest-asyncio
 httpx
+beautifulsoup4
+lxml
+# Opcional (EMAIL_SCRAPER_USE_PLAYWRIGHT=1): pip install playwright && playwright install chromium
+# playwright

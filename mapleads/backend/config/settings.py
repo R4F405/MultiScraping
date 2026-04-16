@@ -45,6 +45,15 @@ class Settings:
     # Daily hard cap
     max_requests_per_day: int
 
+    # Dedupe window (days): skip businesses seen recently
+    dedupe_days: int
+
+    # Email DNS: if MX missing, still treat as deliverable-capable when A exists (some hosts).
+    email_dns_accept_a: bool
+
+    # Optional: render homepage with Playwright when curl finds no emails (SPAs; requires `pip install playwright`).
+    email_scraper_use_playwright: bool
+
     # API authentication (optional — leave empty to disable, useful for local dev)
     # Set API_KEY in .env to require X-API-Key header on all API requests
     api_key: str
@@ -76,6 +85,11 @@ def _load_settings() -> Settings:
         error_rate_threshold=float(os.getenv("ERROR_RATE_THRESHOLD", "0.30")),
         high_error_cooldown_seconds=int(os.getenv("HIGH_ERROR_COOLDOWN_SECONDS", "600")),
         max_requests_per_day=int(os.getenv("MAX_REQUESTS_PER_DAY", "10000")),
+        dedupe_days=int(os.getenv("DEDUPE_DAYS", "30")),
+        email_dns_accept_a=os.getenv("EMAIL_DNS_ACCEPT_A", "0").strip().lower() in ("1", "true", "yes"),
+        email_scraper_use_playwright=(
+            os.getenv("EMAIL_SCRAPER_USE_PLAYWRIGHT", "0").strip().lower() in ("1", "true", "yes")
+        ),
         api_key=os.getenv("API_KEY", ""),
     )
 

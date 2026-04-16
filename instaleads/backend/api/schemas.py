@@ -33,6 +33,13 @@ class JobResponse(BaseModel):
     emails_from_ig: int | None = 0
     emails_from_web: int | None = 0
     skipped_private: int | None = 0
+    discovery_google: int | None = 0
+    discovery_duckduckgo: int | None = 0
+    discovery_hashtag_api: int | None = 0
+    discovery_location_api: int | None = 0
+    discovery_fallback: int | None = 0
+    profile_fetch_failures: int | None = 0
+    enrichment_failures: int | None = 0
     failure_reason: str | None = None
     last_error: str | None = None
     started_at: str

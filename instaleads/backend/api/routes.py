@@ -66,11 +66,11 @@ async def login(body: SessionLoginRequest) -> Any:
 
 @router.get("/session")
 async def get_session() -> Any:
-    """Return session status based on pool primary account."""
+    """Return session status based on pool primary account or single session."""
     info = account_pool.get_primary_info()
-    if info is None:
-        return {"logged_in": False, "username": None, "session_age_hours": None}
-    return info
+    if info is not None:
+        return info
+    return ig_session.get_session_info()
 
 
 @router.delete("/session")
@@ -198,7 +198,8 @@ async def get_profile(username: str) -> Any:
 @router.post("/search")
 async def start_search(body: SearchRequest, background_tasks: BackgroundTasks) -> Any:
     limits = await get_limits()
-    if body.mode == "followers" and account_pool.is_empty():
+    # Followers mode can run with either an account pool or a single active session.
+    if body.mode == "followers" and account_pool.is_empty() and not ig_session.is_logged_in():
         raise HTTPException(status_code=400, detail="Necesitas sesión activa para Modo B.")
     if body.mode == "dorking" and not limits["can_start_dorking"]:
         raise HTTPException(
@@ -279,7 +280,13 @@ async def _run_job(job_id: str, request: SearchRequest) -> None:
     try:
         if request.mode == "dorking":
             await _run_dorking_job(job_id, request)
-            await database.finish_job(job_id, status="completed")
+            job = await database.get_job(job_id)
+            emails_found = int((job or {}).get("emails_found") or 0)
+            target = int((job or {}).get("total") or request.email_goal)
+            if emails_found >= max(1, target):
+                await database.finish_job(job_id, status="completed")
+            else:
+                await database.finish_job(job_id, status="completed_partial")
         elif request.mode == "followers":
             await _run_followers_job(job_id, request)
     except RateLimitExceeded as exc:
@@ -294,12 +301,84 @@ async def _run_job(job_id: str, request: SearchRequest) -> None:
 
 
 async def _run_dorking_job(job_id: str, request: SearchRequest) -> None:
-    from backend.instagram.ig_dorking import find_usernames
+    from backend.instagram.ig_dorking import find_usernames, get_last_discovery_report
     from backend.instagram.ig_profile import extract_and_save
 
-    discovery_quota = max(request.email_goal, min(500, request.email_goal * 6))
-    usernames = await find_usernames(request.target, max_results=discovery_quota)
+    # For dorking progress we track "emails found / email goal" in the UI.
+    await database.update_job_fields(job_id, total=request.email_goal)
     await database.update_job_progress(job_id, progress=0, emails_found=0)
+
+    base_discovery_quota = max(request.email_goal, min(500, request.email_goal * 6))
+
+    targets = [request.target.strip()]
+    if "|" in request.target:
+        niche = request.target.split("|", 1)[0].strip()
+        if niche and niche not in targets:
+            targets.append(niche)
+
+    usernames: list[str] = []
+    seen_usernames: set[str] = set()
+    discovery_counters = {
+        "google": 0,
+        "duckduckgo": 0,
+        "hashtag_api": 0,
+        "location_api": 0,
+        "fallback": 0,
+    }
+    discovery_errors: list[str] = []
+    max_discovery_rounds = 4
+
+    for round_idx in range(max_discovery_rounds):
+        if len(usernames) >= request.email_goal * 20:
+            # Safety ceiling to avoid very long-running jobs with poor targets.
+            break
+        for target in targets:
+            if len(usernames) >= request.email_goal * 20:
+                break
+
+            round_quota = min(500, base_discovery_quota * (round_idx + 1))
+            await database.update_job_fields(
+                job_id,
+                status_detail=f"Descubriendo perfiles (ronda {round_idx + 1}/{max_discovery_rounds})...",
+            )
+            discovered = await find_usernames(target, max_results=round_quota)
+            report = get_last_discovery_report()
+            discovery_counters["google"] += int(report.get("google_count", 0) or 0)
+            discovery_counters["duckduckgo"] += int(report.get("duckduckgo_count", 0) or 0)
+            discovery_counters["hashtag_api"] += int(report.get("hashtag_api_count", 0) or 0)
+            discovery_counters["location_api"] += int(report.get("location_api_count", 0) or 0)
+            discovery_counters["fallback"] += int(report.get("hashtag_fallback_count", 0) or 0)
+            if report.get("last_error"):
+                discovery_errors.append(str(report.get("last_error")))
+
+            new_in_round = 0
+            for username in discovered:
+                if username in seen_usernames:
+                    continue
+                seen_usernames.add(username)
+                usernames.append(username)
+                new_in_round += 1
+
+            # If one full round over all targets returns nothing new, stop discovery.
+            if round_idx > 0 and new_in_round == 0:
+                break
+
+    await database.update_job_fields(
+        job_id,
+        discovery_google=discovery_counters["google"],
+        discovery_duckduckgo=discovery_counters["duckduckgo"],
+        discovery_hashtag_api=discovery_counters["hashtag_api"],
+        discovery_location_api=discovery_counters["location_api"],
+        discovery_fallback=discovery_counters["fallback"],
+    )
+    if not usernames:
+        await database.update_job_fields(
+            job_id,
+            status_detail="discovery_degraded: sin resultados de discovery para el target solicitado",
+            failure_reason="discovery_degraded",
+            last_error=discovery_errors[-1] if discovery_errors else "No se encontraron usernames con las estrategias de discovery",
+        )
+        return
 
     emails_found = 0
     processed = 0
@@ -325,11 +404,21 @@ async def _run_dorking_job(job_id: str, request: SearchRequest) -> None:
                     async with counter_lock:
                         processed += 1
                         await database.update_job_progress(
-                            job_id, progress=processed, emails_found=emails_found
+                            job_id,
+                            progress=min(emails_found, request.email_goal),
+                            emails_found=emails_found,
                         )
                     continue
 
-                lead = await extract_and_save(username, job_id=job_id, source_type="dorking")
+                await database.update_job_fields(
+                    job_id,
+                    status_detail=f"Analizando @{username} ({emails_found}/{request.email_goal})",
+                )
+                try:
+                    lead = await extract_and_save(username, job_id=job_id, source_type="dorking")
+                except Exception as exc:
+                    logger.error("Unexpected error processing @%s: %s", username, exc)
+                    lead = None
 
                 async with counter_lock:
                     processed += 1
@@ -338,7 +427,9 @@ async def _run_dorking_job(job_id: str, request: SearchRequest) -> None:
                         if request.email_goal and emails_found >= request.email_goal:
                             stop_event.set()
                     await database.update_job_progress(
-                        job_id, progress=processed, emails_found=emails_found
+                        job_id,
+                        progress=min(emails_found, request.email_goal),
+                        emails_found=emails_found,
                     )
             finally:
                 queue.task_done()
@@ -346,6 +437,13 @@ async def _run_dorking_job(job_id: str, request: SearchRequest) -> None:
     worker_count = min(3, len(usernames)) if usernames else 0
     if worker_count > 0:
         await asyncio.gather(*(worker() for _ in range(worker_count)), return_exceptions=True)
+    if emails_found < request.email_goal:
+        await database.update_job_fields(
+            job_id,
+            status_detail=f"Objetivo no alcanzado: {emails_found}/{request.email_goal} emails encontrados.",
+            failure_reason="goal_not_reached",
+            last_error="No se encontraron suficientes perfiles con email para cumplir el objetivo.",
+        )
 
 
 async def _run_followers_job(job_id: str, request: SearchRequest) -> None:
@@ -369,6 +467,8 @@ async def _run_followers_job(job_id: str, request: SearchRequest) -> None:
         enrichment_attempts = int(job.get("enrichment_attempts") or 0)
         enrichment_successes = int(job.get("enrichment_successes") or 0)
         skipped_private = int(job.get("skipped_private") or 0)
+        profile_fetch_failures = int(job.get("profile_fetch_failures") or 0)
+        enrichment_failures = int(job.get("enrichment_failures") or 0)
 
         await database.update_job_fields(
             job_id,
@@ -391,6 +491,18 @@ async def _run_followers_job(job_id: str, request: SearchRequest) -> None:
                 initial_enrichment_successes=enrichment_successes,
                 initial_skipped_private=skipped_private,
                 account_pool=pool,
+            )
+            await database.update_job_fields(
+                job_id,
+                profiles_scanned=int(outcome.get("processed") or progress),
+                emails_found=int(outcome.get("emails_found") or emails_found),
+                emails_from_ig=int(outcome.get("from_ig") or from_ig),
+                emails_from_web=int(outcome.get("from_web") or from_web),
+                enrichment_attempts=int(outcome.get("enrichment_attempts") or enrichment_attempts),
+                enrichment_successes=int(outcome.get("enrichment_successes") or enrichment_successes),
+                skipped_private=int(outcome.get("skipped_private") or skipped_private),
+                profile_fetch_failures=int(outcome.get("profile_fetch_failures") or profile_fetch_failures),
+                enrichment_failures=int(outcome.get("enrichment_failures") or enrichment_failures),
             )
             if outcome.get("stopped_reason") == "failed":
                 await database.update_job_fields(job_id, status="failed")

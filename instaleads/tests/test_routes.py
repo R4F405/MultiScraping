@@ -125,6 +125,34 @@ async def test_search_creates_job(client):
 
 
 @pytest.mark.anyio
+async def test_run_job_dorking_finishes_completed_partial_when_goal_not_reached():
+    request = SearchRequest(mode="dorking", target="fotografo|vigo", email_goal=5)
+    with patch("backend.api.routes._run_dorking_job", new_callable=AsyncMock), \
+         patch(
+             "backend.api.routes.database.get_job",
+             new_callable=AsyncMock,
+             return_value={"emails_found": 2, "total": 5},
+         ), \
+         patch("backend.api.routes.database.finish_job", new_callable=AsyncMock) as mock_finish:
+        await routes._run_job("job-partial", request)
+    mock_finish.assert_awaited_with("job-partial", status="completed_partial")
+
+
+@pytest.mark.anyio
+async def test_run_job_dorking_finishes_completed_when_goal_reached():
+    request = SearchRequest(mode="dorking", target="fotografo|vigo", email_goal=5)
+    with patch("backend.api.routes._run_dorking_job", new_callable=AsyncMock), \
+         patch(
+             "backend.api.routes.database.get_job",
+             new_callable=AsyncMock,
+             return_value={"emails_found": 5, "total": 5},
+         ), \
+         patch("backend.api.routes.database.finish_job", new_callable=AsyncMock) as mock_finish:
+        await routes._run_job("job-complete", request)
+    mock_finish.assert_awaited_with("job-complete", status="completed")
+
+
+@pytest.mark.anyio
 async def test_search_rejected_when_hourly_limit_reached(client):
     with patch("backend.storage.database.get_today_stats", new_callable=AsyncMock, return_value={"auth_requests": 1, "unauth_requests": 1}), \
          patch("backend.instagram.ig_rate_limiter.auth_limiter.count_this_hour", return_value=settings.max_auth_hourly), \
@@ -134,6 +162,31 @@ async def test_search_rejected_when_hourly_limit_reached(client):
             json={"mode": "followers", "target": "nike", "email_goal": 10},
         )
     assert resp.status_code == 429
+
+
+@pytest.mark.anyio
+async def test_search_followers_requires_session_when_pool_empty(client):
+    with patch("backend.api.routes.account_pool.is_empty", return_value=True), \
+         patch("backend.instagram.ig_session.is_logged_in", return_value=False):
+        resp = await client.post(
+            "/api/instagram/search",
+            json={"mode": "followers", "target": "nike", "email_goal": 10},
+        )
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_session_endpoint_falls_back_to_single_session(client):
+    with patch("backend.api.routes.account_pool.get_primary_info", return_value=None), \
+         patch(
+             "backend.api.routes.ig_session.get_session_info",
+             return_value={"logged_in": True, "username": "solo_account", "session_age_hours": 1.2},
+         ):
+        resp = await client.get("/api/instagram/session")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["logged_in"] is True
+    assert data["username"] == "solo_account"
 
 
 @pytest.mark.anyio
@@ -206,6 +259,24 @@ async def test_dorking_job_stops_early_with_email_goal():
 
     assert 1 <= len(processed) <= 3
     assert len(processed) < len(usernames)
+
+
+@pytest.mark.anyio
+async def test_dorking_job_marks_discovery_degraded_when_no_results():
+    request = SearchRequest(mode="dorking", target="fotografo|valencia", email_goal=3)
+
+    with patch("backend.instagram.ig_dorking.find_usernames", new_callable=AsyncMock, return_value=[]), \
+         patch(
+             "backend.instagram.ig_dorking.get_last_discovery_report",
+             return_value={"google_count": 0, "duckduckgo_count": 0, "hashtag_api_count": 0, "location_api_count": 0, "hashtag_fallback_count": 0, "last_error": "no_results"},
+         ), \
+         patch("backend.api.routes.database.update_job_progress", new_callable=AsyncMock), \
+         patch("backend.api.routes.database.update_job_fields", new_callable=AsyncMock) as mock_update:
+        await routes._run_dorking_job("job-test", request)
+
+    captured = [kwargs for _, kwargs in mock_update.call_args_list]
+    assert any(item.get("discovery_google") == 0 for item in captured)
+    assert any(item.get("failure_reason") == "discovery_degraded" for item in captured)
 
 
 @pytest.mark.anyio

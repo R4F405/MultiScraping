@@ -113,6 +113,7 @@ async def extract_followers_leads(
     enrichment_attempts = initial_enrichment_attempts
     enrichment_successes = initial_enrichment_successes
     skipped_private = initial_skipped_private
+    profile_fetch_failures = 0
 
     try:
         followers = cl.user_followers(user_id, amount=max_results)
@@ -180,7 +181,10 @@ async def extract_followers_leads(
             if data:
                 if not data.get("email"):
                     enrichment_attempts += 1
+                    enrichment_source = None
                     enriched = await enrich_email_from_bio_url(data.get("bio_url"))
+                    if enriched:
+                        enrichment_source = "website"
                     if not enriched:
                         # Cross-platform fallback (only if enabled via env)
                         from backend.instagram.ig_cross_platform import search_cross_platform
@@ -188,9 +192,11 @@ async def extract_followers_leads(
                             data.get("username", ""),
                             bio_url=data.get("bio_url"),
                         )
+                        if enriched:
+                            enrichment_source = "cross_platform"
                     if enriched:
                         data["email"] = enriched
-                        data["email_source"] = "website"
+                        data["email_source"] = enrichment_source or "website"
                         enrichment_successes += 1
                 lead = await save_profile_data(data, job_id=job_id, source_type="followers")
                 if lead:
@@ -208,6 +214,7 @@ async def extract_followers_leads(
             await database.save_skipped(username, reason="fetch_error")
             await deduplicator.mark_seen(username)
             ig_health.record_error(f"Follower error: {username} — {exc}")
+            profile_fetch_failures += 1
 
         processed += 1
 
@@ -223,6 +230,8 @@ async def extract_followers_leads(
                 emails_from_ig=from_ig,
                 emails_from_web=from_web,
                 skipped_private=skipped_private,
+                profile_fetch_failures=profile_fetch_failures,
+                enrichment_failures=max(0, enrichment_attempts - enrichment_successes),
             )
 
         if email_goal and emails_found >= email_goal:
@@ -236,6 +245,8 @@ async def extract_followers_leads(
                 "enrichment_attempts": enrichment_attempts,
                 "enrichment_successes": enrichment_successes,
                 "skipped_private": skipped_private,
+                "profile_fetch_failures": profile_fetch_failures,
+                "enrichment_failures": max(0, enrichment_attempts - enrichment_successes),
             }
 
     await database.update_job_fields(
@@ -248,6 +259,8 @@ async def extract_followers_leads(
         emails_from_ig=from_ig,
         emails_from_web=from_web,
         skipped_private=skipped_private,
+        profile_fetch_failures=profile_fetch_failures,
+        enrichment_failures=max(0, enrichment_attempts - enrichment_successes),
     )
     logger.info(
         "Follower extraction complete: %d processed, %d emails found, %d private skipped",
@@ -262,4 +275,6 @@ async def extract_followers_leads(
         "enrichment_attempts": enrichment_attempts,
         "enrichment_successes": enrichment_successes,
         "skipped_private": skipped_private,
+        "profile_fetch_failures": profile_fetch_failures,
+        "enrichment_failures": max(0, enrichment_attempts - enrichment_successes),
     }

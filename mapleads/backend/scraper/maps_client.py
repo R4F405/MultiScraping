@@ -70,6 +70,15 @@ _PREVIEW_HEADERS = {
 }
 
 
+class MapsFetchError(RuntimeError):
+    """Error operativo (proxy/red/bloqueo) al consultar Google Maps."""
+
+    def __init__(self, message: str, *, kind: str = "unknown", retryable: bool = True) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.retryable = retryable
+
+
 async def _fetch_place_details(hex_cid: str) -> dict | None:
     """
     Fetch full business details for a single place by its hex CID.
@@ -241,12 +250,16 @@ async def _fetch_cid_list(
 
         if response.status_code == 429:
             await proxy_manager.report_error(proxy)
-            return []
+            raise MapsFetchError("Maps rate limited (429)", kind="rate_limited", retryable=True)
 
         if response.status_code != 200:
             logger.warning("_fetch_cid_list: status %d for '%s'", response.status_code, search_query)
             await proxy_manager.report_error(proxy)
-            return []
+            raise MapsFetchError(
+                f"Maps unexpected status {response.status_code}",
+                kind="bad_status",
+                retryable=True,
+            )
 
         raw = response.text
         if raw.startswith(")]}'"):
@@ -267,16 +280,18 @@ async def _fetch_cid_list(
             logger.debug("_fetch_cid_list: FORMAT B — %d CIDs for '%s' start=%d", len(cids), search_query, start)
         else:
             logger.debug("_fetch_cid_list: no data in either format for '%s'", search_query)
-            await proxy_manager.report_error(proxy)
+            # Puede ser 'sin resultados' real. No lo tratamos como error operativo.
 
         await asyncio.sleep(random.uniform(settings.request_delay_min, settings.request_delay_max))
         return cids
 
     except Exception as exc:
         logger.error("_fetch_cid_list('%s', start=%d): error=%s", search_query, start, exc, exc_info=True)
+        if isinstance(exc, MapsFetchError):
+            raise
         if proxy:
             await proxy_manager.report_error(proxy)
-        return []
+        raise MapsFetchError(str(exc), kind="connection", retryable=True) from exc
 
 
 async def search_maps(
@@ -353,7 +368,28 @@ async def search_maps_paginated(
     start = 0
 
     while len(all_results) < max_results:
-        batch = await search_maps(query, location, start=start, lat=lat, lng=lng, radius_km=radius_km)
+        batch: list[dict] = []
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                batch = await search_maps(query, location, start=start, lat=lat, lng=lng, radius_km=radius_km)
+                last_error = None
+                break
+            except MapsFetchError as exc:
+                last_error = exc
+                if not exc.retryable:
+                    break
+                backoff = 0.6 * (2**attempt) + random.uniform(0.0, 0.25)
+                logger.warning(
+                    "search_maps_paginated: retry %d/3 after MapsFetchError(kind=%s): %s",
+                    attempt + 1,
+                    getattr(exc, "kind", "unknown"),
+                    exc,
+                )
+                await asyncio.sleep(backoff)
+
+        if last_error is not None and not batch:
+            raise last_error
         if not batch:
             break
 

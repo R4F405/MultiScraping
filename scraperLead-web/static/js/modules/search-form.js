@@ -27,6 +27,390 @@ export function initSearchForm() {
 }
 
 function initSearchPage() {
+  const modeStateInput = document.getElementById('search-mode');
+  const modeSingleBtn = document.getElementById('mode-single-btn');
+  const modeMultiBtn = document.getElementById('mode-multi-btn');
+  const singleModeFields = document.getElementById('single-mode-fields');
+  const multiModeFields = document.getElementById('multi-mode-fields');
+  const modeButtons = () => Array.from(document.querySelectorAll('.search-mode-btn[data-mode]'));
+  const categoryInput = document.getElementById('multi-category-query');
+  const categoryDropdown = document.getElementById('category-autocomplete');
+  let map = null;
+  let categorySuggestions = [];
+  let categoryHighlightIndex = -1;
+  let categoryDebounce = null;
+
+  // -- Categories catalog sync (manual, from UI) ----------------------------
+  const categoriesSyncBtn = document.getElementById('categories-sync-btn');
+  const categoriesSyncStatus = document.getElementById('categories-sync-status');
+  const categoriesSyncInitialLabel = categoriesSyncBtn?.textContent || 'Actualizar catálogo';
+  let categoriesSyncPolling = null;
+
+  async function loadCategoriesCoverageHint() {
+    if (!categoriesSyncStatus) return;
+    try {
+      const res = await fetch('/api/maps/categories/sync/report');
+      if (!res.ok) return;
+      const data = await res.json();
+      const total = Number(data?.catalog_types_count || 0);
+      const hybrid = data?.hybrid_summary || {};
+      const gbpCount = Number(hybrid?.gbp_categories_count || 0);
+      if (total > 0) {
+        categoriesSyncStatus.textContent = `Cobertura catálogo: ${total} tipos (GBP: ${gbpCount})`;
+      }
+    } catch (_) {
+      // no-op: hint opcional
+    }
+  }
+
+  async function pollCategoriesSyncStatus() {
+    if (categoriesSyncPolling) return; // evita múltiples loops
+    const pollOnce = async () => {
+      try {
+        const res = await fetch('/api/maps/categories/sync/status');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const st = await res.json();
+        const running = !!st.running;
+        const err = st.last_error ? String(st.last_error) : '';
+
+        if (categoriesSyncStatus) {
+          if (running) {
+            categoriesSyncStatus.textContent = 'Actualizando catálogo...';
+          } else if (err) {
+            categoriesSyncStatus.textContent = `Error al actualizar: ${err}`;
+          } else {
+            categoriesSyncStatus.textContent = 'Catálogo actualizado.';
+            loadCategoriesCoverageHint();
+          }
+        }
+
+        if (!running) {
+          if (categoriesSyncBtn) {
+            categoriesSyncBtn.disabled = false;
+            categoriesSyncBtn.textContent = categoriesSyncInitialLabel;
+          }
+          categoriesSyncPolling = null;
+          return;
+        }
+      } catch (e) {
+        if (categoriesSyncStatus) categoriesSyncStatus.textContent = 'Error consultando estado del sync.';
+        if (categoriesSyncBtn) {
+          categoriesSyncBtn.disabled = false;
+          categoriesSyncBtn.textContent = categoriesSyncInitialLabel;
+        }
+        categoriesSyncPolling = null;
+        return;
+      }
+
+      categoriesSyncPolling = window.setTimeout(pollOnce, 1500);
+    };
+
+    categoriesSyncPolling = window.setTimeout(pollOnce, 0);
+  }
+
+  categoriesSyncBtn?.addEventListener('click', async () => {
+    if (categoriesSyncBtn?.disabled) return;
+    if (categoriesSyncPolling) {
+      // Ya hay un sync en progreso o un loop activo.
+    }
+
+    if (categoriesSyncBtn) {
+      categoriesSyncBtn.disabled = true;
+      categoriesSyncBtn.textContent = 'Actualizando...';
+    }
+    if (categoriesSyncStatus) categoriesSyncStatus.textContent = 'Iniciando actualización...';
+
+    try {
+      const res = await fetch('/api/maps/categories/sync', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.detail ? String(data.detail) : `HTTP ${res.status}`);
+      }
+      if (categoriesSyncStatus) categoriesSyncStatus.textContent = 'Actualizando catálogo...';
+      pollCategoriesSyncStatus();
+    } catch (e) {
+      if (categoriesSyncStatus) categoriesSyncStatus.textContent = `Error: ${e.message || String(e)}`;
+      if (categoriesSyncBtn) {
+        categoriesSyncBtn.disabled = false;
+        categoriesSyncBtn.textContent = categoriesSyncInitialLabel;
+      }
+    }
+  });
+  loadCategoriesCoverageHint();
+
+  function closeCategoryDropdown() {
+    if (!categoryDropdown) return;
+    categoryDropdown.classList.add('hidden');
+    categoryDropdown.replaceChildren();
+    categoryDropdown.style.position = '';
+    categoryDropdown.style.left = '';
+    categoryDropdown.style.top = '';
+    categoryDropdown.style.width = '';
+    categoryDropdown.style.zIndex = '';
+    categorySuggestions = [];
+    categoryHighlightIndex = -1;
+  }
+
+  function positionCategoryDropdown() {
+    if (!categoryDropdown || !categoryInput) return;
+    const rect = categoryInput.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+    const spaceBelow = Math.max(0, viewportHeight - rect.bottom - 12);
+    const spaceAbove = Math.max(0, rect.top - 12);
+    const openUpwards = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(160, Math.min(360, (openUpwards ? spaceAbove : spaceBelow) - 8));
+
+    categoryDropdown.style.position = 'fixed';
+    categoryDropdown.style.left = `${Math.round(rect.left)}px`;
+    if (openUpwards) {
+      const top = Math.max(8, rect.top - maxHeight - 8);
+      categoryDropdown.style.top = `${Math.round(top)}px`;
+    } else {
+      categoryDropdown.style.top = `${Math.round(rect.bottom + 8)}px`;
+    }
+    categoryDropdown.style.width = `${Math.round(rect.width)}px`;
+    categoryDropdown.style.maxHeight = `${Math.round(maxHeight)}px`;
+    categoryDropdown.style.zIndex = '80';
+  }
+
+  function chooseCategory(index) {
+    const selected = categorySuggestions[index];
+    if (!selected || !categoryInput) return;
+    categoryInput.value = selected.label_es || selected.label_en || '';
+    closeCategoryDropdown();
+  }
+
+  function renderCategoryDropdown() {
+    if (!categoryDropdown) return;
+    categoryDropdown.replaceChildren();
+    if (!categorySuggestions.length) {
+      const empty = document.createElement('div');
+      empty.className = 'px-3 py-2 text-xs text-slate-500';
+      empty.textContent = 'Sin resultados. Puedes escribir categoría libre.';
+      categoryDropdown.appendChild(empty);
+      positionCategoryDropdown();
+      categoryDropdown.classList.remove('hidden');
+      return;
+    }
+
+    categorySuggestions.forEach((item, index) => {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = `w-full text-left px-3 py-2 text-sm border-b last:border-b-0 border-slate-100 hover:bg-slate-50 ${index === categoryHighlightIndex ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', index === categoryHighlightIndex ? 'true' : 'false');
+      const primary = document.createElement('div');
+      primary.className = 'font-medium';
+      primary.textContent = item.label_es || item.label_en || item.type;
+      option.appendChild(primary);
+
+      const secondary = document.createElement('div');
+      secondary.className = `text-xs mt-0.5 ${index === categoryHighlightIndex ? 'text-blue-600' : 'text-slate-500'}`;
+      const enLabel = item.label_en ? String(item.label_en).trim() : '';
+      const typeLabel = item.type ? String(item.type).trim() : '';
+      const sourceLabel = item.source === 'gbp_category' ? 'GBP category' : 'Maps type';
+      secondary.textContent = [enLabel, typeLabel, sourceLabel].filter(Boolean).join(' · ');
+      option.appendChild(secondary);
+      option.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        chooseCategory(index);
+      });
+      categoryDropdown.appendChild(option);
+    });
+    positionCategoryDropdown();
+    categoryDropdown.classList.remove('hidden');
+  }
+
+  async function fetchCategorySuggestions(query, limit = 20) {
+    try {
+      const url = `/api/maps/categories?q=${encodeURIComponent(query)}&limit=${limit}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function scheduleCategorySearch() {
+    if (!categoryInput) return;
+    const query = categoryInput.value.trim();
+    if (categoryDebounce) window.clearTimeout(categoryDebounce);
+    if (categoryDropdown) {
+      categoryDropdown.replaceChildren();
+      const loading = document.createElement('div');
+      loading.className = 'px-3 py-2 text-xs text-slate-500';
+      loading.textContent = 'Buscando categorías...';
+      categoryDropdown.appendChild(loading);
+      positionCategoryDropdown();
+      categoryDropdown.classList.remove('hidden');
+    }
+    categoryDebounce = window.setTimeout(async () => {
+      categorySuggestions = await fetchCategorySuggestions(query, 20);
+      categoryHighlightIndex = categorySuggestions.length ? 0 : -1;
+      renderCategoryDropdown();
+    }, 180);
+  }
+
+  function getCurrentMode() {
+    const raw = modeStateInput?.value || 'single';
+    return raw === 'multi_locality' ? 'multi_locality' : 'single';
+  }
+
+  function setMode(mode) {
+    const nextMode = mode === 'multi_locality' ? 'multi_locality' : 'single';
+    if (modeStateInput) modeStateInput.value = nextMode;
+    const isMulti = mode === 'multi_locality';
+    if (singleModeFields) singleModeFields.classList.toggle('hidden', isMulti);
+    if (multiModeFields) multiModeFields.classList.toggle('hidden', !isMulti);
+
+    modeButtons().forEach((button) => {
+      const active = button.dataset.mode === nextMode;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.className = active
+        ? 'search-mode-btn px-3 py-2 rounded-lg border border-blue-500 bg-blue-50 text-blue-700 text-sm font-semibold'
+        : 'search-mode-btn px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-semibold';
+    });
+
+    if (nextMode === 'single' && map) {
+      window.setTimeout(() => {
+        try {
+          const mapEl = document.getElementById('map');
+          if (mapEl) {
+            // Force layout reflow before invalidating Leaflet size.
+            // eslint-disable-next-line no-unused-expressions
+            mapEl.offsetHeight;
+          }
+          map.invalidateSize(true);
+          map.invalidateSize(true);
+          if (circleLayer) fitMapToCircle();
+        } catch (_) {}
+      }, 150);
+    }
+
+    updateCapacityNotice();
+    updateCompaniesTotalSummary();
+  }
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('.search-mode-btn[data-mode]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMode(button.dataset.mode || 'single');
+  });
+
+  // Fallback listeners (in case delegated click is intercepted)
+  modeSingleBtn?.addEventListener('click', (event) => {
+    event.preventDefault();
+    setMode('single');
+  });
+  modeMultiBtn?.addEventListener('click', (event) => {
+    event.preventDefault();
+    setMode('multi_locality');
+  });
+  categoryInput?.addEventListener('focus', async () => {
+    // UX acordada: mostrar top relevantes al enfocar.
+    categorySuggestions = await fetchCategorySuggestions('', 20);
+    categoryHighlightIndex = categorySuggestions.length ? 0 : -1;
+    renderCategoryDropdown();
+  });
+  categoryInput?.addEventListener('click', async () => {
+    categorySuggestions = await fetchCategorySuggestions('', 20);
+    categoryHighlightIndex = categorySuggestions.length ? 0 : -1;
+    renderCategoryDropdown();
+  });
+  categoryInput?.addEventListener('input', scheduleCategorySearch);
+  categoryInput?.addEventListener('keydown', (event) => {
+    if (getCurrentMode() !== 'multi_locality') return;
+    if (!categorySuggestions.length) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      categoryHighlightIndex = (categoryHighlightIndex + 1) % categorySuggestions.length;
+      renderCategoryDropdown();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      categoryHighlightIndex = (categoryHighlightIndex - 1 + categorySuggestions.length) % categorySuggestions.length;
+      renderCategoryDropdown();
+    } else if (event.key === 'Enter') {
+      if (!categoryDropdown?.classList.contains('hidden') && categoryHighlightIndex >= 0) {
+        event.preventDefault();
+        chooseCategory(categoryHighlightIndex);
+      }
+    } else if (event.key === 'Escape') {
+      closeCategoryDropdown();
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!target) return;
+    const insideInput = categoryInput?.contains(target);
+    const insideDropdown = categoryDropdown?.contains(target);
+    if (!insideInput && !insideDropdown) closeCategoryDropdown();
+  });
+
+  window.addEventListener('resize', () => {
+    if (!categoryDropdown || categoryDropdown.classList.contains('hidden')) return;
+    positionCategoryDropdown();
+  });
+  document.addEventListener('scroll', () => {
+    if (!categoryDropdown || categoryDropdown.classList.contains('hidden')) return;
+    positionCategoryDropdown();
+  }, true);
+
+  function parseLocationLines() {
+    const textarea = document.getElementById('locations-textarea');
+    if (!textarea) return [];
+    const lines = textarea.value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const deduped = [];
+    const seen = new Set();
+    for (const line of lines) {
+      const key = line.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(line);
+    }
+    return deduped;
+  }
+
+  function updateLocationsSummary() {
+    const summary = document.getElementById('locations-summary');
+    if (!summary) return;
+    const textarea = document.getElementById('locations-textarea');
+    const count = parseLocationLines().length;
+    const maxChars = parseInt(textarea?.getAttribute('maxlength') || '0', 10);
+    const currentChars = textarea?.value.length || 0;
+    const charsInfo = maxChars > 0 ? ` · ${currentChars}/${maxChars} caracteres` : '';
+    summary.textContent = `${count} localidades válidas${charsInfo}`;
+  }
+
+  function updateCompaniesTotalSummary() {
+    const el = document.getElementById('companies-total-summary');
+    if (!el) return;
+    const locCount = parseLocationLines().length;
+    const perLoc = getCurrentMode() === 'multi_locality' ? getMultiCompaniesTarget() : 0;
+    if (!locCount || !perLoc) {
+      el.textContent = 'Total a scrapear: —';
+      return;
+    }
+    el.textContent = `Total a scrapear: ${locCount * perLoc} empresas`;
+  }
+
+  document.getElementById('locations-textarea')?.addEventListener('input', updateLocationsSummary);
+  document.getElementById('locations-textarea')?.addEventListener('input', updateCompaniesTotalSummary);
+  document.getElementById('companies-per-location')?.addEventListener('input', () => {
+    updateCapacityNotice();
+    updateCompaniesTotalSummary();
+  });
+  updateLocationsSummary();
+  updateCompaniesTotalSummary();
+
   // -- Proxy capacity notice -------------------------------------------------
   let _capacityData = null;
 
@@ -47,7 +431,9 @@ function initSearchPage() {
     }
 
     const cap = _capacityData;
-    const requested = getCounterValue();
+    const requested = getCurrentMode() === 'multi_locality'
+      ? getMultiCompaniesTarget()
+      : getCounterValue();
 
     if (cap.daily_remaining === 0) {
       showCapacityNotice('⛔ Límite diario agotado. Podrás volver a scrapear mañana.', 'danger');
@@ -106,7 +492,13 @@ function initSearchPage() {
   const counterPlus = document.getElementById('counter-plus');
 
   function getCounterValue() {
+    if (!counterInput) return 1;
     return Math.max(1, parseInt(counterInput.value, 10) || 1);
+  }
+
+  function getMultiCompaniesTarget() {
+    const input = document.getElementById('companies-per-location');
+    return Math.max(1, Math.min(200, parseInt(input?.value || '10', 10) || 10));
   }
 
   counterInput.addEventListener('input', function onInput() {
@@ -141,7 +533,7 @@ function initSearchPage() {
   });
 
   // -- Leaflet Map -----------------------------------------------------------
-  const map = L.map('map', { center: [20, 0], zoom: 2, minZoom: 2 });
+  map = L.map('map', { center: [20, 0], zoom: 2, minZoom: 2 });
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -264,6 +656,16 @@ function initSearchPage() {
     }
   });
 
+  window.addEventListener('resize', () => {
+    if (!map) return;
+    try {
+      map.invalidateSize(true);
+    } catch (_) {}
+  });
+
+  // Initialize mode only after counter and map state are ready.
+  setMode('single');
+
   // -- Alert ----------------------------------------------------------------
   const alertEl = document.getElementById('alert');
   function showAlert(msg) {
@@ -286,16 +688,27 @@ function initSearchPage() {
     loaderSection.style.display = '';
   }
 
-  function updateLoaderCount(progress, total, emailsFound, waitingForProxy, proxyWaitSeconds) {
+  function updateLoaderCount(progress, total, emailsFound, waitingForProxy, proxyWaitSeconds, job = null) {
     const loaderCount = document.getElementById('loader-count');
     const proxyWaitEl = document.getElementById('loader-proxy-wait');
     const spinnerEl = document.getElementById('loader-spinner');
     const textEl = document.getElementById('loader-text');
 
     if (loaderCount) {
-      loaderCount.textContent = total > 0
-        ? `${progress} / ${total} negocios · ${emailsFound} emails encontrados`
-        : 'Conectando con Google Maps...';
+      if (job?.mode === 'multi_locality') {
+        const locationLabel = job.current_location_label || '—';
+        const locIdx = job.current_location_index || 0;
+        const locTotal = job.total_locations || 0;
+        const locCompanies = job.current_location_emails_found || 0;
+        const locTarget = job.emails_target_per_location || 0;
+        const companies = Number(job.progress || 0);
+        const emails = Number(job.emails_found || 0);
+        loaderCount.textContent = `${locIdx}/${locTotal} · ${locationLabel} · objetivo empresas ${locCompanies}/${locTarget} · ${companies} empresas · ${emails} emails`;
+      } else {
+        loaderCount.textContent = total > 0
+          ? `${progress} / ${total} empresas · ${emailsFound} emails`
+          : 'Conectando con Google Maps...';
+      }
     }
 
     if (waitingForProxy) {
@@ -310,7 +723,7 @@ function initSearchPage() {
     } else {
       if (proxyWaitEl) proxyWaitEl.classList.add('hidden');
       if (spinnerEl) spinnerEl.classList.remove('paused');
-      if (textEl) textEl.textContent = 'Cargando emails...';
+      if (textEl) textEl.textContent = 'Cargando empresas...';
     }
   }
 
@@ -320,10 +733,265 @@ function initSearchPage() {
   const resultsCount = document.getElementById('results-count');
   const exportBtn = document.getElementById('export-btn');
   const startBtn = document.getElementById('start-btn');
+  const startBtnMulti = document.getElementById('start-btn-multi');
+  const startButtons = [startBtn, startBtnMulti].filter(Boolean);
 
   const PAGE_SIZE = 25;
   let _allLeads = [];
   let _currentPage = 1;
+  let scrapeStartedAtMs = null;
+
+  const progressSection = document.getElementById('progress-section');
+  const progressText = document.getElementById('progress-text');
+  const progressSubtext = document.getElementById('progress-subtext');
+  const progressEta = document.getElementById('progress-eta');
+  const progressTotal = document.getElementById('progress-total');
+  const progressBarFill = document.getElementById('progress-bar-fill');
+  const progressElapsed = document.getElementById('progress-elapsed');
+
+  // -- Job summary ----------------------------------------------------------
+  const jobSummarySection = document.getElementById('job-summary-section');
+  const jobSummaryTitle = document.getElementById('job-summary-title');
+  const jobSummaryCompanies = document.getElementById('job-summary-companies');
+  const jobSummaryTargetCompanies = document.getElementById('job-summary-target-companies');
+  const jobSummaryEmails = document.getElementById('job-summary-emails');
+  const jobSummaryLocations = document.getElementById('job-summary-locations');
+
+  function setJobSummaryVisible(visible) {
+    if (!jobSummarySection) return;
+    jobSummarySection.classList.toggle('hidden', !visible);
+  }
+
+  function updateJobSummaryUI(job, locationsSummary = null) {
+    if (!jobSummarySection || !job) return;
+
+    const mode = job.mode || 'single';
+    if (mode !== 'multi_locality') return;
+
+    const companiesProcessed = Number(job.progress || 0);
+    const totalLoc = Math.max(0, Number(job.total_locations || 0));
+    const targetPerLoc = Math.max(1, Number(job.emails_target_per_location || 1));
+    const targetTotal = totalLoc * targetPerLoc;
+    const emailsFound = Number(job.emails_found || 0);
+
+    if (jobSummaryTitle) {
+      jobSummaryTitle.textContent = job.status === 'done'
+        ? 'Scrapeo completado'
+        : 'Scrapeo finalizado con errores';
+    }
+    if (jobSummaryCompanies) jobSummaryCompanies.textContent = `${companiesProcessed} empresas`;
+    if (jobSummaryTargetCompanies) jobSummaryTargetCompanies.textContent = `${targetTotal} empresas`;
+    if (jobSummaryEmails) jobSummaryEmails.textContent = `${emailsFound} emails`;
+
+    if (jobSummaryLocations) {
+      if (locationsSummary) {
+        const done = Number(locationsSummary.done || 0);
+        const empty = Number(locationsSummary.empty || 0);
+        const failed = Number(locationsSummary.failed || 0);
+        jobSummaryLocations.textContent = `${totalLoc} localidades · ${done} ok · ${empty} vacías · ${failed} fallidas`;
+      } else {
+        jobSummaryLocations.textContent = `${totalLoc} localidades`;
+      }
+    }
+
+    setJobSummaryVisible(true);
+  }
+
+  const ETA_STATS_KEY = 'maps_scrape_eta_stats_v1';
+
+  function loadEtaStats() {
+    try {
+      const raw = localStorage.getItem(ETA_STATS_KEY);
+      if (!raw) return { single_secs_per_unit: null, multi_secs_per_loc: null };
+      const parsed = JSON.parse(raw);
+      return {
+        single_secs_per_unit: Number(parsed?.single_secs_per_unit) || null,
+        multi_secs_per_loc: Number(parsed?.multi_secs_per_loc) || null,
+      };
+    } catch (_) {
+      return { single_secs_per_unit: null, multi_secs_per_loc: null };
+    }
+  }
+
+  function saveEtaStats(nextStats) {
+    try {
+      localStorage.setItem(ETA_STATS_KEY, JSON.stringify(nextStats));
+    } catch (_) {
+      // no-op
+    }
+  }
+
+  function formatDuration(seconds) {
+    const s = Math.max(0, Math.round(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  function formatDurationRange(centerSec, uncertaintyRatio = 0.2) {
+    const c = Math.max(1, Number(centerSec || 0));
+    const u = Math.max(0.05, Math.min(0.5, Number(uncertaintyRatio || 0.2)));
+    const minSec = c * (1 - u);
+    const maxSec = c * (1 + u);
+    return `~${formatDuration(minSec)} - ${formatDuration(maxSec)}`;
+  }
+
+  function computeProgressFraction(job) {
+    if (!job) return 0;
+
+    if (job.mode === 'multi_locality') {
+      const totalLoc = Math.max(0, Number(job.total_locations || 0));
+      const currentIndex = Math.max(0, Number(job.current_location_index || 0));
+      const target = Math.max(1, Number(job.emails_target_per_location || 1));
+      const currentEmails = Math.max(0, Number(job.current_location_emails_found || 0));
+      if (totalLoc <= 0) return 0;
+      const doneLoc = Math.max(0, currentIndex - 1);
+      const currentLocProgress = Math.min(1, currentEmails / target);
+      return Math.min(1, (doneLoc + currentLocProgress) / totalLoc);
+    }
+
+    const total = Math.max(0, Number(job.total || 0));
+    const progress = Math.max(0, Number(job.progress || 0));
+    if (total <= 0) return 0;
+    return Math.min(1, progress / total);
+  }
+
+  function updateProgressUI(job = null) {
+    if (!progressSection || !progressBarFill || !progressText || !progressSubtext || !progressEta) return;
+    if (!job || !_scrapingInProgress) {
+      progressSection.classList.add('hidden');
+      progressBarFill.style.width = '0%';
+      progressText.textContent = 'Progreso de extracción';
+      progressSubtext.textContent = 'Preparando...';
+      progressEta.textContent = 'ETA: —';
+      if (progressTotal) progressTotal.textContent = 'Total estimado: —';
+      if (progressElapsed) progressElapsed.textContent = 'Elapsed: —';
+      return;
+    }
+
+    progressSection.classList.remove('hidden');
+    const fraction = computeProgressFraction(job);
+    const percent = Math.round(fraction * 100);
+    progressBarFill.style.width = `${percent}%`;
+
+    if (job.mode === 'multi_locality') {
+      const idx = Number(job.current_location_index || 0);
+      const totalLoc = Number(job.total_locations || 0);
+      const label = job.current_location_label || '—';
+      const currentCompanies = Number(job.current_location_emails_found || 0);
+      const target = Number(job.emails_target_per_location || 0);
+      progressText.textContent = `${percent}% · Localidad ${idx}/${totalLoc}`;
+      let perLocationEtaText = '';
+      if (scrapeStartedAtMs && idx > 1) {
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        const doneLoc = Math.max(1, idx - 1);
+        const avgPerLoc = elapsedSec / doneLoc;
+        perLocationEtaText = ` · ~${formatDuration(avgPerLoc)} por localidad`;
+      }
+      const companies = Number(job.progress || 0);
+      const emails = Number(job.emails_found || 0);
+      progressSubtext.textContent = `${label} · empresas ${currentCompanies}/${target} · ${companies} empresas · ${emails} emails${perLocationEtaText}`;
+    } else {
+      const progress = Number(job.progress || 0);
+      const total = Number(job.total || 0);
+      const emails = Number(job.emails_found || 0);
+      progressText.textContent = `${percent}% · ${progress}/${total} empresas`;
+      progressSubtext.textContent = `${emails} emails`;
+    }
+
+    const stats = loadEtaStats();
+    let totalEstimateSec = null;
+    if (job.mode === 'multi_locality') {
+      const totalLoc = Math.max(0, Number(job.total_locations || 0));
+      const idx = Math.max(0, Number(job.current_location_index || 0));
+      const doneLoc = Math.max(0, idx - 1);
+      const currentCompanies = Math.max(0, Number(job.current_location_emails_found || 0));
+      const target = Math.max(1, Number(job.emails_target_per_location || 1));
+
+      if (stats.multi_secs_per_loc && totalLoc > 0) {
+        totalEstimateSec = stats.multi_secs_per_loc * totalLoc;
+      } else if (scrapeStartedAtMs && doneLoc >= 1) {
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        totalEstimateSec = (elapsedSec / doneLoc) * totalLoc;
+      } else if (scrapeStartedAtMs && currentCompanies > 0 && totalLoc > 0) {
+        // Primera localidad en curso: aproxima por ritmo de empresas actual.
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        const secPerCompany = elapsedSec / currentCompanies;
+        totalEstimateSec = secPerCompany * (target * totalLoc);
+      }
+    } else {
+      const total = Math.max(0, Number(job.total || 0));
+      const done = Math.max(0, Number(job.progress || 0));
+      if (stats.single_secs_per_unit && total > 0) {
+        totalEstimateSec = stats.single_secs_per_unit * total;
+      } else if (scrapeStartedAtMs && done > 0) {
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        totalEstimateSec = (elapsedSec / done) * total;
+      }
+    }
+    if (progressTotal) {
+      if (!totalEstimateSec) {
+        progressTotal.textContent = 'Total estimado: calculando...';
+      } else {
+        let uncertainty = 0.25;
+        if (fraction >= 0.6) uncertainty = 0.12;
+        else if (fraction >= 0.3) uncertainty = 0.18;
+
+        // Si hay histórico, reducimos un poco la incertidumbre inicial.
+        if (job.mode === 'multi_locality' && stats.multi_secs_per_loc) {
+          uncertainty = Math.max(0.1, uncertainty - 0.04);
+        }
+        if (job.mode !== 'multi_locality' && stats.single_secs_per_unit) {
+          uncertainty = Math.max(0.1, uncertainty - 0.04);
+        }
+
+        progressTotal.textContent = `Total estimado: ${formatDurationRange(totalEstimateSec, uncertainty)}`;
+      }
+    }
+
+    if (scrapeStartedAtMs && fraction >= 0.03 && fraction < 1) {
+      const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+      const remainingSec = (elapsedSec / fraction) - elapsedSec;
+      progressEta.textContent = `ETA: ~${formatDuration(remainingSec)}`;
+      if (progressElapsed) progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
+    } else if (fraction >= 1 || job.status === 'done') {
+      progressEta.textContent = 'ETA: completado';
+      if (scrapeStartedAtMs && progressElapsed) {
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
+      }
+    } else {
+      // Fallback con historial local si aún no hay suficiente avance.
+      const stats = loadEtaStats();
+      if (job.mode === 'multi_locality') {
+        const totalLoc = Math.max(0, Number(job.total_locations || 0));
+        const idx = Math.max(0, Number(job.current_location_index || 0));
+        const doneLoc = Math.max(0, idx - 1);
+        const remainingLoc = Math.max(0, totalLoc - doneLoc);
+        if (stats.multi_secs_per_loc && remainingLoc > 0) {
+          progressEta.textContent = `ETA: ~${formatDuration(stats.multi_secs_per_loc * remainingLoc)} (histórico)`;
+        } else {
+          progressEta.textContent = 'ETA: calculando...';
+        }
+      } else {
+        const total = Math.max(0, Number(job.total || 0));
+        const done = Math.max(0, Number(job.progress || 0));
+        const remaining = Math.max(0, total - done);
+        if (stats.single_secs_per_unit && remaining > 0) {
+          progressEta.textContent = `ETA: ~${formatDuration(stats.single_secs_per_unit * remaining)} (histórico)`;
+        } else {
+          progressEta.textContent = 'ETA: calculando...';
+        }
+      }
+      if (scrapeStartedAtMs && progressElapsed) {
+        const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
+        progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
+      }
+    }
+  }
 
   function clearTable() {
     _allLeads = [];
@@ -462,6 +1130,24 @@ function initSearchPage() {
     if (resultsCount) resultsCount.textContent = `${leads.length} resultados`;
   }
 
+  async function loadLocationsSummary(jobId) {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/locations`);
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return null;
+      const counts = { done: 0, empty: 0, failed: 0, running: 0, pending: 0, other: 0 };
+      rows.forEach((r) => {
+        const st = String(r?.status || 'other');
+        if (counts[st] !== undefined) counts[st] += 1;
+        else counts.other += 1;
+      });
+      return counts;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // -- Polling ---------------------------------------------------------------
   function startPolling(jobId) {
     clearInterval(pollInterval);
@@ -473,14 +1159,41 @@ function initSearchPage() {
       const res = await fetch(`/api/jobs/${jobId}`);
       if (!res.ok) return;
       const job = await res.json();
-      updateLoaderCount(job.progress, job.total, job.emails_found, job.waiting_for_proxy, job.proxy_wait_seconds);
+      updateLoaderCount(job.progress, job.total, job.emails_found, job.waiting_for_proxy, job.proxy_wait_seconds, job);
+      updateProgressUI(job);
       if (job.status === 'done' || job.status === 'failed') {
+        if (job.mode === 'multi_locality') {
+          const locSummary = await loadLocationsSummary(jobId);
+          updateJobSummaryUI(job, locSummary);
+        }
+
+        const endedAt = Date.now();
+        const elapsedSec = scrapeStartedAtMs ? (endedAt - scrapeStartedAtMs) / 1000 : null;
+        if (job.status === 'done' && elapsedSec && elapsedSec > 0) {
+          const stats = loadEtaStats();
+          if (job.mode === 'multi_locality') {
+            const totalLoc = Math.max(1, Number(job.total_locations || 1));
+            const sample = elapsedSec / totalLoc;
+            const prev = stats.multi_secs_per_loc;
+            stats.multi_secs_per_loc = prev ? ((prev * 0.7) + (sample * 0.3)) : sample;
+          } else {
+            const totalUnits = Math.max(1, Number(job.total || 1));
+            const sample = elapsedSec / totalUnits;
+            const prev = stats.single_secs_per_unit;
+            stats.single_secs_per_unit = prev ? ((prev * 0.7) + (sample * 0.3)) : sample;
+          }
+          saveEtaStats(stats);
+        }
         clearInterval(pollInterval);
         hideLoader();
         _scrapingInProgress = false;
-        startBtn.disabled = false;
-        startBtn.title = '';
-        setStartButtonLabel(startBtn, 'ready');
+        scrapeStartedAtMs = null;
+        updateProgressUI(null);
+        startButtons.forEach((btn) => {
+          btn.disabled = false;
+          btn.title = '';
+          setStartButtonLabel(btn, 'ready');
+        });
         loadCapacity();
         if (job.status === 'done') {
           await loadResults(jobId);
@@ -496,7 +1209,8 @@ function initSearchPage() {
   }
 
   // -- Start button ----------------------------------------------------------
-  startBtn.addEventListener('click', async function onStart() {
+  async function onStart(event) {
+    const clickedBtn = event.currentTarget;
     hideAlert();
     const query = document.getElementById('query').value.trim();
     const location = document.getElementById('location').value.trim();
@@ -504,30 +1218,71 @@ function initSearchPage() {
     const hasCoords = selectedLat !== null && selectedLng !== null;
     const radiusKm = getRadiusKm();
 
-    if (!query) {
-      showAlert('Por favor rellena el campo de búsqueda.');
-      return;
-    }
-    if (!location && !hasCoords) {
-      showAlert('Por favor selecciona una ubicación en el mapa o escribe una ciudad.');
-      return;
-    }
+    let payload = null;
+    if (getCurrentMode() === 'multi_locality') {
+      const category = document.getElementById('multi-category-query')?.value.trim() || '';
+      const locations = parseLocationLines();
+      const companiesTarget = getMultiCompaniesTarget();
+      if (locations.length > 5000) {
+        showAlert('Has superado el máximo permitido (5000 localidades por ejecución).');
+        return;
+      }
+      if (!category) {
+        showAlert('Por favor rellena la categoría de negocio.');
+        return;
+      }
+      if (!locations.length) {
+        showAlert('Pega al menos una localidad (una por línea).');
+        return;
+      }
+      payload = {
+        mode: 'multi_locality',
+        category_query: category,
+        locations,
+        emails_target_per_location: companiesTarget,
+      };
+    } else {
+      if (!query) {
+        showAlert('Por favor rellena el campo de búsqueda.');
+        return;
+      }
+      if (!location && !hasCoords) {
+        showAlert('Por favor selecciona una ubicación en el mapa o escribe una ciudad.');
+        return;
+      }
 
-    _scrapingInProgress = true;
-    this.disabled = true;
-    setStartButtonLabel(this, 'loading');
-    clearTable();
-    showLoader();
-    updateLoaderCount(0, 0, 0, false, 0);
-
-    try {
-      const payload = { query, location, max_results: maxResults };
+      payload = { mode: 'single', query, location, max_results: maxResults };
       if (hasCoords) {
         payload.lat = selectedLat;
         payload.lng = selectedLng;
         payload.radius_km = radiusKm;
       }
+    }
 
+    setJobSummaryVisible(false);
+    _scrapingInProgress = true;
+    scrapeStartedAtMs = Date.now();
+    startButtons.forEach((btn) => {
+      btn.disabled = true;
+      setStartButtonLabel(btn, 'loading');
+    });
+    clearTable();
+    showLoader();
+    updateLoaderCount(0, 0, 0, false, 0);
+    updateProgressUI({
+      status: 'running',
+      mode: getCurrentMode(),
+      progress: 0,
+      total: 0,
+      emails_found: 0,
+      current_location_index: 0,
+      total_locations: 0,
+      current_location_label: null,
+      current_location_emails_found: 0,
+      emails_target_per_location: getMultiCompaniesTarget(),
+    });
+
+    try {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -540,13 +1295,23 @@ function initSearchPage() {
       startPolling(currentJobId);
     } catch (err) {
       _scrapingInProgress = false;
+      scrapeStartedAtMs = null;
+      updateProgressUI(null);
       showAlert(`Error al iniciar la búsqueda: ${err.message}`);
-      this.disabled = false;
-      this.title = '';
-      setStartButtonLabel(this, 'ready');
+      if (clickedBtn) {
+        clickedBtn.disabled = false;
+        clickedBtn.title = '';
+      }
+      startButtons.forEach((btn) => {
+        btn.disabled = false;
+        btn.title = '';
+        setStartButtonLabel(btn, 'ready');
+      });
       hideLoader();
     }
-  });
+  }
+  startBtn?.addEventListener('click', onStart);
+  startBtnMulti?.addEventListener('click', onStart);
 
   // -- Export ----------------------------------------------------------------
   if (exportBtn) {

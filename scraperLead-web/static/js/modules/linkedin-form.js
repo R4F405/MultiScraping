@@ -40,6 +40,12 @@ export function initLinkedInForm() {
   const progressPct     = $('li-progress-pct');
   const progressLabel   = $('li-progress-label');
   const progressDetail  = $('li-progress-detail');
+  const summaryAccount  = $('li-summary-account');
+  const summaryPending  = $('li-summary-pending');
+  const summaryDone     = $('li-summary-done');
+  const summaryErrors   = $('li-summary-errors');
+  const summaryTotal    = $('li-summary-total');
+  const summaryLastRun  = $('li-summary-last-run');
 
   const addEmail    = $('li-add-email');
   const addPassword = $('li-add-password');
@@ -90,6 +96,44 @@ export function initLinkedInForm() {
   // ── Mode radio styling + enrich lock ─────────────────────────────────
   function getSelectedAccount() {
     return accounts.find(a => a.username === accountSelect.value) || null;
+  }
+
+  function renderAccountSummaryFromAccount(acc) {
+    if (!acc) {
+      summaryAccount.textContent = 'Sin cuenta seleccionada';
+      summaryPending.textContent = '—';
+      summaryDone.textContent = '—';
+      summaryErrors.textContent = '—';
+      summaryTotal.textContent = '—';
+      summaryLastRun.textContent = 'Selecciona una cuenta para ver estado de cola y último resumen.';
+      return;
+    }
+
+    summaryAccount.textContent = `@${acc.username}`;
+    summaryPending.textContent = Number(acc.queue_pending ?? 0).toLocaleString('es-ES');
+    summaryDone.textContent = Number(acc.queue_done ?? 0).toLocaleString('es-ES');
+    summaryErrors.textContent = Number(acc.queue_error ?? 0).toLocaleString('es-ES');
+    summaryTotal.textContent = Number(acc.queue_total ?? 0).toLocaleString('es-ES');
+  }
+
+  function renderRunSummaryFromStatus(s) {
+    const lines = [];
+    if (s?.mode === 'index') {
+      lines.push(`🗂 Índice [@${s.account || '—'}]`);
+      if (s.detail) lines.push(s.detail);
+      if (typeof s.queue_pending === 'number') lines.push(`📋 Pendientes en cola: ${s.queue_pending}`);
+    } else if (s?.mode === 'enrich') {
+      lines.push(`📊 Enrich [@${s.account || '—'}]`);
+      if (typeof s.new_count === 'number') lines.push(`✅ Nuevos: ${s.new_count}`);
+      if (typeof s.updated_count === 'number') lines.push(`🔄 Actualizados: ${s.updated_count}`);
+      if (typeof s.skipped_count === 'number') lines.push(`⏭ Saltados (frescos): ${s.skipped_count}`);
+      if (typeof s.error_count === 'number') lines.push(`❌ Errores: ${s.error_count}`);
+      if (typeof s.queue_pending === 'number') lines.push(`📋 Pendientes en cola: ${s.queue_pending}`);
+    }
+
+    if (lines.length) {
+      summaryLastRun.textContent = lines.join(' · ');
+    }
   }
 
   function updateModeCards() {
@@ -160,6 +204,9 @@ export function initLinkedInForm() {
     r.addEventListener('change', updateModeCards);
   });
   accountSelect.addEventListener('change', updateModeCards);
+  accountSelect.addEventListener('change', () => {
+    renderAccountSummaryFromAccount(getSelectedAccount());
+  });
   updateModeCards();
 
   // Clampeo estricto del input de contactos — no se puede superar el cap
@@ -227,6 +274,7 @@ export function initLinkedInForm() {
 
     accountsCount.textContent = accounts.length;
     updateModeCards(); // re-evaluar bloqueo con los datos frescos
+    renderAccountSummaryFromAccount(getSelectedAccount());
 
     // Render accounts list
     if (!accounts.length) {
@@ -415,6 +463,9 @@ export function initLinkedInForm() {
         }
         // Refresh jobs and contacts if on those tabs
         loadHistory();
+        const selected = getSelectedAccount();
+        renderAccountSummaryFromAccount(selected);
+        renderRunSummaryFromStatus(s);
       } else {
         progressLabel.textContent = s.label || (s.mode === 'index'
           ? 'Recopilando conexiones…'
@@ -438,6 +489,7 @@ export function initLinkedInForm() {
         }
 
         progressDetail.textContent = parts.join(' · ');
+        renderRunSummaryFromStatus(s);
       }
     } catch {
       // ignore network errors during poll

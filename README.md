@@ -1,4 +1,4 @@
-# Multi Scraper
+# MultiScraper
 
 Suite para captar leads desde Google Maps, Instagram y LinkedIn, con panel web unificado.
 
@@ -174,7 +174,7 @@ Arranca cada proceso en su terminal:
 ## Estructura del proyecto
 
 - `mapleads`: backend FastAPI para scraping de Google Maps + busqueda/verificacion de emails.
-- `instaleads`: backend FastAPI para scraping de Instagram (modo dorking y modo followers con login).
+- `instaleads`: backend FastAPI para scraping de Instagram (modo dorking y modo followers con autenticacion via pool o sesion simple).
 - `linkedinleads`: backend FastAPI para scraping de LinkedIn con gestion de cuentas/sesiones.
 - `scraperLead-web`: frontend FastAPI + Jinja + JS (dashboard, formularios y vistas de datos).
 - `start_all.sh`: inicia todo en macOS/Linux (`mapleads` + `instaleads` + `linkedinleads` + frontend).
@@ -241,6 +241,11 @@ Importante: nunca subas claves reales a GitHub. Usa valores propios.
 - `GOOGLE_API_KEY`: API key de Google CSE (opcional, recomendado para dorking).
 - `GOOGLE_CSE_ID`: CSE ID de Google (opcional, recomendado para dorking).
 - `PORT`: puerto del backend InstaLeads (por defecto `8002`).
+
+Notas operativas de InstaLeads:
+- El modo `followers` acepta dos formas de autenticacion: pool de cuentas o sesion individual activa.
+- Si no hay resultados en discovery, el job puede marcar `failure_reason=discovery_degraded` y `status_detail` explicativo para diagnostico.
+- El estado del job incluye contadores de estrategias de discovery (`discovery_*`) y errores por fase (`profile_fetch_failures`, `enrichment_failures`).
 
 ### `linkedinleads/.env`
 

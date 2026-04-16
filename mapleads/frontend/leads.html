@@ -81,11 +81,37 @@
         <div class="job-detail-info">
           <div class="job-detail-query" id="job-header-query">—</div>
           <div class="job-detail-meta" id="job-header-meta">—</div>
+          <div id="job-locations-summary" class="job-locations-summary" style="display:none"></div>
         </div>
         <div class="job-detail-stats" id="job-header-stats"></div>
         <button id="export-btn-header" class="btn btn-secondary" style="font-size:13px;padding:8px 16px" disabled>
           Exportar CSV
         </button>
+      </div>
+
+      <!-- Multi-locality details modal -->
+      <div id="locations-modal-backdrop" class="locations-modal-backdrop" style="display:none">
+        <div class="locations-modal" role="dialog" aria-modal="true" aria-labelledby="locations-modal-title">
+          <div class="locations-modal-header">
+            <div>
+              <h3 id="locations-modal-title">Localidades del scrapeo</h3>
+              <p id="locations-modal-subtitle">—</p>
+            </div>
+            <button id="locations-modal-close" class="locations-modal-close" aria-label="Cerrar">✕</button>
+          </div>
+          <div class="locations-modal-toolbar">
+            <input
+              id="locations-search"
+              type="text"
+              placeholder="Buscar localidad..."
+              class="locations-search-input"
+            />
+          </div>
+          <div id="locations-modal-list" class="locations-modal-list"></div>
+          <div id="locations-modal-empty" class="locations-modal-empty" style="display:none">
+            No hay localidades que coincidan con la búsqueda.
+          </div>
+        </div>
       </div>
 
       <!-- All leads header (no job_id) -->
@@ -157,6 +183,8 @@ const PAGE_SIZE = 25;
 let allLeads = [];
 let filteredLeads = [];
 let currentPage = 1;
+let jobLocations = [];
+let filteredJobLocations = [];
 
 // Read job_id from URL params
 const urlParams = new URLSearchParams(window.location.search);
@@ -201,11 +229,142 @@ async function setupHeader() {
           </div>
         `;
         document.getElementById("export-btn-header").disabled = false;
+        await setupLocationsSummary(job);
       }
     } catch (_) {}
   } else {
     document.getElementById("all-header").style.display = "block";
   }
+}
+
+function statusLabel(status) {
+  if (status === "done") return "Completada";
+  if (status === "running") return "En curso";
+  if (status === "failed") return "Fallida";
+  if (status === "empty") return "Sin resultados";
+  return status || "—";
+}
+
+function statusClass(status) {
+  if (status === "done") return "done";
+  if (status === "running") return "running";
+  if (status === "failed") return "failed";
+  if (status === "empty") return "empty";
+  return "empty";
+}
+
+function escAttr(str) {
+  return escHtml(str).replace(/"/g, "&quot;");
+}
+
+/** Prioridad: en curso y fallidas arriba; luego alfabético por nombre. */
+function locationStatusRank(status) {
+  const s = (status || "").toLowerCase();
+  if (s === "running") return 0;
+  if (s === "failed") return 1;
+  if (s === "empty") return 2;
+  if (s === "pending") return 3;
+  if (s === "done") return 4;
+  return 5;
+}
+
+function sortJobLocations(rows) {
+  return [...rows].sort((a, b) => {
+    const ra = locationStatusRank(a.status);
+    const rb = locationStatusRank(b.status);
+    if (ra !== rb) return ra - rb;
+    return (a.location_label || "").localeCompare(b.location_label || "", "es", { sensitivity: "base" });
+  });
+}
+
+async function setupLocationsSummary(job) {
+  const container = document.getElementById("job-locations-summary");
+  if (!container) return;
+
+  const isMulti = job.mode === "multi_locality" || (job.total_locations || 0) > 1;
+  if (!isMulti) {
+    container.style.display = "none";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/jobs/${JOB_ID}/locations`);
+    if (!res.ok) {
+      container.style.display = "none";
+      return;
+    }
+
+    jobLocations = sortJobLocations(await res.json());
+    filteredJobLocations = jobLocations;
+
+    const total = jobLocations.length;
+    const preview = jobLocations.slice(0, 3);
+    const extra = Math.max(0, total - preview.length);
+
+    const chipsHtml = preview.map(loc => (
+      `<span class="location-chip" title="${escAttr(loc.location_label)}">${escHtml(loc.location_label)}</span>`
+    )).join("");
+
+    container.innerHTML = `
+      <div class="job-locations-topline">
+        <span class="job-locations-count">${total} localidades</span>
+        <button id="open-locations-modal" class="job-locations-btn" type="button">Ver localidades</button>
+      </div>
+      <div class="job-locations-chips">
+        ${chipsHtml}
+        ${extra > 0 ? `<span class="location-chip more">+${extra}</span>` : ""}
+      </div>
+    `;
+    container.style.display = "block";
+
+    document.getElementById("open-locations-modal")?.addEventListener("click", openLocationsModal);
+  } catch (_) {
+    container.style.display = "none";
+  }
+}
+
+function renderLocationsList(rows) {
+  const list = document.getElementById("locations-modal-list");
+  const empty = document.getElementById("locations-modal-empty");
+  if (!list || !empty) return;
+
+  if (!rows.length) {
+    list.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  list.innerHTML = rows.map((loc) => `
+    <div class="location-row-card">
+      <div class="location-row-main">
+        <div class="location-row-name" title="${escAttr(loc.location_label)}">${escHtml(loc.location_label)}</div>
+        <span class="location-status ${statusClass(loc.status)}">${statusLabel(loc.status)}</span>
+      </div>
+      <div class="location-row-metrics">
+        <span><strong>${loc.leads_found ?? 0}</strong> negocios</span>
+        <span><strong>${loc.emails_found ?? 0}</strong> emails</span>
+      </div>
+    </div>
+  `).join("");
+}
+
+function openLocationsModal() {
+  const backdrop = document.getElementById("locations-modal-backdrop");
+  const subtitle = document.getElementById("locations-modal-subtitle");
+  const search = document.getElementById("locations-search");
+  if (!backdrop || !subtitle || !search) return;
+
+  filteredJobLocations = jobLocations;
+  subtitle.textContent = `${jobLocations.length} localidades registradas`;
+  search.value = "";
+  renderLocationsList(filteredJobLocations);
+  backdrop.style.display = "flex";
+}
+
+function closeLocationsModal() {
+  const backdrop = document.getElementById("locations-modal-backdrop");
+  if (backdrop) backdrop.style.display = "none";
 }
 
 // ── Export ────────────────────────────────────────────────
@@ -308,6 +467,22 @@ document.getElementById("page-first")?.addEventListener("click", () => renderPag
 document.getElementById("page-prev")?.addEventListener("click",  () => renderPage(currentPage - 1));
 document.getElementById("page-next")?.addEventListener("click",  () => renderPage(currentPage + 1));
 document.getElementById("page-last")?.addEventListener("click",  () => renderPage(Math.ceil(filteredLeads.length / PAGE_SIZE)));
+
+document.getElementById("locations-modal-close")?.addEventListener("click", closeLocationsModal);
+document.getElementById("locations-modal-backdrop")?.addEventListener("click", (e) => {
+  if (e.target?.id === "locations-modal-backdrop") closeLocationsModal();
+});
+document.getElementById("locations-search")?.addEventListener("input", (e) => {
+  const term = (e.target.value || "").toLowerCase().trim();
+  const subset = !term
+    ? jobLocations
+    : jobLocations.filter((loc) => (loc.location_label || "").toLowerCase().includes(term));
+  filteredJobLocations = sortJobLocations(subset);
+  renderLocationsList(filteredJobLocations);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeLocationsModal();
+});
 
 async function deleteLead(id, row) {
   const res = await fetch(`/api/leads/${id}`, { method: "DELETE" });

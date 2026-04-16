@@ -19,6 +19,106 @@
   .etab:last-child  { border-radius: 0 8px 8px 0; border-left: none; }
   .etab.on { background: #2563eb; color: white; border-color: #2563eb; font-weight: 500; }
   .etab:not(.on):hover { background: #f8fafc; }
+  .job-header-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .job-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: 999px;
+    padding: 8px 12px;
+    transition: all .15s ease;
+    white-space: nowrap;
+  }
+  .job-back-btn:hover {
+    background: #f1f5f9;
+    color: #334155;
+    border-color: #cbd5e1;
+  }
+  .job-main-box {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  /* Multi-localidad MapLeads: resumen + modal (alineado con mapleads/frontend/leads.html) */
+  .sl-loc-summary { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .sl-loc-topline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sl-loc-count { font-size: 12px; color: #64748b; font-weight: 600; }
+  .sl-loc-btn {
+    border: 1px solid #e2e8f0; background: #fff; color: #334155;
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .sl-loc-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .sl-loc-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .sl-loc-chip {
+    max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; font-weight: 500; color: #334155; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 999px; padding: 3px 9px;
+  }
+  .sl-loc-chip.sl-more { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+  @media (max-width: 640px) {
+    .sl-loc-chip { max-width: 170px; }
+  }
+  .sl-loc-backdrop {
+    position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
+    padding: 20px; background: rgba(15,23,42,.65); backdrop-filter: blur(2px);
+  }
+  .sl-loc-panel {
+    width: min(760px, 100%); max-height: min(78vh, 720px); background: #fff;
+    border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,.25);
+    display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0;
+  }
+  .sl-loc-panel-hd { display: flex; justify-content: space-between; gap: 12px; padding: 18px 20px 12px; border-bottom: 1px solid #f1f5f9; }
+  .sl-loc-panel-hd h3 { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
+  .sl-loc-panel-hd p { margin: 4px 0 0; font-size: 12px; color: #94a3b8; }
+  .sl-loc-close {
+    width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff;
+    color: #64748b; cursor: pointer; font-size: 14px; line-height: 1; flex-shrink: 0;
+  }
+  .sl-loc-close:hover { background: #f8fafc; color: #334155; }
+  .sl-loc-toolbar { padding: 12px 20px; border-bottom: 1px solid #f1f5f9; }
+  .sl-loc-search {
+    width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 9px 12px;
+    font-size: 13px; color: #334155; outline: none;
+  }
+  .sl-loc-search:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+  .sl-loc-list {
+    padding: 12px 20px 18px; overflow: auto; display: grid; gap: 10px; max-height: 52vh;
+  }
+  @media (min-width: 768px) { .sl-loc-list { grid-template-columns: 1fr 1fr; } }
+  .sl-loc-card {
+    border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; background: #fafbfc;
+    display: grid; gap: 8px;
+  }
+  .sl-loc-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .sl-loc-name { font-size: 13px; font-weight: 600; color: #0f172a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sl-loc-st { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 3px 8px; white-space: nowrap; }
+  .sl-loc-st.done { background: #d1fae5; color: #065f46; }
+  .sl-loc-st.running { background: #dbeafe; color: #1e40af; }
+  .sl-loc-st.failed { background: #fee2e2; color: #991b1b; }
+  .sl-loc-st.empty, .sl-loc-st.pending { background: #f1f5f9; color: #475569; }
+  .sl-loc-metrics { display: flex; gap: 14px; font-size: 12px; color: #64748b; }
+  .sl-loc-metrics strong { color: #0f172a; font-size: 13px; }
+  .sl-loc-empty {
+    margin: 12px 20px 20px; padding: 14px; border: 1px dashed #cbd5e1; border-radius: 10px;
+    text-align: center; font-size: 13px; color: #94a3b8; display: none;
+  }
 </style>
 {% endblock %}
 
@@ -66,26 +166,28 @@
 
     <div id="db-header-scrape" class="{% if not (initial_view == 'scrapeos' and job_id and job) %}hidden{% endif %}">
       {% set st = job.get('status', 'done') if job else 'done' %}
-      <div class="flex items-start gap-4 mb-6 flex-wrap">
+      <div class="job-header-layout">
         <button id="db-back-to-cards-btn" type="button"
-                class="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 transition mt-1 no-underline flex-shrink-0">
+                class="job-back-btn no-underline flex-shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
           </svg>
           Volver a scrapeos
         </button>
-        <div class="flex-1 min-w-0">
+        <div class="job-main-box">
+          <div class="flex-1 min-w-0">
           <h1 id="db-job-title" class="text-xl font-bold text-slate-800 truncate">{{ job.get('query') if job else '' | default('Job #' ~ (job_id | default(''))) }}</h1>
           <p class="text-sm text-slate-400 mt-0.5">
             <span id="db-job-location">{{ job.get('location', 'Sin ubicación') if job else 'Sin ubicación' }}</span>
             · <span id="db-job-date">{{ job.get('started_at') | format_date if job else '—' }}</span>
             · <span id="db-job-status-badge" class="text-xs px-1.5 py-0.5 rounded-full font-medium inline-block {{ status_classes.get(st, 'bg-slate-100 text-slate-600') }}">{{ status_labels.get(st, st) }}</span>
           </p>
+          <div id="db-job-locations-summary" class="sl-loc-summary" style="display:none"></div>
         </div>
         <div class="flex items-center gap-6 flex-shrink-0">
           <div class="text-center">
-            <div id="db-job-total" class="text-lg font-bold text-slate-800">{{ job.get('total', 0) if job else 0 }}</div>
-            <div class="text-[10px] text-slate-400">Negocios</div>
+            <div id="db-job-leads" class="text-lg font-bold text-slate-800">{{ job.get('progress', 0) if job else 0 }}</div>
+            <div class="text-[10px] text-slate-400">Leads</div>
           </div>
           <div class="text-center">
             <div id="db-job-emails" class="text-lg font-bold text-blue-600">{{ job.get('emails_found', 0) if job else 0 }}</div>
@@ -95,6 +197,7 @@
                   class="px-4 py-2 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition">
             Exportar CSV
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -153,8 +256,8 @@
             <div class="flex items-center justify-between pt-2 border-t border-slate-100">
               <div class="flex gap-4">
                 <div>
-                  <div class="text-base font-semibold text-slate-800">{{ j.get('total', 0) }}</div>
-                  <div class="text-[10px] text-slate-400">Negocios</div>
+                  <div class="text-base font-semibold text-slate-800">{{ j.get('progress', 0) }}</div>
+                  <div class="text-[10px] text-slate-400">Leads</div>
                 </div>
                 <div>
                   <div class="text-base font-semibold text-blue-600">{{ j.get('emails_found', 0) }}</div>
@@ -255,6 +358,24 @@
     </div>
   </div>
 
+  <!-- MapLeads: localidades del scrapeo (multi_locality) -->
+  <div id="sl-locations-backdrop" class="sl-loc-backdrop" aria-hidden="true">
+    <div class="sl-loc-panel" role="dialog" aria-modal="true" aria-labelledby="sl-locations-title">
+      <div class="sl-loc-panel-hd">
+        <div>
+          <h3 id="sl-locations-title">Localidades del scrapeo</h3>
+          <p id="sl-locations-subtitle">—</p>
+        </div>
+        <button type="button" id="sl-locations-close" class="sl-loc-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="sl-loc-toolbar">
+        <input id="sl-locations-search" type="search" class="sl-loc-search" placeholder="Buscar localidad…" autocomplete="off" />
+      </div>
+      <div id="sl-locations-list" class="sl-loc-list"></div>
+      <p id="sl-locations-empty" class="sl-loc-empty">No hay localidades que coincidan con la búsqueda.</p>
+    </div>
+  </div>
+
   <!-- Export modal -->
   <div id="export-modal"
        class="fixed inset-0 z-50 flex items-center justify-center"
@@ -347,6 +468,7 @@ function setDbViewUi(view) {
     if (backBtn) backBtn.classList.add('hidden');
     if (leadsSection) leadsSection.classList.remove('hidden');
     highlightSelectedJobUi(null);
+    clearJobLocationsSummary();
     return;
   }
 
@@ -358,6 +480,7 @@ function setDbViewUi(view) {
     if (backBtn) backBtn.classList.add('hidden');
     if (leadsSection) leadsSection.classList.add('hidden');
     highlightSelectedJobUi(null);
+    clearJobLocationsSummary();
     return;
   }
 
@@ -408,9 +531,9 @@ function updateJobHeaderUi(job) {
   const locationEl = document.getElementById('db-job-location');
   const dateEl = document.getElementById('db-job-date');
   const badgeEl = document.getElementById('db-job-status-badge');
-  const totalEl = document.getElementById('db-job-total');
+  const leadsEl = document.getElementById('db-job-leads');
   const emailsEl = document.getElementById('db-job-emails');
-  if (!titleEl || !badgeEl || !totalEl || !emailsEl) return;
+  if (!titleEl || !badgeEl || !leadsEl || !emailsEl) return;
   const safeJobId = job?.job_id ? `Job #${job.job_id}` : 'Job #—';
   titleEl.textContent = job?.query ? String(job.query) : safeJobId;
   if (locationEl) locationEl.textContent = job?.location ? String(job.location) : 'Sin ubicación';
@@ -426,8 +549,9 @@ function updateJobHeaderUi(job) {
   const status = job?.status || 'done';
   badgeEl.className = `text-xs px-1.5 py-0.5 rounded-full font-medium inline-block ${classes[status] || 'bg-slate-100 text-slate-600'}`;
   badgeEl.textContent = labels[status] || String(status);
-  totalEl.textContent = Number(job?.total ?? 0);
+  leadsEl.textContent = Number(job?.progress ?? 0);
   emailsEl.textContent = Number(job?.emails_found ?? 0);
+  void refreshJobLocationsSummary(job);
 }
 
 function setUrlJobId(jobId) {
@@ -477,6 +601,129 @@ function setFpill(btn) {
 }
 
 function escHtml(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function mlEscAttr(str) { return escHtml(str).replace(/"/g, '&quot;'); }
+
+let mlJobLocations = [];
+let mlFilteredJobLocations = [];
+
+function mlLocationStatusRank(status) {
+  const s = (status || '').toLowerCase();
+  if (s === 'running') return 0;
+  if (s === 'failed') return 1;
+  if (s === 'empty') return 2;
+  if (s === 'pending') return 3;
+  if (s === 'done') return 4;
+  return 5;
+}
+function mlSortJobLocations(rows) {
+  return [...rows].sort((a, b) => {
+    const ra = mlLocationStatusRank(a.status);
+    const rb = mlLocationStatusRank(b.status);
+    if (ra !== rb) return ra - rb;
+    return (a.location_label || '').localeCompare(b.location_label || '', 'es', { sensitivity: 'base' });
+  });
+}
+function mlLocStatusLabel(status) {
+  if (status === 'done') return 'Completada';
+  if (status === 'running') return 'En curso';
+  if (status === 'failed') return 'Fallida';
+  if (status === 'empty') return 'Sin resultados';
+  if (status === 'pending') return 'Pendiente';
+  return status || '—';
+}
+function mlLocStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s === 'done') return 'done';
+  if (s === 'running') return 'running';
+  if (s === 'failed') return 'failed';
+  if (s === 'empty') return 'empty';
+  return 'pending';
+}
+
+function clearJobLocationsSummary() {
+  mlJobLocations = [];
+  mlFilteredJobLocations = [];
+  const c = document.getElementById('db-job-locations-summary');
+  if (c) { c.innerHTML = ''; c.style.display = 'none'; }
+  closeSlLocationsModal();
+}
+
+async function refreshJobLocationsSummary(job) {
+  const container = document.getElementById('db-job-locations-summary');
+  if (!container || !currentJobId) { if (container) container.style.display = 'none'; return; }
+  const mode = job?.mode || '';
+  const nLoc = Number(job?.total_locations) || 0;
+  const isMulti = mode === 'multi_locality' || nLoc > 1;
+  if (!isMulti) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}/locations`);
+    if (!res.ok) { container.style.display = 'none'; return; }
+    mlJobLocations = mlSortJobLocations(await res.json());
+    mlFilteredJobLocations = mlJobLocations;
+    const total = mlJobLocations.length;
+    const preview = mlJobLocations.slice(0, 3);
+    const extra = Math.max(0, total - preview.length);
+    const chipsHtml = preview.map(loc => `<span class="sl-loc-chip" title="${mlEscAttr(loc.location_label)}">${escHtml(loc.location_label)}</span>`).join('');
+    container.innerHTML = `
+      <div class="sl-loc-topline">
+        <span class="sl-loc-count">${total} localidades</span>
+        <button type="button" class="sl-loc-btn sl-open-locations">Ver localidades</button>
+      </div>
+      <div class="sl-loc-chips">${chipsHtml}${extra > 0 ? `<span class="sl-loc-chip sl-more">+${extra}</span>` : ''}</div>
+    `;
+    container.style.display = 'flex';
+    container.querySelector('.sl-open-locations')?.addEventListener('click', (e) => { e.preventDefault(); openSlLocationsModal(); });
+  } catch (_) {
+    container.style.display = 'none';
+  }
+}
+
+function mlRenderLocationsList(rows) {
+  const list = document.getElementById('sl-locations-list');
+  const empty = document.getElementById('sl-locations-empty');
+  if (!list || !empty) return;
+  if (!rows.length) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = rows.map(loc => `
+    <div class="sl-loc-card">
+      <div class="sl-loc-row1">
+        <div class="sl-loc-name" title="${mlEscAttr(loc.location_label)}">${escHtml(loc.location_label)}</div>
+        <span class="sl-loc-st ${mlLocStatusClass(loc.status)}">${escHtml(mlLocStatusLabel(loc.status))}</span>
+      </div>
+      <div class="sl-loc-metrics">
+        <span><strong>${loc.leads_found ?? 0}</strong> negocios</span>
+        <span><strong>${loc.emails_found ?? 0}</strong> emails</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openSlLocationsModal() {
+  const bd = document.getElementById('sl-locations-backdrop');
+  const sub = document.getElementById('sl-locations-subtitle');
+  const search = document.getElementById('sl-locations-search');
+  if (!bd || !sub || !search) return;
+  mlFilteredJobLocations = mlJobLocations;
+  sub.textContent = `${mlJobLocations.length} localidades registradas`;
+  search.value = '';
+  mlRenderLocationsList(mlFilteredJobLocations);
+  bd.style.display = 'flex';
+  bd.setAttribute('aria-hidden', 'false');
+}
+
+function closeSlLocationsModal() {
+  const bd = document.getElementById('sl-locations-backdrop');
+  if (bd) { bd.style.display = 'none'; bd.setAttribute('aria-hidden', 'true'); }
+}
+
 function safeText(value, fallback = '—') { if (value === null || value === undefined) return fallback; const text = String(value).trim(); return text ? text : fallback; }
 function toSafeHttpUrl(value) { if (!value) return null; try { const parsed = new URL(String(value), window.location.origin); if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null; return parsed.href; } catch (_) { return null; } }
 function emailStatusClass(status) { if (status === 'valid') return 'text-green-600 font-medium'; if (status === 'invalid') return 'text-red-500'; return 'text-slate-400'; }
@@ -560,7 +807,26 @@ async function reloadLeads() { await reloadLeadsForMode(dbView); }
 async function deleteLead(id) { const res = await fetch(`/api/leads/${id}`, { method: 'DELETE' }); if (res.ok) { allLeads = allLeads.filter(l => l.id !== id); delete _leadMap[id]; applyFilters(true); } }
 
 let _exportMode = 'all';
-function setExportTab(mode) { _exportMode = mode; document.getElementById('et-all').classList.toggle('on', mode === 'all'); document.getElementById('et-num').classList.toggle('on', mode === 'num'); document.getElementById('export-num-section').style.display = mode === 'num' ? 'block' : 'none'; if (mode === 'num') { const inp = document.getElementById('export-limit'); inp.max = filteredLeads.length; document.getElementById('export-limit-max').textContent = `máx ${filteredLeads.length}`; validateExportLimit(); } }
+function setExportTab(mode) {
+  _exportMode = mode;
+  document.getElementById('et-all').classList.toggle('on', mode === 'all');
+  document.getElementById('et-num').classList.toggle('on', mode === 'num');
+  document.getElementById('export-num-section').style.display = mode === 'num' ? 'block' : 'none';
+  if (mode === 'num') {
+    const inp = document.getElementById('export-limit');
+    inp.max = filteredLeads.length;
+    document.getElementById('export-limit-max').textContent = `máx ${filteredLeads.length}`;
+    validateExportLimit();
+  } else {
+    const btn = document.getElementById('export-confirm-btn');
+    const err = document.getElementById('export-limit-error');
+    if (err) err.classList.add('hidden');
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+  }
+}
 function validateExportLimit() { const inp = document.getElementById('export-limit'); const err = document.getElementById('export-limit-error'); const btn = document.getElementById('export-confirm-btn'); const val = parseInt(inp.value); const max = filteredLeads.length; if (isNaN(val) || val <= 0) { err.textContent = 'Introduce un número mayor que 0.'; err.classList.remove('hidden'); btn.disabled = true; btn.classList.add('opacity-50','cursor-not-allowed'); return false; } if (val > max) { err.textContent = `Solo hay ${max} leads disponibles.`; err.classList.remove('hidden'); inp.value = max; btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); return false; } err.classList.add('hidden'); btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); return true; }
 function buildCsvBlob(leads) { const cols = ['Nombre','Dirección','Teléfono','Web','Email','Estado email','Categoría','Rating','URL Maps','Fecha']; const keys = ['business_name','address','phone','website','email','email_status','category','rating','maps_url','scraped_at']; const esc = v => `"${(v ?? '').toString().replace(/"/g,'""')}"`; const rows = leads.map(l => keys.map(k => esc(l[k])).join(',')); return new Blob(['\uFEFF' + [cols.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' }); }
 function doExport() { _exportMode = 'all'; document.getElementById('et-all').classList.add('on'); document.getElementById('et-num').classList.remove('on'); document.getElementById('export-num-section').style.display = 'none'; document.getElementById('export-limit').value = ''; document.getElementById('export-limit-error').classList.add('hidden'); const btn = document.getElementById('export-confirm-btn'); btn.disabled = false; btn.classList.remove('opacity-50','cursor-not-allowed'); const info = document.getElementById('export-modal-info'); if (info) info.textContent = `${filteredLeads.length} leads con los filtros actuales`; document.getElementById('export-modal').style.display = 'flex'; }
@@ -627,8 +893,12 @@ document.getElementById('db-scrapeos-jobs')?.addEventListener('click', (e) => {
   currentJobId = jobId; setUrlJobId(jobId);
   setDbView('scrapeos').then(async () => {
     await reloadLeadsForMode('scrapeos');
-    const selectedJob = findJobFromPayload(jobId);
-    if (selectedJob) { updateJobHeaderUi(selectedJob); } else { try { const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`); if (res.ok) { const job = await res.json(); updateJobHeaderUi(job); } } catch (_) {} }
+    let merged = findJobFromPayload(jobId) || {};
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+      if (res.ok) merged = { ...merged, ...(await res.json()) };
+    } catch (_) {}
+    if (merged && (merged.job_id || merged.query || merged.location)) updateJobHeaderUi(merged);
     document.getElementById('db-leads-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
@@ -642,7 +912,33 @@ document.getElementById('export-close-x-btn')?.addEventListener('click', closeEx
 document.getElementById('export-cancel-btn')?.addEventListener('click', closeExportModal);
 document.getElementById('lead-modal')?.addEventListener('click', e => { if (e.target?.id === 'lead-modal') closeLeadModal(); });
 
+document.getElementById('sl-locations-close')?.addEventListener('click', closeSlLocationsModal);
+document.getElementById('sl-locations-backdrop')?.addEventListener('click', (e) => {
+  if (e.target?.id === 'sl-locations-backdrop') closeSlLocationsModal();
+});
+document.getElementById('sl-locations-search')?.addEventListener('input', (e) => {
+  const term = (e.target.value || '').toLowerCase().trim();
+  const subset = !term ? mlJobLocations : mlJobLocations.filter((loc) => (loc.location_label || '').toLowerCase().includes(term));
+  mlFilteredJobLocations = mlSortJobLocations(subset);
+  mlRenderLocationsList(mlFilteredJobLocations);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const bd = document.getElementById('sl-locations-backdrop');
+  if (bd && bd.style.display === 'flex') closeSlLocationsModal();
+});
+
 setDbViewUi(DB_INITIAL_VIEW);
 applyFilters();
+
+(async function initJobLocationsUi() {
+  if (!currentJobId) return;
+  let job = findJobFromPayload(currentJobId) || {};
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}`);
+    if (res.ok) job = { ...job, ...(await res.json()) };
+  } catch (_) {}
+  if (job && (job.job_id || currentJobId)) await refreshJobLocationsSummary(job);
+})();
 </script>
 {% endblock %}

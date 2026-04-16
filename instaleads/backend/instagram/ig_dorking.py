@@ -27,6 +27,7 @@ import unicodedata
 from curl_cffi.requests import AsyncSession
 
 logger = logging.getLogger(__name__)
+_last_discovery_report: dict[str, object] = {}
 
 _USERNAME_RE = re.compile(r"instagram\.com/([A-Za-z0-9_.]{2,30})(?:[/?#\"'\s<]|$)")
 
@@ -339,6 +340,11 @@ async def _discover_via_bing(
     return all_usernames[:max_results]
 
 
+def get_last_discovery_report() -> dict[str, object]:
+    """Return the latest discovery diagnostics for observability."""
+    return dict(_last_discovery_report)
+
+
 # ── Strategy 3: Hashtag-based fallback ──────────────────────────────────────
 
 async def _fetch_profile_exists(session: AsyncSession, username: str) -> bool:
@@ -397,22 +403,34 @@ async def _discover_via_hashtags(
 async def _discover_via_hashtag_api(niche: str, location: str, max_results: int) -> list[str]:
     """
     Use instagrapi to find users via hashtag search.
-    Generates relevant hashtags and extracts usernames from recent posts.
+    Uses single session if active, or falls back to pool account if available.
     """
     from backend.instagram import ig_session
+    from backend.instagram.ig_account_pool import account_pool
 
-    if not ig_session.is_logged_in():
-        logger.debug("Hashtag API requires authenticated session — skipping")
+    cl = None
+    limiter = None
+
+    if ig_session.is_logged_in():
+        from backend.instagram.ig_rate_limiter import auth_limiter
+        cl = ig_session.get_client()
+        limiter = auth_limiter
+    elif not account_pool.is_empty():
+        try:
+            cl, limiter, pool_user = await account_pool.get_next_client()
+            logger.info("Hashtag API: using pool account %s", pool_user)
+        except Exception as exc:
+            logger.info("Hashtag API: pool unavailable (%s) — skipping", exc)
+            return []
+    else:
+        logger.info("Hashtag API requires authenticated session — skipping (no session active)")
         return []
-
-    from backend.instagram.ig_rate_limiter import auth_limiter
 
     logger.info("Discovering usernames via hashtag API for '%s %s'", niche, location)
     all_usernames: list[str] = []
     seen: set[str] = set()
 
     try:
-        cl = ig_session.get_client()
         hashtags = _build_hashtag_candidates(niche, location)
 
         for hashtag in hashtags[:5]:  # Try top 5 hashtags
@@ -420,7 +438,7 @@ async def _discover_via_hashtag_api(niche: str, location: str, max_results: int)
                 break
 
             try:
-                await auth_limiter.wait()
+                await limiter.wait()
                 medias = cl.hashtag_medias_recent(hashtag, amount=30)
 
                 for media in medias:
@@ -449,28 +467,40 @@ async def _discover_via_location_api(niche: str, location: str, max_results: int
     """
     Use instagrapi to find users by location.
     Searches location ID and extracts usernames from recent posts.
+    Uses single session if active, or falls back to pool account if available.
     """
     from backend.instagram import ig_session
-
-    if not ig_session.is_logged_in():
-        logger.debug("Location API requires authenticated session — skipping")
-        return []
-
-    from backend.instagram.ig_rate_limiter import auth_limiter
-
-    logger.info("Discovering usernames via location API for '%s'", location)
-    all_usernames: list[str] = []
-    seen: set[str] = set()
+    from backend.instagram.ig_account_pool import account_pool
 
     if not location.strip():
         logger.debug("Location not provided — skipping location API")
         return []
 
-    try:
-        cl = ig_session.get_client()
+    cl = None
+    limiter = None
 
+    if ig_session.is_logged_in():
+        from backend.instagram.ig_rate_limiter import auth_limiter
+        cl = ig_session.get_client()
+        limiter = auth_limiter
+    elif not account_pool.is_empty():
+        try:
+            cl, limiter, pool_user = await account_pool.get_next_client()
+            logger.info("Location API: using pool account %s", pool_user)
+        except Exception as exc:
+            logger.info("Location API: pool unavailable (%s) — skipping", exc)
+            return []
+    else:
+        logger.info("Location API requires authenticated session — skipping (no session active)")
+        return []
+
+    logger.info("Discovering usernames via location API for '%s'", location)
+    all_usernames: list[str] = []
+    seen: set[str] = set()
+
+    try:
         # Search for location ID
-        await auth_limiter.wait()
+        await limiter.wait()
         locations = cl.search_location(location)
 
         if not locations:
@@ -481,7 +511,7 @@ async def _discover_via_location_api(niche: str, location: str, max_results: int
         location_id = locations[0].pk
 
         # Get recent medias at this location
-        await auth_limiter.wait()
+        await limiter.wait()
         medias = cl.location_medias_recent(location_id, amount=50)
 
         niche_lower = niche.lower()
@@ -538,15 +568,46 @@ async def find_usernames(target: str, max_results: int = 50) -> list[str]:
     logger.info("🔍 DORKING DISCOVERY PIPELINE: niche='%s' | location='%s' | max=%d", niche, location, max_results)
     logger.info("=" * 70)
 
+    global _last_discovery_report
+
+    from backend.instagram import ig_session as _ig_session_mod
+    session_active = _ig_session_mod.is_logged_in()
+
+    report: dict[str, object] = {
+        "target": target,
+        "max_results": max_results,
+        "google_count": 0,
+        "duckduckgo_count": 0,
+        "hashtag_api_count": 0,
+        "hashtag_api_skipped": not session_active,
+        "location_api_count": 0,
+        "location_api_skipped": not session_active,
+        "hashtag_fallback_count": 0,
+        "degraded": False,
+        "session_active": session_active,
+        "last_error": None,
+    }
+
     # Strategy 1: Google CSE (best quality, requires API key)
     logger.info("[1/5] Attempting Google CSE discovery...")
-    usernames = await _discover_via_google(niche, location, max_results)
+    try:
+        usernames = await _discover_via_google(niche, location, max_results)
+    except Exception as exc:
+        logger.warning("Google discovery failed: %s", exc)
+        usernames = []
+        report["last_error"] = f"google_failed: {exc}"
+    report["google_count"] = len(usernames)
     seen = set(usernames)
 
     # Strategy 2: DuckDuckGo web scraping (no API key needed, always available)
     if len(usernames) < max_results * 0.5:
         logger.info("[2/5] Google CSE insufficient (%d/%d) — trying DuckDuckGo...", len(usernames), max_results)
-        ddg_results = await _discover_via_duckduckgo(niche, location, max_results - len(usernames))
+        try:
+            ddg_results = await _discover_via_duckduckgo(niche, location, max_results - len(usernames))
+        except Exception as exc:
+            logger.warning("DuckDuckGo/Bing discovery failed: %s", exc)
+            ddg_results = []
+            report["last_error"] = f"duckduckgo_failed: {exc}"
         added = 0
         for u in ddg_results:
             if u not in seen:
@@ -554,13 +615,19 @@ async def find_usernames(target: str, max_results: int = 50) -> list[str]:
                 usernames.append(u)
                 added += 1
         logger.info("     DuckDuckGo added %d new usernames (total: %d)", added, len(usernames))
+        report["duckduckgo_count"] = added
     else:
         logger.info("[2/5] Skipping DuckDuckGo (Google CSE sufficient)")
 
     # Strategy 3: Hashtag API if session available
     if len(usernames) < max_results * 0.5:
         logger.info("[3/5] Under 50%% quota — trying Hashtag API...")
-        hashtag_results = await _discover_via_hashtag_api(niche, location, max_results - len(usernames))
+        try:
+            hashtag_results = await _discover_via_hashtag_api(niche, location, max_results - len(usernames))
+        except Exception as exc:
+            logger.warning("Hashtag API discovery failed: %s", exc)
+            hashtag_results = []
+            report["last_error"] = f"hashtag_api_failed: {exc}"
         added = 0
         for u in hashtag_results:
             if u not in seen:
@@ -568,13 +635,19 @@ async def find_usernames(target: str, max_results: int = 50) -> list[str]:
                 usernames.append(u)
                 added += 1
         logger.info("     Hashtag API added %d new usernames (total: %d)", added, len(usernames))
+        report["hashtag_api_count"] = added
     else:
         logger.info("[3/5] Skipping Hashtag API (quota sufficient)")
 
     # Strategy 4: Location API if session available and location given
     if location and len(usernames) < max_results:
         logger.info("[4/5] Trying Location API for '%s'...", location)
-        location_results = await _discover_via_location_api(niche, location, max_results - len(usernames))
+        try:
+            location_results = await _discover_via_location_api(niche, location, max_results - len(usernames))
+        except Exception as exc:
+            logger.warning("Location API discovery failed: %s", exc)
+            location_results = []
+            report["last_error"] = f"location_api_failed: {exc}"
         added = 0
         for u in location_results:
             if u not in seen:
@@ -582,13 +655,19 @@ async def find_usernames(target: str, max_results: int = 50) -> list[str]:
                 usernames.append(u)
                 added += 1
         logger.info("     Location API added %d new usernames (total: %d)", added, len(usernames))
+        report["location_api_count"] = added
     else:
         logger.info("[4/5] Skipping Location API (%s)", "no location" if not location else "quota met")
 
     # Strategy 5: Hashtag pattern fallback if still very few results
     if len(usernames) < 5:
         logger.info("[5/5] Very few results (%d) — using Hashtag Pattern Fallback...", len(usernames))
-        fallback_results = await _discover_via_hashtags(niche, location, max_results - len(usernames))
+        try:
+            fallback_results = await _discover_via_hashtags(niche, location, max_results - len(usernames))
+        except Exception as exc:
+            logger.warning("Hashtag fallback failed: %s", exc)
+            fallback_results = []
+            report["last_error"] = f"hashtag_fallback_failed: {exc}"
         added = 0
         for u in fallback_results:
             if u not in seen:
@@ -596,10 +675,16 @@ async def find_usernames(target: str, max_results: int = 50) -> list[str]:
                 usernames.append(u)
                 added += 1
         logger.info("     Hashtag Fallback added %d usernames (total: %d)", added, len(usernames))
+        report["hashtag_fallback_count"] = added
     else:
         logger.info("[5/5] Skipping Hashtag Fallback (have %d usernames)", len(usernames))
 
     logger.info("=" * 70)
     logger.info("✅ DISCOVERY COMPLETE: Found %d usernames for target '%s'", len(usernames), target)
     logger.info("=" * 70)
+    report["total"] = len(usernames)
+    report["degraded"] = len(usernames) == 0
+    if report["degraded"] and not report.get("last_error"):
+        report["last_error"] = "no_results_from_any_strategy"
+    _last_discovery_report = report
     return usernames[:max_results]

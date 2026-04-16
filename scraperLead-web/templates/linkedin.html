@@ -157,6 +157,34 @@
       <p id="li-progress-detail" class="text-xs text-slate-500"></p>
     </div>
 
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mt-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-sm font-semibold text-slate-700">Resumen operativo</p>
+        <span id="li-summary-account" class="text-xs text-slate-400">Sin cuenta seleccionada</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+        <div class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+          <p class="text-[11px] text-slate-400">En cola</p>
+          <p id="li-summary-pending" class="text-sm font-semibold text-slate-700">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+          <p class="text-[11px] text-slate-400">Procesados</p>
+          <p id="li-summary-done" class="text-sm font-semibold text-slate-700">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+          <p class="text-[11px] text-slate-400">Errores</p>
+          <p id="li-summary-errors" class="text-sm font-semibold text-slate-700">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+          <p class="text-[11px] text-slate-400">Total cola</p>
+          <p id="li-summary-total" class="text-sm font-semibold text-slate-700">—</p>
+        </div>
+      </div>
+      <div id="li-summary-last-run" class="text-xs text-slate-500 leading-5">
+        Sin ejecuciones recientes en esta sesión.
+      </div>
+    </div>
+
   </div>
 
   <!-- ── CUENTAS ─────────────────────────────────────────────────────── -->
@@ -298,7 +326,7 @@
 
 {% block scripts %}
 <script type="module">
-  import { initLinkedInForm } from '{{ url_for("static", path="js/modules/linkedin-form.js") }}?v=6';
+  import { initLinkedInForm } from '{{ url_for("static", path="js/modules/linkedin-form.js") }}?v=7';
   initLinkedInForm();
 </script>
 {% endblock %}

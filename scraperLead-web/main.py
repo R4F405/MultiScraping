@@ -12,13 +12,19 @@ from fastapi.templating import Jinja2Templates
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+
 MAPLEADS_URL = os.getenv("MAPLEADS_API_URL", "http://localhost:8001").rstrip("/")
 INSTALEADS_URL = os.getenv("INSTALEADS_API_URL", "http://localhost:8002").rstrip("/")
 LINKEDINLEADS_URL = os.getenv("LINKEDINLEADS_API_URL", "http://localhost:8003").rstrip("/")
+TIKTOKLEADS_URL = os.getenv("TIKTOKLEADS_API_URL", "http://localhost:8004").rstrip("/")
+MAPLEADS_API_KEY = os.getenv("MAPLEADS_API_KEY", "").strip()
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 # ── Jinja2 custom filters ────────────────────────────────────────────────────
@@ -65,8 +71,11 @@ templates.env.globals["format_duration"] = format_duration
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 async def fetch_json(url: str, params: dict | None = None, timeout: float = 10.0) -> dict | list:
+    headers = {}
+    if MAPLEADS_API_KEY and url.startswith(MAPLEADS_URL):
+        headers["X-API-Key"] = MAPLEADS_API_KEY
     async with httpx.AsyncClient() as client:
-        r = await client.get(url, params=params, timeout=timeout)
+        r = await client.get(url, params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
 
@@ -225,9 +234,10 @@ async def databases(request: Request):
     proxy_task = safe_fetch(f"{MAPLEADS_URL}/api/proxy/status", timeout=5.0)
     ig_stats_task = safe_fetch(f"{INSTALEADS_URL}/api/instagram/stats", timeout=5.0)
     li_stats_task = safe_fetch(f"{LINKEDINLEADS_URL}/api/linkedin/stats", timeout=5.0)
+    tt_stats_task = safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/stats", timeout=5.0)
 
-    (stats, _), (proxy_status, _), (ig_data, _), (li_data, _) = await asyncio.gather(
-        ml_stats_task, proxy_task, ig_stats_task, li_stats_task
+    (stats, _), (proxy_status, _), (ig_data, _), (li_data, _), (tt_data, _) = await asyncio.gather(
+        ml_stats_task, proxy_task, ig_stats_task, li_stats_task, tt_stats_task
     )
 
     stats = stats or {}
@@ -240,12 +250,17 @@ async def databases(request: Request):
     if li_data and isinstance(li_data, dict):
         linkedin_stats = li_data
 
+    tiktok_stats = {}
+    if tt_data and isinstance(tt_data, dict):
+        tiktok_stats = tt_data
+
     return templates.TemplateResponse("databases.html", {
         "request": request,
         "stats": stats,
         "proxy_status": proxy_status,
         "instagram_stats": instagram_stats,
         "linkedin_stats": linkedin_stats,
+        "tiktok_stats": tiktok_stats,
     })
 
 
@@ -325,6 +340,8 @@ async def _proxy_to(target_url: str, request: Request) -> Response:
 
     allowed_headers = {"accept", "content-type"}
     headers = {k: v for k, v in request.headers.items() if k.lower() in allowed_headers}
+    if MAPLEADS_API_KEY and target_url.startswith(f"{MAPLEADS_URL}/"):
+        headers["X-API-Key"] = MAPLEADS_API_KEY
 
     async with httpx.AsyncClient() as client:
         try:
@@ -370,6 +387,26 @@ async def api_search(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/search", request)
 
 
+@app.get("/api/maps/categories")
+async def api_maps_categories(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories", request)
+
+
+@app.post("/api/maps/categories/sync")
+async def api_maps_categories_sync(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync", request)
+
+
+@app.get("/api/maps/categories/sync/status")
+async def api_maps_categories_sync_status(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync/status", request)
+
+
+@app.get("/api/maps/categories/sync/report")
+async def api_maps_categories_sync_report(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync/report", request)
+
+
 @app.get("/api/leads")
 async def api_leads(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/leads", request)
@@ -383,6 +420,11 @@ async def api_delete_lead(lead_id: str, request: Request):
 @app.get("/api/jobs/{job_id}")
 async def api_job(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}", request)
+
+
+@app.get("/api/jobs/{job_id}/locations")
+async def api_job_locations(job_id: str, request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}/locations", request)
 
 
 @app.get("/api/export/{job_id}")
@@ -478,6 +520,70 @@ async def ig_accounts_relogin(username: str, request: Request):
 
 
 
+@app.get("/tiktok")
+async def tiktok_page(request: Request):
+    health, health_state = await safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/health", timeout=5.0)
+    health = health or {"status": "unknown"}
+    state = "ok"
+    message = None
+    if health_state == "timeout":
+        state = "timeout"
+        message = "El backend de TikTok no responde. Asegúrate de que TikTokLeads está corriendo en el puerto 8004."
+    elif health_state == "upstream_error":
+        state = "upstream_error"
+        message = "No se pudo cargar el estado de TikTok."
+
+    recent_jobs = []
+    if state == "ok":
+        jobs, _ = await safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/jobs", {"limit": 3}, timeout=5.0)
+        recent_jobs = jobs or []
+
+    return templates.TemplateResponse("tiktok.html", {
+        "request": request,
+        "health": health,
+        "recent_jobs": recent_jobs,
+        "state": state,
+        "message": message,
+    })
+
+
+@app.get("/tiktok/leads")
+async def tiktok_leads(request: Request, job_id: str | None = Query(default=None)):
+    leads_limit = 1000
+    if job_id:
+        job_data, _ = await safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/jobs/{job_id}", timeout=8.0)
+        if isinstance(job_data, dict) and isinstance(job_data.get("total"), (int, float)):
+            leads_limit = max(1, min(int(job_data["total"]) * 5, 3000))
+
+    leads_params: dict[str, str | int] = {"limit": leads_limit}
+    if job_id:
+        leads_params["job_id"] = job_id
+
+    leads_data, leads_state = await safe_fetch(
+        f"{TIKTOKLEADS_URL}/api/tiktok/leads",
+        params=leads_params,
+        timeout=15.0,
+    )
+    jobs_data, jobs_state = await safe_fetch(
+        f"{TIKTOKLEADS_URL}/api/tiktok/jobs",
+        params={"limit": 200},
+        timeout=10.0,
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="tiktok_leads.html",
+        context={
+            "request": request,
+            "job_id": job_id,
+            "leads": leads_data or [],
+            "jobs": jobs_data or [],
+            "leads_state": leads_state,
+            "jobs_state": jobs_state,
+        },
+    )
+
+
 @app.get("/linkedin")
 async def linkedin_page(request: Request):
     health, health_state = await safe_fetch(f"{LINKEDINLEADS_URL}/api/linkedin/health", timeout=5.0)
@@ -553,6 +659,48 @@ async def li_accounts_delete(username: str, request: Request):
 @app.get("/api/linkedin/accounts/{username}/stats")
 async def li_account_stats(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}/stats", request)
+
+
+# ── Proxy routes: TikTok → localhost:8004 ────────────────────────────────────
+
+@app.get("/api/tiktok/health")
+async def tt_health(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/health", request)
+
+
+@app.get("/api/tiktok/stats")
+async def tt_stats(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/stats", request)
+
+
+@app.get("/api/tiktok/limits")
+async def tt_limits(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/limits", request)
+
+
+@app.post("/api/tiktok/search")
+async def tt_search(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/search", request)
+
+
+@app.get("/api/tiktok/jobs")
+async def tt_jobs(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/jobs", request)
+
+
+@app.get("/api/tiktok/jobs/{job_id}")
+async def tt_job(job_id: str, request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/jobs/{job_id}", request)
+
+
+@app.get("/api/tiktok/leads")
+async def tt_leads(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/leads", request)
+
+
+@app.get("/api/tiktok/export/{job_id}")
+async def tt_export(job_id: str, request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/export/{job_id}", request)
 
 
 @app.get("/api/instagram/avatar")

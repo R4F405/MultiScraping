@@ -1,7 +1,7 @@
 import asyncio
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from backend.config.settings import settings
 from backend.storage import database
@@ -117,11 +117,8 @@ class AuthLimiter:
 
 
 def _seconds_until_midnight() -> int:
-    now = datetime.now()
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Next midnight
-    from datetime import timedelta
-    next_midnight = midnight + timedelta(days=1)
+    now = datetime.now(timezone.utc)
+    next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return int((next_midnight - now).total_seconds())
 
 
