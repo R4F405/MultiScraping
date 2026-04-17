@@ -76,7 +76,12 @@ class LeadResponse(BaseModel):
     website: str | None
     email: str | None
     email_status: str | None
+    email_reason: str | None = None
     category: str | None
     rating: float | None
     maps_url: str | None
     scraped_at: str | None
+
+
+class EmailProbeRequest(BaseModel):
+    url: str = Field(description="Website URL to probe for contact emails")

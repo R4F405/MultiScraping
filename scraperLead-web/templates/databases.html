@@ -107,7 +107,7 @@
     </a>
 
     <!-- TikTok -->
-    <a href="/tiktok/leads" class="group bg-white rounded-2xl border border-slate-200 p-6 flex flex-col gap-4 hover:border-slate-400 hover:shadow-md transition-all no-underline">
+    <a href="/tiktok" class="group bg-white rounded-2xl border border-slate-200 p-6 flex flex-col gap-4 hover:border-slate-400 hover:shadow-md transition-all no-underline">
       <div class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-xl bg-slate-900 flex items-center justify-center flex-shrink-0">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
@@ -117,17 +117,11 @@
         <div class="font-semibold text-slate-800">TikTok</div>
       </div>
       <div>
-        <div class="text-3xl font-bold text-slate-900">{{ (tiktok_stats.get('total_leads', 0) or 0) | format_number }}</div>
-        <div class="text-sm text-slate-400 mt-0.5">Emails encontrados</div>
-        {% set tt_skipped = tiktok_stats.get('total_skipped', 0) or 0 %}
-        {% if tt_skipped %}
-        <div class="flex gap-3 mt-2">
-          <span class="text-xs text-slate-500">{{ tt_skipped | format_number }} omitidos</span>
-        </div>
-        {% endif %}
+        <div class="text-lg font-bold text-slate-900">Scraper en construcción</div>
+        <div class="text-sm text-slate-400 mt-0.5">Sin extracción activa ni base de datos disponible</div>
       </div>
       <div class="flex items-center gap-1 text-slate-700 text-sm font-medium group-hover:gap-2 transition-all">
-        Ver base de datos
+        Ver estado
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
         </svg>

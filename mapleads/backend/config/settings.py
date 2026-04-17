@@ -53,6 +53,8 @@ class Settings:
 
     # Optional: render homepage with Playwright when curl finds no emails (SPAs; requires `pip install playwright`).
     email_scraper_use_playwright: bool
+    # Force website email discovery without proxies (helps diagnose proxy/network issues).
+    email_scraper_force_direct: bool
 
     # API authentication (optional — leave empty to disable, useful for local dev)
     # Set API_KEY in .env to require X-API-Key header on all API requests
@@ -89,6 +91,9 @@ def _load_settings() -> Settings:
         email_dns_accept_a=os.getenv("EMAIL_DNS_ACCEPT_A", "0").strip().lower() in ("1", "true", "yes"),
         email_scraper_use_playwright=(
             os.getenv("EMAIL_SCRAPER_USE_PLAYWRIGHT", "0").strip().lower() in ("1", "true", "yes")
+        ),
+        email_scraper_force_direct=(
+            os.getenv("EMAIL_SCRAPER_FORCE_DIRECT", "0").strip().lower() in ("1", "true", "yes")
         ),
         api_key=os.getenv("API_KEY", ""),
     )

@@ -1,19 +1,56 @@
 from typing import Literal
 
-from pydantic import AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyUrl, BaseModel, Field, field_validator, model_validator
 
 
 class SearchRequest(BaseModel):
     mode: Literal["dorking", "followers"]
-    target: str = Field(..., min_length=1, description="Niche+location string or Instagram username")
+    target: str | None = Field(
+        default=None,
+        description="Niche+location string (mode dorking) or Instagram username (mode followers)",
+    )
+    niche: str | None = Field(default=None, description="Business niche for batch discovery mode")
+    location: str | None = Field(default=None, description="Market location for batch discovery mode")
+    language: str = Field(default="es", description="Language hint for discovery queries")
+    market: str = Field(default="es", description="Market hint for discovery queries")
     email_goal: int = Field(..., ge=1, le=500, description="Stop when this many emails are found")
 
     @field_validator("target")
     @classmethod
-    def target_not_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("target cannot be blank")
-        return v.strip()
+    def normalize_target(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("niche", "location")
+    @classmethod
+    def normalize_optional_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("language", "market")
+    @classmethod
+    def normalize_language_market(cls, v: str) -> str:
+        value = (v or "").strip().lower()
+        return value or "es"
+
+    @field_validator("email_goal")
+    @classmethod
+    def validate_goal(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("email_goal must be >= 1")
+        return v
+
+    @model_validator(mode="after")
+    def validate_target_or_context(self) -> "SearchRequest":
+        if self.target:
+            return self
+        if self.niche and self.location:
+            return self
+        raise ValueError("Provide target or niche+location")
 
 
 class JobResponse(BaseModel):
@@ -25,42 +62,8 @@ class JobResponse(BaseModel):
     total: int
     emails_found: int
     status_detail: str | None = None
-    next_retry_at: str | None = None
-    resume_count: int | None = 0
-    profiles_scanned: int | None = 0
-    enrichment_attempts: int | None = 0
-    enrichment_successes: int | None = 0
-    emails_from_ig: int | None = 0
-    emails_from_web: int | None = 0
-    skipped_private: int | None = 0
-    discovery_google: int | None = 0
-    discovery_duckduckgo: int | None = 0
-    discovery_hashtag_api: int | None = 0
-    discovery_location_api: int | None = 0
-    discovery_fallback: int | None = 0
-    profile_fetch_failures: int | None = 0
-    enrichment_failures: int | None = 0
-    failure_reason: str | None = None
-    last_error: str | None = None
     started_at: str
     finished_at: str | None = None
-
-
-class LeadResponse(BaseModel):
-    id: int
-    job_id: str
-    username: str
-    full_name: str | None = None
-    email: str
-    email_source: str | None = None
-    followers_count: int | None = None
-    is_business: bool = False
-    bio_url: str | None = None
-    profile_url: str | None = None
-    source_type: str | None = None
-    phone: str | None = None
-    business_category: str | None = None
-    scraped_at: str
 
 
 class HealthResponse(BaseModel):
@@ -74,6 +77,8 @@ class HealthResponse(BaseModel):
     proxy_configured: bool = False
     discovery_strategies: dict = {}
     limits: dict
+    metrics: dict = {}
+    leads_today: int = 0
 
 
 class ProfilePreview(BaseModel):
@@ -94,15 +99,6 @@ class ProfilePreview(BaseModel):
 class AccountAddRequest(BaseModel):
     username: str
     password: str
-    proxy_url: str | None = None
-
-
-class AccountResponse(BaseModel):
-    username: str
-    status: str
-    proxy_url: str | None = None
-    requests_this_hour: int = 0
-    has_session: bool = False
 
 
 class SessionLoginRequest(BaseModel):

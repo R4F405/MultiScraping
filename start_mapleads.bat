@@ -7,6 +7,8 @@ echo ============================================
 echo    MapLeads - Iniciando todo...
 echo ============================================
 echo.
+echo Modo operativo: solo Google Maps (Instagram/TikTok deshabilitados)
+echo.
 
 REM Verificar que el venv del backend existe
 if not exist "mapleads\venv\Scripts\activate.bat" (
@@ -45,6 +47,9 @@ timeout /t 4 /nobreak >nul
 
 REM Iniciar el frontend
 echo Iniciando frontend...
+REM Forzar servicios no funcionales como deshabilitados para este arranque.
+set "INSTALEADS_API_URL=http://127.0.0.1:65535"
+set "TIKTOKLEADS_API_URL=http://127.0.0.1:65535"
 echo.
 echo La aplicacion se abrira en el navegador en http://localhost:8081
 echo.

@@ -725,9 +725,22 @@ function closeSlLocationsModal() {
 }
 
 function safeText(value, fallback = '—') { if (value === null || value === undefined) return fallback; const text = String(value).trim(); return text ? text : fallback; }
+function safeTextOrEmpty(value) { if (value === null || value === undefined) return ''; return String(value).trim(); }
 function toSafeHttpUrl(value) { if (!value) return null; try { const parsed = new URL(String(value), window.location.origin); if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null; return parsed.href; } catch (_) { return null; } }
 function emailStatusClass(status) { if (status === 'valid') return 'text-green-600 font-medium'; if (status === 'invalid') return 'text-red-500'; return 'text-slate-400'; }
 function isSocialUrl(url) { if (!url) return false; const lower = url.toLowerCase(); return SOCIAL_DOMAINS.some(d => lower.includes(d)); }
+function prettifyEmailReason(reason) {
+  const map = {
+    form_backend_hidden_recipient: 'Tiene formulario de contacto, pero el email receptor no es visible en el HTML.',
+    no_visible_email: 'No se encontró ningún email visible en la web.',
+    ssl_or_insecure_site: 'La web no permite conexión segura (SSL/TLS).',
+    unreachable_or_blocked: 'La web no fue accesible durante el scraping.',
+    no_proxy_available: 'No había proxy disponible en ese momento.',
+    enrichment_error: 'Error interno al intentar enriquecer el email.',
+    invalid_url: 'URL inválida o no procesable.',
+  };
+  return map[reason] || reason || '';
+}
 
 function renderPage(page) {
   const total = filteredLeads.length;
@@ -749,7 +762,7 @@ function renderPage(page) {
     const businessName = safeText(lead.business_name);
     const address = safeText(lead.address);
     const phone = safeText(lead.phone);
-    const email = safeText(lead.email);
+    const email = safeTextOrEmpty(lead.email);
     const emailStatus = safeText(lead.email_status);
     const category = safeText(lead.category);
     const rating = safeText(lead.rating);
@@ -860,6 +873,12 @@ function openLeadModal(id) {
   const emailWrap = document.createElement('div'); emailWrap.className = 'flex flex-col gap-1.5'; emailWrap.appendChild(createLabel('Email')); const emailValue = document.createElement('div'); emailValue.className = `text-sm ${emailStatusClass(lead.email_status)}`; emailValue.textContent = safeText(lead.email); emailWrap.appendChild(emailValue); row2.appendChild(emailWrap);
   const statusWrap = document.createElement('div'); statusWrap.className = 'flex flex-col gap-1.5'; statusWrap.appendChild(createLabel('Estado'));
   const badge = document.createElement('span'); const st = lead.email_status || 'pending'; const badgeMap = { valid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full', text: '✓ Verificado' }, invalid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full', text: '✕ Inválido' }, pending: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-full', text: '· Pendiente' } }; const badgeCfg = badgeMap[st] || badgeMap.pending; badge.className = badgeCfg.className; badge.textContent = badgeCfg.text; statusWrap.appendChild(badge); row2.appendChild(statusWrap); body.appendChild(row2);
+  const hasRealWebsite = !!lead.website && !isSocialUrl(lead.website);
+  if (!lead.email && hasRealWebsite && lead.email_reason) {
+    const reasonNode = document.createElement('span');
+    reasonNode.textContent = prettifyEmailReason(lead.email_reason);
+    body.appendChild(createField('Motivo sin email', reasonNode));
+  }
   const mapsWrap = document.createElement('div'); mapsWrap.className = 'flex flex-col gap-1.5'; mapsWrap.appendChild(createLabel('URL Google Maps'));
   const mapsValue = document.createElement('div'); const safeMapsUrl = toSafeHttpUrl(lead.maps_url);
   if (safeMapsUrl) { const a = document.createElement('a'); a.href = safeMapsUrl; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'text-blue-600 hover:underline text-xs break-all'; a.textContent = safeText(lead.maps_url); mapsValue.appendChild(a); } else { const empty = document.createElement('span'); empty.className = 'text-slate-400 text-sm'; empty.textContent = '—'; mapsValue.appendChild(empty); }

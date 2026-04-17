@@ -1016,7 +1016,7 @@ function initSearchPage() {
     const businessName = safeText(lead.business_name);
     const address = safeText(lead.address);
     const phone = safeText(lead.phone);
-    const email = safeText(lead.email);
+    const email = lead.email ? safeText(lead.email) : '';
     const emailStatus = safeText(lead.email_status);
     const rating = safeText(lead.rating);
 

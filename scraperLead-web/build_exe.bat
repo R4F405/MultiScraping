@@ -8,13 +8,23 @@ echo    Compilando MapLeads Executable
 echo ============================================
 echo.
 
-REM Copiar .env.example a .env si no existe
+REM Crear .env de build si no existe (solo Google Maps operativo)
 if not exist ".env" (
-    echo Creando .env desde .env.example...
-    copy .env.example .env
-    echo ✓ .env creado
+    echo Creando .env para build de MapLeads-only...
+    > ".env" (
+        echo MAPLEADS_API_URL=http://localhost:8001
+        echo MAPLEADS_API_KEY=
+        echo INSTALEADS_API_URL=http://127.0.0.1:65535
+        echo TIKTOKLEADS_API_URL=http://127.0.0.1:65535
+        echo LINKEDINLEADS_API_URL=http://localhost:8003
+    )
+    echo ✓ .env creado con Instagram/TikTok deshabilitados
     echo.
 )
+
+REM Asegurar que el proceso de build usa servicios no funcionales deshabilitados
+set "INSTALEADS_API_URL=http://127.0.0.1:65535"
+set "TIKTOKLEADS_API_URL=http://127.0.0.1:65535"
 
 REM Verificar que Python está instalado
 python --version >nul 2>&1

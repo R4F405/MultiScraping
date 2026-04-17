@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -9,11 +10,11 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import Response
 
-from backend.api.schemas import JobLocationResponse, JobResponse, LeadResponse, SearchRequest
+from backend.api.schemas import EmailProbeRequest, JobLocationResponse, JobResponse, LeadResponse, SearchRequest
 from backend.config.settings import settings
 from backend.proxy.proxy_manager import proxy_manager, set_current_job
 from backend.scraper.category_catalog import clear_category_catalog_cache, search_categories
-from backend.scraper.email_finder import find_email_in_website, is_social_url, pick_best_email
+from backend.scraper.email_finder import find_email_in_website_diagnostics, is_social_url, pick_best_email
 from backend.scraper.maps_categories import load_categories, load_categories_meta
 from backend.scraper.email_verifier import verify_email_mx
 from backend.scraper.maps_client import MapsFetchError, search_maps
@@ -23,6 +24,10 @@ from backend.storage.exporter import export_to_csv
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 _MAX_MULTI_LOCALITIES = 5000
+_NETWORK_CHECK_URLS = (
+    "https://roymo.es/",
+    "https://www.marketingdigitaldirecto.com/diseno-web/",
+)
 
 _CATEGORIES_SYNC_STATE_LOCK = threading.Lock()
 _CATEGORIES_SYNC_STATE: dict = {
@@ -100,18 +105,35 @@ def _sync_categories_script_background() -> None:
 # Background job runner
 # ---------------------------------------------------------------------------
 
-async def _enrich_business_email(business: dict) -> tuple[str | None, str]:
+def _normalize_email_reason(
+    *,
+    email: str | None,
+    raw_reason: str | None,
+    form_vendor: str | None,
+) -> str | None:
+    if email:
+        return "found"
+    if not raw_reason:
+        return None
+    if form_vendor and raw_reason in {"unreachable_or_blocked", "no_visible_email", "ssl_or_insecure_site"}:
+        return "form_backend_hidden_recipient"
+    return raw_reason
+
+
+async def _enrich_business_email(business: dict) -> tuple[str | None, str, str | None]:
     existing = (business.get("email") or "").strip() if isinstance(business.get("email"), str) else business.get("email")
     if existing:
-        return str(existing), business.get("email_status", "pending") or "pending"
+        return str(existing), business.get("email_status", "pending") or "pending", "found"
 
     email = None
     email_status = "pending"
+    email_reason = None
 
     website = business.get("website")
     if website and not is_social_url(str(website)):
         try:
-            emails = await find_email_in_website(str(website))
+            diag = await find_email_in_website_diagnostics(str(website))
+            emails = diag.get("emails", [])
             if emails:
                 chosen = pick_best_email(emails, str(website))
                 if chosen:
@@ -119,9 +141,15 @@ async def _enrich_business_email(business: dict) -> tuple[str | None, str]:
                     email_status = await verify_email_mx(email)
                     if email_status == "invalid":
                         email_status = "pending"
+            email_reason = _normalize_email_reason(
+                email=email,
+                raw_reason=diag.get("reason"),
+                form_vendor=diag.get("form_vendor"),
+            )
         except Exception as exc:
             logger.debug("Email search failed for %s: %s", business.get("website"), exc)
-    return email, email_status
+            email_reason = "enrichment_error"
+    return email, email_status, email_reason
 
 
 async def _search_unique_businesses(
@@ -242,7 +270,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
         async def process_business(index: int, business: dict) -> None:
             nonlocal emails_found
             async with semaphore:
-                email, email_status = await _enrich_business_email(business)
+                email, email_status, email_reason = await _enrich_business_email(business)
                 if email:
                     async with progress_lock:
                         emails_found += 1
@@ -252,6 +280,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
 
                 business["email"] = email
                 business["email_status"] = email_status
+                business["email_reason"] = email_reason
                 await db.save_lead(business, job_id)
                 await db.update_job_progress(job_id, index + 1, current_emails)
 
@@ -330,9 +359,10 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
                     continue
 
                 for business in businesses:
-                    email, email_status = await _enrich_business_email(business)
+                    email, email_status, email_reason = await _enrich_business_email(business)
                     business["email"] = email
                     business["email_status"] = email_status
+                    business["email_reason"] = email_reason
                     await db.save_lead(business, job_id)
                     locality_leads_found += 1
                     total_progress += 1
@@ -407,6 +437,103 @@ async def health():
 @router.get("/proxy/status")
 async def get_proxy_status():
     return proxy_manager.get_status()
+
+
+@router.get("/network/check")
+async def get_network_check():
+    """
+    Diagnóstico rápido de salida de red para el scraper de emails.
+    """
+    from backend.scraper import email_finder as ef
+
+    env_proxy_vars = {
+        k: os.getenv(k)
+        for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+        if os.getenv(k)
+    }
+
+    checks: list[dict] = []
+    for url in _NETWORK_CHECK_URLS:
+        row: dict = {"url": url, "proxy": {"ok": False, "status": None}, "direct": {"ok": False, "status": None}}
+
+        proxy = None
+        if proxy_manager._stats:
+            proxy = await proxy_manager.wait_for_available(timeout_seconds=1)
+        try:
+            html, used_proxy, _reason = await ef._fetch_page(url, proxy)
+            row["proxy"]["ok"] = bool(html and used_proxy)
+            row["proxy"]["status"] = "ok" if row["proxy"]["ok"] else "failed_or_empty"
+        except Exception as exc:
+            row["proxy"]["status"] = f"error: {exc}"
+
+        try:
+            html, used_proxy, _reason = await ef._fetch_page(url, None)
+            row["direct"]["ok"] = bool(html and not used_proxy)
+            row["direct"]["status"] = "ok" if row["direct"]["ok"] else "failed_or_empty"
+        except Exception as exc:
+            row["direct"]["status"] = f"error: {exc}"
+
+        checks.append(row)
+
+    return {
+        "force_direct_enabled": settings.email_scraper_force_direct,
+        "configured_proxy_count": len(proxy_manager._stats),
+        "env_proxy_vars": env_proxy_vars,
+        "checks": checks,
+    }
+
+
+@router.post("/email/probe")
+async def post_email_probe(body: EmailProbeRequest):
+    """
+    Probe a single URL with the same website-email logic used in jobs.
+    Useful for manual diagnostics against real runtime connectivity.
+    """
+    website = (body.url or "").strip()
+    if not website:
+        raise HTTPException(status_code=422, detail="url is required")
+
+    if is_social_url(website):
+        return {
+            "url": website,
+            "skipped": True,
+            "reason": "social_or_non_business",
+            "contact_method": "none",
+            "form_vendor": None,
+            "emails_found": [],
+            "best_email": None,
+            "email_status": "pending",
+        }
+
+    diag = await find_email_in_website_diagnostics(website)
+    emails = diag.get("emails", [])
+    best = pick_best_email(emails, website) if emails else None
+    email_status = "pending"
+    if best:
+        try:
+            email_status = await verify_email_mx(best)
+            if email_status == "invalid":
+                email_status = "pending"
+        except Exception:
+            email_status = "pending"
+
+    form_vendor = diag.get("form_vendor")
+    contact_method = "email" if best else ("form" if form_vendor else "none")
+    reason = diag.get("reason", "unknown")
+    if not best and form_vendor and reason in {"unreachable_or_blocked", "no_visible_email", "ssl_or_insecure_site"}:
+        reason = "form_backend_hidden_recipient"
+
+    return {
+        "url": website,
+        "skipped": False,
+        "emails_found": sorted(emails),
+        "best_email": best,
+        "email_status": email_status,
+        "reason": reason,
+        "contact_method": contact_method,
+        "form_vendor": form_vendor,
+        "visited_urls": diag.get("visited_urls", []),
+    }
 
 
 @router.get("/maps/categories")

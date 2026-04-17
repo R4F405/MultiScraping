@@ -1,210 +1,26 @@
 {% extends "base.html" %}
 
-{% block title %}TikTok — Scraper Lead{% endblock %}
-
-{% block head %}
-<style>
-  .tt-section { display: none; animation: ttFadeIn 0.18s ease; }
-  .tt-section.active { display: block; }
-  @keyframes ttFadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .tt-nav-tab {
-    position: relative;
-    padding-bottom: 12px;
-    transition: color 0.15s ease;
-  }
-  .tt-nav-tab::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    height: 2px;
-    border-radius: 2px;
-    background: #111827;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-  .tt-nav-tab.active::after { opacity: 1; }
-  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
-  .dot-pulse { animation: pulse-dot 2s infinite; }
-</style>
-{% endblock %}
+{% block title %}TikTok — En construcción{% endblock %}
 
 {% block content %}
-<div
-  id="tiktok-form-page"
-  data-health="{{ health | tojson | forceescape }}"
-  data-recent-jobs="{{ recent_jobs | tojson | forceescape }}"
->
-
-  {% if state in ('timeout', 'upstream_error') %}
-    <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 mb-5 text-sm">
-      <strong class="font-semibold">Backend no disponible.</strong>
-      {{ message }}
+<div class="max-w-3xl">
+  <div class="bg-white border border-slate-200 rounded-2xl p-8">
+    <h1 class="text-2xl font-bold text-slate-800 mb-2">TikTok</h1>
+    <p class="text-slate-600 mb-6">
+      Este módulo está temporalmente desactivado.
+    </p>
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 text-sm">
+      <strong class="font-semibold">Scraper en construcción.</strong>
+      Estamos preparando una nueva versión desde cero.
     </div>
-  {% endif %}
-
-  <!-- Header -->
-  <div class="flex items-start justify-between mb-6">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
-          <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.29 6.29 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/>
-        </svg>
-      </div>
-      <div>
-        <h1 class="text-xl font-bold text-slate-800">TikTok Leads</h1>
-        <p class="text-sm text-slate-500">Extrae emails de creadores por hashtag o keyword</p>
-      </div>
-    </div>
-    <!-- Pills de estado -->
-    <div class="flex items-center gap-2 flex-wrap justify-end">
-      <a href="/tiktok/leads"
-         class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border border-slate-300 text-slate-700 hover:bg-slate-50 transition no-underline">
-        Ver base de datos
+    <div class="mt-6 flex gap-3">
+      <a href="/" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium no-underline hover:bg-slate-700 transition">
+        Volver al inicio
       </a>
-      <span class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-        <span id="tt-dot-daily" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-        <span id="tt-pill-daily">— req. hoy</span>
-      </span>
-      <span class="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-        <span id="tt-dot-hourly" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-        <span id="tt-pill-hourly">— /h</span>
-      </span>
+      <a href="/databases" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm no-underline hover:bg-slate-50 transition">
+        Ver otras bases de datos
+      </a>
     </div>
   </div>
-
-  <!-- Nav tabs -->
-  <div class="flex gap-6 border-b border-slate-200 mb-6">
-    <button data-section="extraccion"
-            class="tt-nav-tab active text-sm font-medium text-slate-800 cursor-pointer bg-transparent border-0 p-0">
-      Extracción
-    </button>
-    <button data-section="scrapeos"
-            class="tt-nav-tab text-sm font-medium text-slate-400 hover:text-slate-600 cursor-pointer bg-transparent border-0 p-0">
-      Scrapeos
-    </button>
-    <button data-section="leads"
-            class="tt-nav-tab text-sm font-medium text-slate-400 hover:text-slate-600 cursor-pointer bg-transparent border-0 p-0">
-      Leads
-    </button>
-  </div>
-
-  <!-- ── Tab: Extracción ─────────────────────────────────────────── -->
-  <section id="tt-section-extraccion" class="tt-section active">
-
-    <div class="bg-white rounded-2xl border border-slate-200 p-6">
-      <h2 class="text-base font-semibold text-slate-800 mb-4">Búsqueda por hashtag o keyword</h2>
-
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-        <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-slate-600 mb-1">Hashtag o keyword</label>
-          <input id="tt-target" type="text" placeholder="#fotografo, diseñador barcelona, coach..."
-                 class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/20" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">Objetivo de emails</label>
-          <input id="tt-email-goal" type="number" min="1" max="200" value="20"
-                 class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/20" />
-        </div>
-      </div>
-
-      <div class="mb-5">
-        <label class="block text-xs font-medium text-slate-600 mb-1">Seguidores mínimos (0 = sin filtro)</label>
-        <input id="tt-min-followers" type="number" min="0" value="0"
-               class="w-40 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/20" />
-      </div>
-
-      <button id="tt-start-btn"
-              class="px-5 py-2.5 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
-        Iniciar extracción
-      </button>
-    </div>
-
-    <!-- Progress -->
-    <div id="tt-progress-box" class="hidden mt-4 bg-white rounded-2xl border border-slate-200 p-6">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span id="tt-status-dot" class="w-2 h-2 rounded-full bg-slate-400 dot-pulse"></span>
-          <span id="tt-status-label" class="text-sm font-medium text-slate-700">Iniciando...</span>
-        </div>
-        <span id="tt-emails-badge" class="text-sm font-semibold text-slate-900">0 emails</span>
-      </div>
-      <div class="w-full bg-slate-100 rounded-full h-2 mb-2">
-        <div id="tt-progress-bar" class="h-2 bg-slate-900 rounded-full transition-all" style="width:2%"></div>
-      </div>
-      <p id="tt-status-detail" class="text-xs text-slate-500"></p>
-
-      <!-- Export button (hidden until complete) -->
-      <div id="tt-export-box" class="hidden mt-4 pt-4 border-t border-slate-100 flex items-center gap-3">
-        <button id="tt-export-btn"
-                class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition">
-          Exportar CSV
-        </button>
-        <span class="text-xs text-slate-500" id="tt-export-count"></span>
-      </div>
-    </div>
-
-  </section>
-
-  <!-- ── Tab: Scrapeos ───────────────────────────────────────────── -->
-  <section id="tt-section-scrapeos" class="tt-section">
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-slate-800">Historial de scrapeos</h2>
-        <button id="tt-refresh-jobs-btn"
-                class="text-xs text-slate-500 hover:text-slate-700 transition bg-transparent border-0 cursor-pointer p-0">
-          Actualizar
-        </button>
-      </div>
-      <div id="tt-jobs-list" class="divide-y divide-slate-100">
-        <div class="px-5 py-8 text-center text-slate-400 text-sm">Cargando scrapeos...</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Tab: Leads ──────────────────────────────────────────────── -->
-  <section id="tt-section-leads" class="tt-section">
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-slate-800">
-          Leads encontrados <span id="tt-leads-count" class="text-slate-400 font-normal ml-1"></span>
-        </h2>
-        <div class="flex gap-2">
-          <button id="tt-export-all-btn"
-                  class="hidden px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition">
-            Exportar todos
-          </button>
-        </div>
-      </div>
-      <div id="tt-leads-table-wrap" class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Usuario</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Fuente</th>
-              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Followers</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Bio link</th>
-            </tr>
-          </thead>
-          <tbody id="tt-leads-tbody" class="divide-y divide-slate-100">
-            <tr>
-              <td colspan="5" class="px-4 py-8 text-center text-slate-400">Cargando leads...</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script type="module">
-  import { initTikTokForm } from '{{ url_for("static", path="js/modules/tiktok-form.js") }}?v=1';
-  initTikTokForm();
-</script>
 {% endblock %}

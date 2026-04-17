@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS leads (
     website       TEXT,
     email         TEXT,
     email_status  TEXT DEFAULT 'pending',
+    email_reason  TEXT,
     category      TEXT,
     rating        REAL,
     maps_url      TEXT,
@@ -103,6 +104,15 @@ async def init_db() -> None:
             if col not in existing_cols:
                 await db.execute(f"ALTER TABLE scrape_jobs ADD COLUMN {col} {ddl}")
 
+        leads_columns = {
+            "email_reason": "TEXT",
+        }
+        async with db.execute("PRAGMA table_info('leads')") as c:
+            existing_leads_cols = {row[1] for row in await c.fetchall()}
+        for col, ddl in leads_columns.items():
+            if col not in existing_leads_cols:
+                await db.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
+
         # Lightweight migration:
         # If we previously shipped any UNIQUE constraint on `leads` (e.g. by
         # `place_id`), migrate to the current schema which allows duplicates
@@ -133,10 +143,10 @@ async def init_db() -> None:
                         """
                         INSERT INTO leads
                             (id, job_id, place_id, business_name, address, phone, website,
-                             email, email_status, category, rating, maps_url, scraped_at)
+                             email, email_status, email_reason, category, rating, maps_url, scraped_at)
                         SELECT
                             id, job_id, place_id, business_name, address, phone, website,
-                            email, email_status, category, rating, maps_url, scraped_at
+                            email, email_status, NULL AS email_reason, category, rating, maps_url, scraped_at
                         FROM leads_legacy
                         """
                     )
@@ -317,8 +327,8 @@ async def save_lead(lead: dict, job_id: str) -> None:
             """
             INSERT INTO leads
                 (job_id, place_id, business_name, address, phone, website,
-                 email, email_status, category, rating, maps_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 email, email_status, email_reason, category, rating, maps_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -329,6 +339,7 @@ async def save_lead(lead: dict, job_id: str) -> None:
                 lead.get("website"),
                 lead.get("email"),
                 lead.get("email_status", "pending"),
+                lead.get("email_reason"),
                 lead.get("category"),
                 lead.get("rating"),
                 lead.get("maps_url"),

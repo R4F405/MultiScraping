@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script principal: inicia MapLeads + InstaLeads + LinkedInLeads + TikTokLeads + Frontend (macOS/Linux)
+# Script principal: inicia MapLeads + InstaLeads + LinkedInLeads + Frontend (macOS/Linux)
 set -e
 
 echo ""
@@ -86,23 +86,10 @@ require_venv "linkedinleads" "LinkedInLeads"
 FRONTEND_VENV="$SCRIPT_DIR/scraperLead-web/venv/bin/activate"
 FALLBACK_FRONTEND_VENV="$SCRIPT_DIR/mapleads/venv/bin/activate"
 
-# TikTokLeads: utiliza conda/miniforge environment (python ejecutable directo)
-# Verificar que requirements.txt está instalado
-if ! python -c "import fastapi" 2>/dev/null; then
-    echo "Error: dependencias de TikTokLeads no encontradas."
-    echo "Instálalas primero:"
-    echo "  cd tiktokleads"
-    echo "  pip install -r requirements.txt"
-    echo "  playwright install chromium"
-    echo ""
-    exit 1
-fi
-
 # Liberar puertos antes de arrancar
 free_port 8001
 free_port 8002
 free_port 8003
-free_port 8004
 free_port 8081
 
 echo "Iniciando MapLeads backend en :8001..."
@@ -126,17 +113,9 @@ echo "Iniciando LinkedInLeads backend en :8003..."
 ) &
 LINKEDINLEADS_PID=$!
 
-echo "Iniciando TikTokLeads backend en :8004..."
-(
-    cd "$SCRIPT_DIR/tiktokleads"
-    python -m uvicorn backend.main:app --host 0.0.0.0 --port 8004
-) &
-TIKTOKLEADS_PID=$!
-
 wait_port 8001 "MapLeads" 20
 wait_port 8002 "InstaLeads" 60  # InstaLeads toma más tiempo (carga pool, Google CSE, etc)
 wait_port 8003 "LinkedInLeads" 20
-wait_port 8004 "TikTokLeads" 20
 
 echo "Iniciando Frontend en :8081..."
 (
@@ -157,11 +136,10 @@ echo "  - Frontend:       http://localhost:8081"
 echo "  - MapLeads API:   http://localhost:8001"
 echo "  - InstaLeads API: http://localhost:8002"
 echo "  - LinkedIn API:   http://localhost:8003"
-echo "  - TikTok API:     http://localhost:8004"
 echo ""
 echo "Presiona Ctrl+C para detener todo."
 echo ""
 
-trap "echo ''; echo 'Deteniendo servicios...'; kill $MAPLEADS_PID $INSTALEADS_PID $LINKEDINLEADS_PID $TIKTOKLEADS_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
+trap "echo ''; echo 'Deteniendo servicios...'; kill $MAPLEADS_PID $INSTALEADS_PID $LINKEDINLEADS_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
 
 wait

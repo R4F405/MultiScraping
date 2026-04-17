@@ -251,13 +251,33 @@ async def test_enrich_business_email_skips_social_website(monkeypatch):
 
     async def _fake_find_email(_url: str):
         called["n"] += 1
-        return ["ok@empresa.com"]
+        return {"emails": ["ok@empresa.com"], "reason": "found", "form_vendor": None}
 
-    monkeypatch.setattr(routes, "find_email_in_website", _fake_find_email)
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
 
-    email, status = await routes._enrich_business_email({"website": "https://instagram.com/miempresa"})
+    email, status, reason = await routes._enrich_business_email({"website": "https://instagram.com/miempresa"})
     assert email is None
     assert status == "pending"
+    assert reason is None
+    assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_business_email_skips_non_business_listing_website(monkeypatch):
+    from backend.api import routes
+
+    called = {"n": 0}
+
+    async def _fake_find_email(_url: str):
+        called["n"] += 1
+        return {"emails": ["ok@empresa.com"], "reason": "found", "form_vendor": None}
+
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
+
+    email, status, reason = await routes._enrich_business_email({"website": "https://linktr.ee/miempresa"})
+    assert email is None
+    assert status == "pending"
+    assert reason is None
     assert called["n"] == 0
 
 
@@ -269,17 +289,18 @@ async def test_enrich_business_email_calls_finder_on_real_website(monkeypatch):
 
     async def _fake_find_email(_url: str):
         called["n"] += 1
-        return ["ok@empresa.com"]
+        return {"emails": ["ok@empresa.com"], "reason": "found", "form_vendor": None}
 
     async def _fake_verify(_email: str):
         return "valid"
 
-    monkeypatch.setattr(routes, "find_email_in_website", _fake_find_email)
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
     monkeypatch.setattr(routes, "verify_email_mx", _fake_verify)
 
-    email, status = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
     assert email == "ok@empresa.com"
     assert status == "valid"
+    assert reason == "found"
     assert called["n"] == 1
 
 
@@ -288,14 +309,128 @@ async def test_enrich_business_email_pending_when_mx_invalid(monkeypatch):
     from backend.api import routes
 
     async def _fake_find(_url: str):
-        return ["x@rare-domain-xyz123.com"]
+        return {"emails": ["x@rare-domain-xyz123.com"], "reason": "found", "form_vendor": None}
 
     async def _bad_mx(_email: str):
         return "invalid"
 
-    monkeypatch.setattr(routes, "find_email_in_website", _fake_find)
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find)
     monkeypatch.setattr(routes, "verify_email_mx", _bad_mx)
 
-    email, status = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
     assert email == "x@rare-domain-xyz123.com"
     assert status == "pending"
+    assert reason == "found"
+
+
+@pytest.mark.asyncio
+async def test_enrich_business_email_sets_hidden_form_reason(monkeypatch):
+    from backend.api import routes
+
+    async def _fake_find(_url: str):
+        return {"emails": [], "reason": "no_visible_email", "form_vendor": "fluentform"}
+
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find)
+
+    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    assert email is None
+    assert status == "pending"
+    assert reason == "form_backend_hidden_recipient"
+
+
+@pytest.mark.asyncio
+async def test_network_check_endpoint(client, monkeypatch):
+    from backend.api import routes
+    from backend.scraper import email_finder as ef
+
+    class _ProxyStub:
+        _stats = {"p1": object()}
+
+        async def wait_for_available(self, timeout_seconds=None):
+            return "http://proxy:8080"
+
+    async def _fake_fetch(url: str, proxy: str | None):
+        if "roymo.es" in url and proxy is None:
+            return "<html>hola@roymo.es</html>", False, None
+        if "roymo.es" in url and proxy is not None:
+            return "<html>hola@roymo.es</html>", True, None
+        return "", False, "network_error"
+
+    monkeypatch.setattr(routes, "proxy_manager", _ProxyStub())
+    monkeypatch.setattr(ef, "_fetch_page", _fake_fetch)
+    monkeypatch.setattr(routes.settings, "email_scraper_force_direct", False)
+
+    res = await client.get("/api/network/check")
+    assert res.status_code == 200
+    data = res.json()
+    assert "checks" in data
+    assert isinstance(data["checks"], list)
+    assert len(data["checks"]) >= 1
+    assert "configured_proxy_count" in data
+    assert "force_direct_enabled" in data
+
+
+@pytest.mark.asyncio
+async def test_email_probe_endpoint_real_website_flow(client, monkeypatch):
+    from backend.api import routes
+
+    async def _fake_find_diag(_url: str):
+        return {
+            "emails": ["contacto@miempresa.com", "hola@miempresa.com"],
+            "reason": "found",
+            "visited_urls": ["https://miempresa.com"],
+            "fetch_failures": [],
+            "form_vendor": None,
+        }
+
+    async def _fake_verify(_email: str):
+        return "valid"
+
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_diag)
+    monkeypatch.setattr(routes, "verify_email_mx", _fake_verify)
+
+    res = await client.post("/api/email/probe", json={"url": "https://miempresa.com"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["skipped"] is False
+    assert data["best_email"] == "contacto@miempresa.com"
+    assert data["email_status"] == "valid"
+    assert "contacto@miempresa.com" in data["emails_found"]
+    assert data["reason"] == "found"
+    assert data["contact_method"] == "email"
+    assert data["form_vendor"] is None
+
+
+@pytest.mark.asyncio
+async def test_email_probe_endpoint_skips_social(client):
+    res = await client.post("/api/email/probe", json={"url": "https://instagram.com/miempresa"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["skipped"] is True
+    assert data["reason"] == "social_or_non_business"
+    assert data["contact_method"] == "none"
+    assert data["form_vendor"] is None
+
+
+@pytest.mark.asyncio
+async def test_email_probe_endpoint_form_only_hidden_recipient(client, monkeypatch):
+    from backend.api import routes
+
+    async def _fake_find_diag(_url: str):
+        return {
+            "emails": [],
+            "reason": "no_visible_email",
+            "visited_urls": ["https://ejemplo.com/contacto"],
+            "fetch_failures": [],
+            "form_vendor": "fluentform",
+        }
+
+    monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_diag)
+
+    res = await client.post("/api/email/probe", json={"url": "https://ejemplo.com"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["best_email"] is None
+    assert data["contact_method"] == "form"
+    assert data["form_vendor"] == "fluentform"
+    assert data["reason"] == "form_backend_hidden_recipient"

@@ -18,6 +18,7 @@ export function initInstagramForm() {
   let displayedJobId = null;
   let jobsLoaded = false;
   let sessionActive = false;
+  let maintenanceMode = false;
   let limitsState = {
     can_start_dorking: true,
     can_start_followers: true,
@@ -42,6 +43,7 @@ export function initInstagramForm() {
   // ── DOM references ────────────────────────────────────────────────────
   const alertEl = document.getElementById('ig-alert');
   const limitAlertEl = document.getElementById('ig-limit-alert');
+  const maintenanceBanner = document.getElementById('ig-maintenance-banner');
 
   // Status row
   const healthDot = document.getElementById('ig-health-dot');
@@ -187,6 +189,7 @@ export function initInstagramForm() {
     if (healthDot) healthDot.className = `w-2.5 h-2.5 rounded-full ${ui.dot} shrink-0`;
     if (healthText) healthText.textContent = ui.text;
     if (healthDetails) healthDetails.textContent = ui.details;
+    applyMaintenanceMode(Boolean(health?.maintenance_mode || status === 'broken'), health?.message || health?.last_error);
   };
 
   // ── Session ───────────────────────────────────────────────────────────
@@ -224,9 +227,21 @@ export function initInstagramForm() {
   };
 
   const updateActionButtons = () => {
-    if (dorkingStartBtn) dorkingStartBtn.disabled = !limitsState.can_start_dorking;
+    if (dorkingStartBtn) dorkingStartBtn.disabled = maintenanceMode || !limitsState.can_start_dorking;
     if (!followersStartBtn) return;
-    followersStartBtn.disabled = !sessionActive || !profileVerified || !limitsState.can_start_followers;
+    followersStartBtn.disabled = maintenanceMode || !sessionActive || !profileVerified || !limitsState.can_start_followers;
+  };
+
+  const applyMaintenanceMode = (enabled, message) => {
+    maintenanceMode = Boolean(enabled);
+    if (maintenanceBanner) maintenanceBanner.classList.toggle('hidden', !maintenanceMode);
+    if (maintenanceMode && message) {
+      showAlert(message, 'warn');
+    }
+    if (checkProfileBtn) checkProfileBtn.disabled = maintenanceMode;
+    if (loginBtn) loginBtn.disabled = maintenanceMode;
+    if (poolAddBtn) poolAddBtn.disabled = maintenanceMode;
+    updateActionButtons();
   };
 
   // ── Usage stats (read-only, no configuration) ────────────────────────
@@ -262,6 +277,10 @@ export function initInstagramForm() {
 
   // ── Login / Logout ────────────────────────────────────────────────────
   loginBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) {
+      showLoginAlert('Instagram está en mantenimiento temporal.', 'warn');
+      return;
+    }
     hideLoginAlert();
     const username = loginUser?.value.trim();
     const password = loginPass?.value;
@@ -337,6 +356,10 @@ export function initInstagramForm() {
   const updateFollowersStartBtn = () => updateActionButtons();
 
   checkProfileBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) {
+      showAlert('Instagram está en mantenimiento temporal.', 'warn');
+      return;
+    }
     hideAlert();
     const target = String(targetInput?.value || '').trim().replace(/^@/, '');
     if (!target) { showAlert('Introduce el username a comprobar.'); return; }
@@ -466,6 +489,10 @@ export function initInstagramForm() {
 
   // ── Mode A — dorking ──────────────────────────────────────────────────
   dorkingStartBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) {
+      showAlert('Instagram está en mantenimiento temporal.', 'warn');
+      return;
+    }
     hideAlert();
     const niche = nicheInput?.value.trim();
     const location = locationInput?.value.trim();
@@ -519,6 +546,10 @@ export function initInstagramForm() {
 
   // ── Mode B — followers ────────────────────────────────────────────────
   followersStartBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) {
+      showAlert('Instagram está en mantenimiento temporal.', 'warn');
+      return;
+    }
     hideAlert();
     const target = String(targetInput?.value || '').trim().replace(/^@/, '');
     if (!target) { showAlert('Introduce el username objetivo.'); return; }
@@ -1066,6 +1097,10 @@ export function initInstagramForm() {
   });
 
   poolAddBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) {
+      if (poolAddStatus) poolAddStatus.textContent = 'Instagram está en mantenimiento temporal.';
+      return;
+    }
     const username = poolUsernameInput?.value?.trim();
     const password = poolPasswordInput?.value;
     const proxyUrl = poolProxyInput?.value?.trim() || null;

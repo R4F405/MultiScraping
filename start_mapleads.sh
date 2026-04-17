@@ -7,6 +7,8 @@ echo "============================================"
 echo "   MapLeads - Iniciando todo..."
 echo "============================================"
 echo ""
+echo "Modo operativo: solo Google Maps (Instagram/TikTok deshabilitados)"
+echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -63,6 +65,9 @@ echo "Backend listo en http://localhost:8001"
 echo "Iniciando frontend en :8081..."
 (
     cd "$SCRIPT_DIR/scraperLead-web"
+    # Forzar servicios no funcionales como deshabilitados para este arranque.
+    export INSTALEADS_API_URL="http://127.0.0.1:65535"
+    export TIKTOKLEADS_API_URL="http://127.0.0.1:65535"
     # Reutilizar el venv del backend si no tiene el suyo propio
     if [ -f "venv/bin/activate" ]; then
         source venv/bin/activate

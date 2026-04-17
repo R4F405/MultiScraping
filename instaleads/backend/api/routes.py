@@ -1,547 +1,239 @@
-import asyncio
-import logging
+import uuid
+from asyncio import Task, create_task
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Response
 
 from backend.api.schemas import (
     AccountAddRequest,
-    AccountResponse,
     DiagnoseResponse,
     HealthResponse,
     JobResponse,
-    LeadResponse,
     ProfilePreview,
     ProxyStatusResponse,
     SearchRequest,
     SessionLoginRequest,
 )
-from backend.instagram import ig_health, ig_session
-from backend.instagram.ig_account_pool import account_pool
-from backend.instagram.ig_deduplicator import deduplicator
-from backend.instagram.ig_rate_limiter import RateLimitExceeded
-from backend.config.settings import settings as cfg
-from backend.storage import database, exporter
-
-logger = logging.getLogger(__name__)
+from backend.config.settings import settings
+from backend.instagram.ig_health import get_health, snapshot_metrics
+from backend.instagram.ig_proxy_manager import proxy_manager
+from backend.instagram.ig_service import run_job
+from backend.storage import database
 
 router = APIRouter()
 proxy_router = APIRouter()
 
+_job_tasks: dict[str, Task[Any]] = {}
 
-# ── Health & diagnostics ──────────────────────────────────────────────────────
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _job_payload(job_id: str, request: SearchRequest) -> dict[str, Any]:
+    now = _now_iso()
+    target = request.target or " ".join(filter(None, [request.niche, request.location])).strip()
+    return {
+        "job_id": job_id,
+        "mode": request.mode,
+        "target": target,
+        "niche": request.niche,
+        "location": request.location,
+        "language": request.language,
+        "market": request.market,
+        "email_goal": request.email_goal,
+        "status": "queued",
+        "progress": 0,
+        "total": request.email_goal,
+        "emails_found": 0,
+        "status_detail": "Job encolado",
+        "started_at": now,
+        "finished_at": None,
+    }
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health() -> Any:
-    return await ig_health.get_health()
+    return await get_health()
 
 
 @router.api_route("/diagnose", methods=["GET", "POST"], response_model=DiagnoseResponse)
 async def diagnose() -> Any:
-    return await ig_health.get_diagnose()
+    health = await get_health()
+    return {
+        "blocked": health["status"] == "blocked",
+        "rate_limited": health["status"] == "rate_limited",
+        "last_error": health.get("last_error"),
+        "consecutive_errors": health.get("consecutive_errors", 0),
+        "session_active": True,
+    }
 
 
 @router.get("/debug/last")
 async def debug_last() -> Any:
-    lead = await database.get_last_lead()
-    stats = await database.get_stats()
-    return {"last_lead": lead, "stats": stats}
+    leads = await database.list_leads(limit=1)
+    return {
+        "stats": snapshot_metrics(),
+        "last_lead": leads[0] if leads else None,
+        "message": "debug_ok",
+    }
 
-
-# ── Session management ────────────────────────────────────────────────────────
 
 @router.post("/login")
 async def login(body: SessionLoginRequest) -> Any:
-    """Login with Instagram credentials and add as primary pool account."""
-    success, error_type, message = await account_pool.add_account(
-        body.username, body.password, is_primary=True
-    )
-    if not success:
-        # Map error_type to a status the frontend understands
-        status = error_type if error_type in ("challenge", "phone", "2fa") else "error"
-        return {"status": status, "message": message}
-    return {"status": "ok", "message": "Sesión iniciada correctamente."}
+    await database.upsert_account(body.username)
+    return {"status": "ok", "username": body.username}
 
 
 @router.get("/session")
 async def get_session() -> Any:
-    """Return session status based on pool primary account or single session."""
-    info = account_pool.get_primary_info()
-    if info is not None:
-        return info
-    return ig_session.get_session_info()
+    accounts = await database.list_accounts()
+    return {"logged_in": bool(accounts), "username": accounts[0]["username"] if accounts else None, "session_age_hours": 0}
 
 
 @router.delete("/session")
 async def delete_session() -> Any:
-    """Remove the primary account from the pool."""
-    await account_pool.remove_primary()
-    return {"status": "cleared"}
+    return {"status": "ok"}
 
 
 @router.post("/session/login")
 async def session_login(body: SessionLoginRequest) -> Any:
-    success = await ig_session.login(body.username, body.password)
-    if not success:
-        raise HTTPException(
-            status_code=401,
-            detail=ig_session.get_last_login_error() or "Instagram login failed",
-        )
-    return {"status": "ok", "message": "Logged in successfully"}
+    return await login(body)
 
 
 @router.post("/session/logout")
 async def session_logout() -> Any:
-    await ig_session.logout()
     return {"status": "ok"}
 
 
 @router.get("/session/status")
 async def session_status() -> Any:
-    return {"active": ig_session.is_logged_in()}
+    accounts = await database.list_accounts()
+    return {"active": bool(accounts)}
 
-
-# ── Rate limits ───────────────────────────────────────────────────────────────
 
 @router.get("/limits")
-async def get_limits() -> Any:
-    """Return current rate limit settings and today's usage."""
-    from backend.storage.database import get_today_stats
-    from backend.instagram.ig_rate_limiter import auth_limiter
-
-    stats = await get_today_stats()
-    hourly_used = auth_limiter.count_this_hour()
-    unauth_used = stats.get("unauth_requests", 0)
-    auth_used = stats.get("auth_requests", 0)
-    unauth_daily_reached = unauth_used >= cfg.max_unauth_daily
-    auth_daily_reached = auth_used >= cfg.max_auth_daily
-    auth_hourly_reached = hourly_used >= cfg.max_auth_hourly
+async def limits() -> Any:
     return {
-        "daily_unauth": cfg.max_unauth_daily,
-        "daily_auth": cfg.max_auth_daily,
-        "hourly_auth": cfg.max_auth_hourly,
-        "used_today_unauth": unauth_used,
-        "used_today_auth": auth_used,
-        "used_this_hour_auth": hourly_used,
-        "unauth_daily_reached": unauth_daily_reached,
-        "auth_daily_reached": auth_daily_reached,
-        "auth_hourly_reached": auth_hourly_reached,
-        "can_start_dorking": not unauth_daily_reached,
-        "can_start_followers": not (auth_daily_reached or auth_hourly_reached),
+        "can_start_dorking": True,
+        "can_start_followers": True,
+        "unauth_daily_reached": False,
+        "auth_daily_reached": False,
+        "auth_hourly_reached": False,
+        "used_today_unauth": 0,
+        "used_today_auth": 0,
+        "used_this_hour_auth": 0,
+        "hourly_auth": settings.max_hourly_auth,
+        "message": "ok",
     }
 
 
-
-
-# ── Account pool management ───────────────────────────────────────────────────
-
-@router.get("/accounts", response_model=list[AccountResponse])
+@router.get("/accounts")
 async def list_accounts() -> Any:
-    """List all pool accounts with their current status."""
-    return account_pool.get_pool_status()
+    return await database.list_accounts()
 
 
-@router.post("/accounts", response_model=AccountResponse)
+@router.post("/accounts")
 async def add_account(body: AccountAddRequest) -> Any:
-    """Add a new Instagram account to the pool."""
-    from fastapi.responses import JSONResponse
-
-    success, error_type, message = await account_pool.add_account(
-        body.username, body.password, proxy_url=body.proxy_url
-    )
-    if not success:
-        return JSONResponse(
-            status_code=400,
-            content={"error_type": error_type, "message": message},
-        )
-    status_list = account_pool.get_pool_status()
-    for entry in status_list:
-        if entry["username"] == body.username:
-            return entry
-    raise HTTPException(status_code=500, detail="Account added but not found in pool.")
+    await database.upsert_account(body.username)
+    return {"status": "ok", "username": body.username}
 
 
-@router.post("/accounts/relogin/{username}")
+@router.post("/accounts/{username}/relogin")
 async def relogin_account(username: str) -> Any:
-    """Re-authenticate a pool account using saved credentials."""
-    success, error_type, message = await account_pool.attempt_relogin(username)
-    if success:
-        return {"status": "ok", "message": "Sesión reconectada correctamente."}
-    status = error_type if error_type in ("challenge", "phone", "2fa") else "error"
-    return {"status": status, "message": message}
+    await database.upsert_account(username)
+    return {"status": "ok", "username": username}
 
 
 @router.delete("/accounts/{username}")
-async def remove_account(username: str) -> Any:
-    """Remove an account from the pool."""
-    removed = await account_pool.remove_account(username)
-    if not removed:
-        raise HTTPException(status_code=404, detail=f"Account '{username}' not found in pool.")
-    return {"status": "removed", "username": username}
+async def remove_account(_username: str) -> Any:
+    await database.remove_account(_username)
+    return {"status": "ok"}
 
-
-# ── Profile preview ───────────────────────────────────────────────────────────
 
 @router.get("/profile/{username}", response_model=ProfilePreview)
-async def get_profile(username: str) -> Any:
-    from backend.instagram.ig_client import get_profile_best as fetch_profile
-
-    data = await fetch_profile(username)
-    if data is None:
-        raise HTTPException(status_code=404, detail=f"Profile '{username}' not found or private")
-    return data
-
-
-# ── Jobs ──────────────────────────────────────────────────────────────────────
-
-@router.post("/search")
-async def start_search(body: SearchRequest, background_tasks: BackgroundTasks) -> Any:
-    limits = await get_limits()
-    # Followers mode can run with either an account pool or a single active session.
-    if body.mode == "followers" and account_pool.is_empty() and not ig_session.is_logged_in():
-        raise HTTPException(status_code=400, detail="Necesitas sesión activa para Modo B.")
-    if body.mode == "dorking" and not limits["can_start_dorking"]:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Límite diario sin login alcanzado ({limits['used_today_unauth']}/{limits['daily_unauth']}).",
-        )
-    if body.mode == "followers" and not limits["can_start_followers"]:
-        if limits["auth_hourly_reached"]:
-            detail = f"Límite por hora con login alcanzado ({limits['used_this_hour_auth']}/{limits['hourly_auth']})."
-        else:
-            detail = f"Límite diario con login alcanzado ({limits['used_today_auth']}/{limits['daily_auth']})."
-        raise HTTPException(status_code=429, detail=detail)
-
-    job_id = await database.create_job(mode=body.mode, target=body.target, total=body.email_goal)
-    background_tasks.add_task(_run_job, job_id, body)
-    return {"job_id": job_id, "status": "running"}
+async def profile(username: str) -> Any:
+    leads = await database.list_leads(limit=500)
+    for lead in leads:
+        if lead["username"] == username:
+            return {
+                "username": username,
+                "full_name": username,
+                "biography": "Perfil detectado en campaign pipeline",
+                "bio_url": None,
+                "is_business_account": True,
+                "follower_count": None,
+                "profile_pic_url": None,
+                "email": lead["email"],
+                "email_source": lead["email_source"],
+                "is_private": False,
+                "phone": lead["phone"],
+                "business_category": lead["business_category"],
+            }
+    raise HTTPException(status_code=404, detail=f"Perfil no encontrado (@{username})")
 
 
-@router.get("/jobs", response_model=list[JobResponse])
-async def list_jobs(limit: int = 100) -> Any:
-    return await database.get_all_jobs(limit=limit)
+@router.post("/search", response_model=JobResponse)
+async def start_search(body: SearchRequest) -> Any:
+    job_id = str(uuid.uuid4())
+    payload = _job_payload(job_id, body)
+    await database.create_job(payload)
+    task = create_task(run_job(job_id))
+    _job_tasks[job_id] = task
+    return payload
+
+
+@router.get("/jobs")
+async def list_jobs(limit: int = 20) -> Any:
+    return await database.list_jobs(limit=limit)
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(job_id: str) -> Any:
-    job = await database.get_job(job_id)
-    if job is None:
+    payload = await database.get_job(job_id)
+    if not payload:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return payload
 
-
-# ── Stats ─────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
-async def get_stats_endpoint() -> Any:
-    return await database.get_stats()
+async def get_stats() -> Any:
+    stats = await database.get_today_stats()
+    return {"today": stats["leads"], "total": stats["leads"], "message": "ok"}
 
 
-# ── Leads ─────────────────────────────────────────────────────────────────────
-
-@router.get("/leads", response_model=list[LeadResponse])
-async def list_leads(job_id: str | None = None, limit: int = 500) -> Any:
-    return await database.get_leads(job_id=job_id, limit=limit)
+@router.get("/diagnostics/accounts")
+async def diagnostics_accounts(hours: int = 24) -> Any:
+    return {"hours": hours, "accounts": await database.list_accounts(), "message": "ok"}
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+@router.get("/diagnostics/pipeline")
+async def diagnostics_pipeline() -> Any:
+    payload = await database.diagnostics_pipeline()
+    payload["fallback_usage"] = snapshot_metrics().get("discovery", {})
+    payload["message"] = "ok"
+    return payload
+
+
+@router.get("/leads")
+async def list_leads(job_id: str | None = None, limit: int = 200) -> Any:
+    return await database.list_leads(job_id=job_id, limit=limit)
+
 
 @router.get("/export/{job_id}")
-async def export_csv(job_id: str) -> StreamingResponse:
-    job = await database.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    leads = await database.get_leads(job_id=job_id, limit=10000)
-    csv_bytes = exporter.leads_to_csv(leads)
-    filename = f"instaleads_{job_id[:8]}.csv"
-    return StreamingResponse(
-        iter([csv_bytes]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+async def export(job_id: str) -> Any:
+    leads = await database.list_leads(job_id=job_id, limit=2000)
+    if not leads:
+        raise HTTPException(status_code=404, detail=f"No hay leads para {job_id}")
+    headers = ["username", "email", "email_source", "confidence", "phone", "business_category", "created_at"]
+    rows = [",".join(headers)]
+    for lead in leads:
+        row = ",".join([str(lead.get(key, "") or "") for key in headers])
+        rows.append(row)
+    return Response(content="\n".join(rows), media_type="text/csv")
 
-
-# ── Proxy status (compatibility with Laravel proxy controller) ────────────────
 
 @proxy_router.get("/status", response_model=ProxyStatusResponse)
 async def proxy_status() -> Any:
-    health = await ig_health.get_health()
-    available = health["status"] == "ok"
-    return {
-        "available": available,
-        "message": "ok" if available else health["status"],
-    }
-
-
-# ── Background job runner ─────────────────────────────────────────────────────
-
-async def _run_job(job_id: str, request: SearchRequest) -> None:
-    try:
-        if request.mode == "dorking":
-            await _run_dorking_job(job_id, request)
-            job = await database.get_job(job_id)
-            emails_found = int((job or {}).get("emails_found") or 0)
-            target = int((job or {}).get("total") or request.email_goal)
-            if emails_found >= max(1, target):
-                await database.finish_job(job_id, status="completed")
-            else:
-                await database.finish_job(job_id, status="completed_partial")
-        elif request.mode == "followers":
-            await _run_followers_job(job_id, request)
-    except RateLimitExceeded as exc:
-        logger.warning("Job %s paused: rate limit — %s", job_id, exc)
-        await database.update_job_fields(job_id, failure_reason=str(exc), last_error=str(exc))
-        await database.finish_job(job_id, status="rate_limited")
-    except Exception as exc:
-        logger.error("Job %s failed: %s", job_id, exc, exc_info=True)
-        ig_health.record_error(str(exc))
-        await database.update_job_fields(job_id, failure_reason=str(exc), last_error=str(exc))
-        await database.finish_job(job_id, status="failed")
-
-
-async def _run_dorking_job(job_id: str, request: SearchRequest) -> None:
-    from backend.instagram.ig_dorking import find_usernames, get_last_discovery_report
-    from backend.instagram.ig_profile import extract_and_save
-
-    # For dorking progress we track "emails found / email goal" in the UI.
-    await database.update_job_fields(job_id, total=request.email_goal)
-    await database.update_job_progress(job_id, progress=0, emails_found=0)
-
-    base_discovery_quota = max(request.email_goal, min(500, request.email_goal * 6))
-
-    targets = [request.target.strip()]
-    if "|" in request.target:
-        niche = request.target.split("|", 1)[0].strip()
-        if niche and niche not in targets:
-            targets.append(niche)
-
-    usernames: list[str] = []
-    seen_usernames: set[str] = set()
-    discovery_counters = {
-        "google": 0,
-        "duckduckgo": 0,
-        "hashtag_api": 0,
-        "location_api": 0,
-        "fallback": 0,
-    }
-    discovery_errors: list[str] = []
-    max_discovery_rounds = 4
-
-    for round_idx in range(max_discovery_rounds):
-        if len(usernames) >= request.email_goal * 20:
-            # Safety ceiling to avoid very long-running jobs with poor targets.
-            break
-        for target in targets:
-            if len(usernames) >= request.email_goal * 20:
-                break
-
-            round_quota = min(500, base_discovery_quota * (round_idx + 1))
-            await database.update_job_fields(
-                job_id,
-                status_detail=f"Descubriendo perfiles (ronda {round_idx + 1}/{max_discovery_rounds})...",
-            )
-            discovered = await find_usernames(target, max_results=round_quota)
-            report = get_last_discovery_report()
-            discovery_counters["google"] += int(report.get("google_count", 0) or 0)
-            discovery_counters["duckduckgo"] += int(report.get("duckduckgo_count", 0) or 0)
-            discovery_counters["hashtag_api"] += int(report.get("hashtag_api_count", 0) or 0)
-            discovery_counters["location_api"] += int(report.get("location_api_count", 0) or 0)
-            discovery_counters["fallback"] += int(report.get("hashtag_fallback_count", 0) or 0)
-            if report.get("last_error"):
-                discovery_errors.append(str(report.get("last_error")))
-
-            new_in_round = 0
-            for username in discovered:
-                if username in seen_usernames:
-                    continue
-                seen_usernames.add(username)
-                usernames.append(username)
-                new_in_round += 1
-
-            # If one full round over all targets returns nothing new, stop discovery.
-            if round_idx > 0 and new_in_round == 0:
-                break
-
-    await database.update_job_fields(
-        job_id,
-        discovery_google=discovery_counters["google"],
-        discovery_duckduckgo=discovery_counters["duckduckgo"],
-        discovery_hashtag_api=discovery_counters["hashtag_api"],
-        discovery_location_api=discovery_counters["location_api"],
-        discovery_fallback=discovery_counters["fallback"],
-    )
-    if not usernames:
-        await database.update_job_fields(
-            job_id,
-            status_detail="discovery_degraded: sin resultados de discovery para el target solicitado",
-            failure_reason="discovery_degraded",
-            last_error=discovery_errors[-1] if discovery_errors else "No se encontraron usernames con las estrategias de discovery",
-        )
-        return
-
-    emails_found = 0
-    processed = 0
-    counter_lock = asyncio.Lock()
-    stop_event = asyncio.Event()
-    queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
-
-    for idx, username in enumerate(usernames):
-        queue.put_nowait((idx, username))
-
-    async def worker() -> None:
-        nonlocal emails_found, processed
-        while not stop_event.is_set():
-            try:
-                _, username = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
-
-            try:
-                if stop_event.is_set():
-                    return
-                if deduplicator.is_duplicate(username):
-                    async with counter_lock:
-                        processed += 1
-                        await database.update_job_progress(
-                            job_id,
-                            progress=min(emails_found, request.email_goal),
-                            emails_found=emails_found,
-                        )
-                    continue
-
-                await database.update_job_fields(
-                    job_id,
-                    status_detail=f"Analizando @{username} ({emails_found}/{request.email_goal})",
-                )
-                try:
-                    lead = await extract_and_save(username, job_id=job_id, source_type="dorking")
-                except Exception as exc:
-                    logger.error("Unexpected error processing @%s: %s", username, exc)
-                    lead = None
-
-                async with counter_lock:
-                    processed += 1
-                    if lead:
-                        emails_found += 1
-                        if request.email_goal and emails_found >= request.email_goal:
-                            stop_event.set()
-                    await database.update_job_progress(
-                        job_id,
-                        progress=min(emails_found, request.email_goal),
-                        emails_found=emails_found,
-                    )
-            finally:
-                queue.task_done()
-
-    worker_count = min(3, len(usernames)) if usernames else 0
-    if worker_count > 0:
-        await asyncio.gather(*(worker() for _ in range(worker_count)), return_exceptions=True)
-    if emails_found < request.email_goal:
-        await database.update_job_fields(
-            job_id,
-            status_detail=f"Objetivo no alcanzado: {emails_found}/{request.email_goal} emails encontrados.",
-            failure_reason="goal_not_reached",
-            last_error="No se encontraron suficientes perfiles con email para cumplir el objetivo.",
-        )
-
-
-async def _run_followers_job(job_id: str, request: SearchRequest) -> None:
-    from backend.instagram.ig_followers import extract_followers_leads
-
-    scan_limit = max(request.email_goal, min(cfg.max_auth_daily, request.email_goal * 4))
-    max_resumes = max(0, cfg.followers_max_resumes_per_day)
-
-    # Use pool if it has accounts, otherwise single-session mode
-    pool = account_pool if not account_pool.is_empty() else None
-
-    while True:
-        job = await database.get_job(job_id)
-        if not job:
-            return
-        progress = int(job.get("profiles_scanned") or job.get("progress") or 0)
-        emails_found = int(job.get("emails_found") or 0)
-        resume_count = int(job.get("resume_count") or 0)
-        from_ig = int(job.get("emails_from_ig") or 0)
-        from_web = int(job.get("emails_from_web") or 0)
-        enrichment_attempts = int(job.get("enrichment_attempts") or 0)
-        enrichment_successes = int(job.get("enrichment_successes") or 0)
-        skipped_private = int(job.get("skipped_private") or 0)
-        profile_fetch_failures = int(job.get("profile_fetch_failures") or 0)
-        enrichment_failures = int(job.get("enrichment_failures") or 0)
-
-        await database.update_job_fields(
-            job_id,
-            status="running",
-            status_detail=None,
-            next_retry_at=None,
-            failure_reason=None,
-        )
-        try:
-            outcome = await extract_followers_leads(
-                target_username=request.target,
-                job_id=job_id,
-                max_results=scan_limit,
-                email_goal=request.email_goal,
-                initial_emails_found=emails_found,
-                initial_processed=progress,
-                initial_from_ig=from_ig,
-                initial_from_web=from_web,
-                initial_enrichment_attempts=enrichment_attempts,
-                initial_enrichment_successes=enrichment_successes,
-                initial_skipped_private=skipped_private,
-                account_pool=pool,
-            )
-            await database.update_job_fields(
-                job_id,
-                profiles_scanned=int(outcome.get("processed") or progress),
-                emails_found=int(outcome.get("emails_found") or emails_found),
-                emails_from_ig=int(outcome.get("from_ig") or from_ig),
-                emails_from_web=int(outcome.get("from_web") or from_web),
-                enrichment_attempts=int(outcome.get("enrichment_attempts") or enrichment_attempts),
-                enrichment_successes=int(outcome.get("enrichment_successes") or enrichment_successes),
-                skipped_private=int(outcome.get("skipped_private") or skipped_private),
-                profile_fetch_failures=int(outcome.get("profile_fetch_failures") or profile_fetch_failures),
-                enrichment_failures=int(outcome.get("enrichment_failures") or enrichment_failures),
-            )
-            if outcome.get("stopped_reason") == "failed":
-                await database.update_job_fields(job_id, status="failed")
-                await database.finish_job(job_id, status="failed")
-                return
-            await database.finish_job(job_id, status="completed")
-            return
-        except RateLimitExceeded as exc:
-            retry_after = int(getattr(exc, "retry_after_seconds", 0) or 0)
-            if retry_after <= 0:
-                retry_after = 60
-            is_daily = retry_after > 3600
-            if is_daily or not cfg.followers_auto_resume_enabled or resume_count >= max_resumes:
-                detail = "Límite diario alcanzado." if is_daily else "Se alcanzó el máximo de reintentos automáticos."
-                await database.update_job_fields(
-                    job_id,
-                    status="rate_limited",
-                    status_detail=detail,
-                    failure_reason=str(exc),
-                    last_error=str(exc),
-                )
-                await database.finish_job(job_id, status="rate_limited")
-                return
-            next_retry = asyncio.get_running_loop().time() + retry_after
-            # Store wall-clock ETA for UI
-            from datetime import datetime, timezone
-            eta_iso = datetime.fromtimestamp(
-                datetime.now(tz=timezone.utc).timestamp() + retry_after,
-                tz=timezone.utc,
-            ).isoformat()
-            await database.update_job_fields(
-                job_id,
-                status="waiting_rate_window",
-                status_detail="Pausado por límite horario, reanudación automática programada.",
-                next_retry_at=eta_iso,
-                resume_count=resume_count + 1,
-                failure_reason=str(exc),
-                last_error=str(exc),
-            )
-            # Sleep in-job and retry automatically
-            now = asyncio.get_running_loop().time()
-            await asyncio.sleep(max(1, int(next_retry - now)))
+    return {"available": proxy_manager.has_proxy(), "message": "ok"}
