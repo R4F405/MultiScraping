@@ -12,19 +12,42 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 free_port() {
     local port=$1
-    local pid
-    pid=$(lsof -ti :"$port" 2>/dev/null || true)
-    if [ -n "$pid" ]; then
-        echo "Puerto $port ocupado (PID $pid) — liberando..."
-        kill "$pid" 2>/dev/null || true
+    local pids
+    local attempts=0
+    local max_attempts=8
+
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [ -z "$pids" ]; then
+        return 0
+    fi
+
+    echo "Puerto $port ocupado (PID $pids) — liberando..."
+    kill $pids 2>/dev/null || true
+
+    while [ $attempts -lt $max_attempts ]; do
         sleep 1
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -z "$pids" ]; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+    done
+
+    echo "Puerto $port sigue ocupado — forzando cierre (SIGKILL) de PID $pids..."
+    kill -9 $pids 2>/dev/null || true
+    sleep 1
+
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "Error: no se pudo liberar el puerto $port (PID $pids)."
+        exit 1
     fi
 }
 
 require_venv() {
     local service_dir=$1
     local service_name=$2
-    if [ ! -f "$SCRIPT_DIR/$service_dir/venv/bin/activate" ]; then
+    if [ ! -x "$SCRIPT_DIR/$service_dir/venv/bin/python" ]; then
         echo "Error: no se encontró venv en $service_dir ($service_name)."
         echo ""
         echo "Configúralo primero:"
@@ -85,31 +108,28 @@ free_port 8081
 echo "Iniciando MapLeads backend en :8001..."
 (
     cd "$SCRIPT_DIR/mapleads"
-    source venv/bin/activate
-    uvicorn backend.main:app --host 0.0.0.0 --port 8001
+    "$SCRIPT_DIR/mapleads/venv/bin/python" -m uvicorn backend.main:app --host 0.0.0.0 --port 8001
 ) &
 MAPLEADS_PID=$!
 
 echo "Iniciando InstaLeads backend en :8002..."
 (
     cd "$SCRIPT_DIR/instaleads"
-    source venv/bin/activate
-    uvicorn backend.main:app --host 0.0.0.0 --port 8002
+    "$SCRIPT_DIR/instaleads/venv/bin/python" -m uvicorn backend.main:app --host 0.0.0.0 --port 8002
 ) &
 INSTALEADS_PID=$!
 
 echo "Iniciando LinkedInLeads backend en :8003..."
 (
     cd "$SCRIPT_DIR/linkedinleads"
-    source venv/bin/activate
-    uvicorn backend.main:app --host 0.0.0.0 --port 8003
+    "$SCRIPT_DIR/linkedinleads/venv/bin/python" -m uvicorn backend.main:app --host 0.0.0.0 --port 8003
 ) &
 LINKEDINLEADS_PID=$!
 
 echo "Iniciando TikTokLeads backend en :8004..."
 (
     cd "$SCRIPT_DIR/tiktokleads"
-    uvicorn backend.main:app --host 0.0.0.0 --port 8004
+    python -m uvicorn backend.main:app --host 0.0.0.0 --port 8004
 ) &
 TIKTOKLEADS_PID=$!
 
@@ -122,11 +142,10 @@ echo "Iniciando Frontend en :8081..."
 (
     cd "$SCRIPT_DIR/scraperLead-web"
     if [ -f "$FRONTEND_VENV" ]; then
-        source "$FRONTEND_VENV"
+        "$SCRIPT_DIR/scraperLead-web/venv/bin/python" main.py
     else
-        source "$FALLBACK_FRONTEND_VENV"
+        "$SCRIPT_DIR/mapleads/venv/bin/python" main.py
     fi
-    python main.py
 ) &
 FRONTEND_PID=$!
 
