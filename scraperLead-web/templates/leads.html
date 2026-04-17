@@ -741,6 +741,14 @@ function prettifyEmailReason(reason) {
   };
   return map[reason] || reason || '';
 }
+function prettifyEmailConfidence(confidence) {
+  const map = {
+    high: 'Alta',
+    medium: 'Media',
+    low: 'Baja',
+  };
+  return map[confidence] || confidence || '';
+}
 
 function renderPage(page) {
   const total = filteredLeads.length;
@@ -873,6 +881,11 @@ function openLeadModal(id) {
   const emailWrap = document.createElement('div'); emailWrap.className = 'flex flex-col gap-1.5'; emailWrap.appendChild(createLabel('Email')); const emailValue = document.createElement('div'); emailValue.className = `text-sm ${emailStatusClass(lead.email_status)}`; emailValue.textContent = safeText(lead.email); emailWrap.appendChild(emailValue); row2.appendChild(emailWrap);
   const statusWrap = document.createElement('div'); statusWrap.className = 'flex flex-col gap-1.5'; statusWrap.appendChild(createLabel('Estado'));
   const badge = document.createElement('span'); const st = lead.email_status || 'pending'; const badgeMap = { valid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full', text: '✓ Verificado' }, invalid: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-full', text: '✕ Inválido' }, pending: { className: 'inline-flex items-center gap-1 text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-full', text: '· Pendiente' } }; const badgeCfg = badgeMap[st] || badgeMap.pending; badge.className = badgeCfg.className; badge.textContent = badgeCfg.text; statusWrap.appendChild(badge); row2.appendChild(statusWrap); body.appendChild(row2);
+  if (lead.email && lead.email_confidence) {
+    const confidenceNode = document.createElement('span');
+    confidenceNode.textContent = prettifyEmailConfidence(lead.email_confidence);
+    body.appendChild(createField('Confianza del email', confidenceNode));
+  }
   const hasRealWebsite = !!lead.website && !isSocialUrl(lead.website);
   if (!lead.email && hasRealWebsite && lead.email_reason) {
     const reasonNode = document.createElement('span');

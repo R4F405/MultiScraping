@@ -255,10 +255,11 @@ async def test_enrich_business_email_skips_social_website(monkeypatch):
 
     monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
 
-    email, status, reason = await routes._enrich_business_email({"website": "https://instagram.com/miempresa"})
+    email, status, reason, confidence = await routes._enrich_business_email({"website": "https://instagram.com/miempresa"})
     assert email is None
     assert status == "pending"
     assert reason is None
+    assert confidence is None
     assert called["n"] == 0
 
 
@@ -274,10 +275,11 @@ async def test_enrich_business_email_skips_non_business_listing_website(monkeypa
 
     monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
 
-    email, status, reason = await routes._enrich_business_email({"website": "https://linktr.ee/miempresa"})
+    email, status, reason, confidence = await routes._enrich_business_email({"website": "https://linktr.ee/miempresa"})
     assert email is None
     assert status == "pending"
     assert reason is None
+    assert confidence is None
     assert called["n"] == 0
 
 
@@ -297,10 +299,11 @@ async def test_enrich_business_email_calls_finder_on_real_website(monkeypatch):
     monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find_email)
     monkeypatch.setattr(routes, "verify_email_mx", _fake_verify)
 
-    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    email, status, reason, confidence = await routes._enrich_business_email({"website": "https://miempresa.com"})
     assert email == "ok@empresa.com"
     assert status == "valid"
     assert reason == "found"
+    assert confidence in {"high", "medium", "low"}
     assert called["n"] == 1
 
 
@@ -317,10 +320,11 @@ async def test_enrich_business_email_pending_when_mx_invalid(monkeypatch):
     monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find)
     monkeypatch.setattr(routes, "verify_email_mx", _bad_mx)
 
-    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    email, status, reason, confidence = await routes._enrich_business_email({"website": "https://miempresa.com"})
     assert email == "x@rare-domain-xyz123.com"
     assert status == "pending"
     assert reason == "found"
+    assert confidence in {"high", "medium", "low"}
 
 
 @pytest.mark.asyncio
@@ -332,10 +336,11 @@ async def test_enrich_business_email_sets_hidden_form_reason(monkeypatch):
 
     monkeypatch.setattr(routes, "find_email_in_website_diagnostics", _fake_find)
 
-    email, status, reason = await routes._enrich_business_email({"website": "https://miempresa.com"})
+    email, status, reason, confidence = await routes._enrich_business_email({"website": "https://miempresa.com"})
     assert email is None
     assert status == "pending"
     assert reason == "form_backend_hidden_recipient"
+    assert confidence is None
 
 
 @pytest.mark.asyncio
@@ -394,6 +399,7 @@ async def test_email_probe_endpoint_real_website_flow(client, monkeypatch):
     data = res.json()
     assert data["skipped"] is False
     assert data["best_email"] == "contacto@miempresa.com"
+    assert data["best_email_confidence"] in {"high", "medium", "low"}
     assert data["email_status"] == "valid"
     assert "contacto@miempresa.com" in data["emails_found"]
     assert data["reason"] == "found"
@@ -410,6 +416,7 @@ async def test_email_probe_endpoint_skips_social(client):
     assert data["reason"] == "social_or_non_business"
     assert data["contact_method"] == "none"
     assert data["form_vendor"] is None
+    assert data["best_email_confidence"] is None
 
 
 @pytest.mark.asyncio
@@ -434,3 +441,4 @@ async def test_email_probe_endpoint_form_only_hidden_recipient(client, monkeypat
     assert data["contact_method"] == "form"
     assert data["form_vendor"] == "fluentform"
     assert data["reason"] == "form_backend_hidden_recipient"
+    assert data["best_email_confidence"] is None

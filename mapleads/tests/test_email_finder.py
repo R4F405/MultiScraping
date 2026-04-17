@@ -182,6 +182,28 @@ def test_pick_best_avoids_noreply_when_better_options_exist():
     assert best == "contacto@miempresa.com"
 
 
+def test_pick_best_prioritizes_url_context_tokens():
+    site = "https://clinicas.vitaldent.com/lugo/clinica-dental-vitaldent-lugo-san-marcos-353/"
+    emails = [
+        "recepcion.valdemoro@vitaldent.com",
+        "lugo1@vitaldent.com",
+        "zaragoza2@vitaldent.com",
+    ]
+    best = pick_best_email(emails, site)
+    assert best == "lugo1@vitaldent.com"
+
+
+def test_pick_best_context_beats_generic_recepcion():
+    site = "https://clinicas.vitaldent.com/lugo/clinica-dental-vitaldent-lugo-san-marcos-353/"
+    emails = [
+        "recepcion.valdemoro@vitaldent.com",
+        "recepcion.sandrbarc@vitaldent.com",
+        "lugoavenidacoruna@vitaldent.com",
+    ]
+    best = pick_best_email(emails, site)
+    assert best == "lugoavenidacoruna@vitaldent.com"
+
+
 @pytest.mark.parametrize(
     "raw,expected_prefix",
     [
@@ -290,7 +312,43 @@ async def test_fetch_page_fallbacks_to_direct_when_proxy_fails(monkeypatch):
     assert reason is None
     assert len(calls) == 2
     assert calls[0]["proxies"] is not None
-    assert calls[1]["proxies"] is None
+    assert calls[1]["proxies"] == {}
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_ssl_fallback_uses_insecure_verify(monkeypatch):
+    from backend.scraper import email_finder as ef
+
+    calls: list[dict] = []
+
+    class _Resp:
+        def __init__(self, status_code: int, text: str):
+            self.status_code = status_code
+            self.text = text
+
+    def _fake_get(url, **kwargs):
+        calls.append(
+            {
+                "url": url,
+                "proxies": kwargs.get("proxies"),
+                "verify": kwargs.get("verify"),
+            }
+        )
+        if kwargs.get("verify") is True:
+            raise RuntimeError("SSL certificate verify failed")
+        return _Resp(200, "<html>contacto@miempresa.com</html>")
+
+    monkeypatch.setattr(ef.curl_requests, "get", _fake_get)
+
+    html, used_proxy, reason = await ef._fetch_page("https://miempresa.com", None)
+    assert "contacto@miempresa.com" in html
+    assert used_proxy is False
+    assert reason is None
+    assert len(calls) == 2
+    assert calls[0]["proxies"] == {}
+    assert calls[0]["verify"] is True
+    assert calls[1]["proxies"] == {}
+    assert calls[1]["verify"] is False
 
 
 @pytest.mark.asyncio

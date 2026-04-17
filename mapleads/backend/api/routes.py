@@ -14,7 +14,12 @@ from backend.api.schemas import EmailProbeRequest, JobLocationResponse, JobRespo
 from backend.config.settings import settings
 from backend.proxy.proxy_manager import proxy_manager, set_current_job
 from backend.scraper.category_catalog import clear_category_catalog_cache, search_categories
-from backend.scraper.email_finder import find_email_in_website_diagnostics, is_social_url, pick_best_email
+from backend.scraper.email_finder import (
+    find_email_in_website_diagnostics,
+    is_social_url,
+    pick_best_email,
+    pick_best_email_confidence,
+)
 from backend.scraper.maps_categories import load_categories, load_categories_meta
 from backend.scraper.email_verifier import verify_email_mx
 from backend.scraper.maps_client import MapsFetchError, search_maps
@@ -120,14 +125,15 @@ def _normalize_email_reason(
     return raw_reason
 
 
-async def _enrich_business_email(business: dict) -> tuple[str | None, str, str | None]:
+async def _enrich_business_email(business: dict) -> tuple[str | None, str, str | None, str | None]:
     existing = (business.get("email") or "").strip() if isinstance(business.get("email"), str) else business.get("email")
     if existing:
-        return str(existing), business.get("email_status", "pending") or "pending", "found"
+        return str(existing), business.get("email_status", "pending") or "pending", "found", business.get("email_confidence")
 
     email = None
     email_status = "pending"
     email_reason = None
+    email_confidence = None
 
     website = business.get("website")
     if website and not is_social_url(str(website)):
@@ -141,6 +147,7 @@ async def _enrich_business_email(business: dict) -> tuple[str | None, str, str |
                     email_status = await verify_email_mx(email)
                     if email_status == "invalid":
                         email_status = "pending"
+                    email_confidence = pick_best_email_confidence(emails, str(website))
             email_reason = _normalize_email_reason(
                 email=email,
                 raw_reason=diag.get("reason"),
@@ -149,7 +156,7 @@ async def _enrich_business_email(business: dict) -> tuple[str | None, str, str |
         except Exception as exc:
             logger.debug("Email search failed for %s: %s", business.get("website"), exc)
             email_reason = "enrichment_error"
-    return email, email_status, email_reason
+    return email, email_status, email_reason, email_confidence
 
 
 async def _search_unique_businesses(
@@ -270,7 +277,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
         async def process_business(index: int, business: dict) -> None:
             nonlocal emails_found
             async with semaphore:
-                email, email_status, email_reason = await _enrich_business_email(business)
+                email, email_status, email_reason, email_confidence = await _enrich_business_email(business)
                 if email:
                     async with progress_lock:
                         emails_found += 1
@@ -281,6 +288,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
                 business["email"] = email
                 business["email_status"] = email_status
                 business["email_reason"] = email_reason
+                business["email_confidence"] = email_confidence
                 await db.save_lead(business, job_id)
                 await db.update_job_progress(job_id, index + 1, current_emails)
 
@@ -359,10 +367,11 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
                     continue
 
                 for business in businesses:
-                    email, email_status, email_reason = await _enrich_business_email(business)
+                    email, email_status, email_reason, email_confidence = await _enrich_business_email(business)
                     business["email"] = email
                     business["email_status"] = email_status
                     business["email_reason"] = email_reason
+                    business["email_confidence"] = email_confidence
                     await db.save_lead(business, job_id)
                     locality_leads_found += 1
                     total_progress += 1
@@ -502,12 +511,14 @@ async def post_email_probe(body: EmailProbeRequest):
             "form_vendor": None,
             "emails_found": [],
             "best_email": None,
+            "best_email_confidence": None,
             "email_status": "pending",
         }
 
     diag = await find_email_in_website_diagnostics(website)
     emails = diag.get("emails", [])
     best = pick_best_email(emails, website) if emails else None
+    best_confidence = pick_best_email_confidence(emails, website) if best else None
     email_status = "pending"
     if best:
         try:
@@ -528,6 +539,7 @@ async def post_email_probe(body: EmailProbeRequest):
         "skipped": False,
         "emails_found": sorted(emails),
         "best_email": best,
+        "best_email_confidence": best_confidence,
         "email_status": email_status,
         "reason": reason,
         "contact_method": contact_method,

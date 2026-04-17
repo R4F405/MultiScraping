@@ -77,6 +77,7 @@ class LeadResponse(BaseModel):
     email: str | None
     email_status: str | None
     email_reason: str | None = None
+    email_confidence: str | None = None
     category: str | None
     rating: float | None
     maps_url: str | None

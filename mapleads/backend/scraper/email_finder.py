@@ -176,7 +176,12 @@ async def _fetch_page(url: str, proxy: str | None) -> tuple[str, bool, str | Non
     connection. This keeps email extraction resilient when proxy pools are flaky.
     """
 
-    async def _attempt(proxies: dict[str, str] | None, *, via_proxy: bool) -> tuple[str, bool, str | None]:
+    async def _attempt(
+        proxies: dict[str, str] | None,
+        *,
+        via_proxy: bool,
+        verify_tls: bool = True,
+    ) -> tuple[str, bool, str | None]:
         try:
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
@@ -188,6 +193,7 @@ async def _fetch_page(url: str, proxy: str | None) -> tuple[str, bool, str | Non
                     impersonate="chrome124",
                     timeout=10,
                     allow_redirects=True,
+                    verify=verify_tls,
                 ),
             )
             if response.status_code == 200:
@@ -204,6 +210,8 @@ async def _fetch_page(url: str, proxy: str | None) -> tuple[str, bool, str | Non
             reason = "network_error"
             if any(k in err for k in ("ssl", "tls", "certificate", "secure")):
                 reason = "ssl_error"
+            elif "connect tunnel failed" in err:
+                reason = "proxy_tunnel_error"
             elif "timeout" in err:
                 reason = "timeout"
             logger.debug(
@@ -220,9 +228,20 @@ async def _fetch_page(url: str, proxy: str | None) -> tuple[str, bool, str | Non
             return proxied_html, used_proxy, None
         logger.debug("_fetch_page: proxy failed for %s, retrying direct", url)
 
-    direct_html, used_proxy, direct_reason = await _attempt(None, via_proxy=False)
+    # Direct attempt must not inherit env proxy vars (HTTP_PROXY/HTTPS_PROXY).
+    direct_html, used_proxy, direct_reason = await _attempt({}, via_proxy=False, verify_tls=True)
     if direct_html:
         return direct_html, used_proxy, None
+    # Last resort for websites with broken SSL chains but accessible content.
+    if direct_reason == "ssl_error":
+        direct_html_insecure, used_proxy_insecure, insecure_reason = await _attempt(
+            {},
+            via_proxy=False,
+            verify_tls=False,
+        )
+        if direct_html_insecure:
+            return direct_html_insecure, used_proxy_insecure, None
+        direct_reason = insecure_reason or direct_reason
     final_reason = direct_reason or (proxy_reason if proxy else None)
     return direct_html, used_proxy, final_reason
 
@@ -487,6 +506,25 @@ def _site_domain_for_scoring(website_url: str) -> str | None:
     return host or None
 
 
+def _website_tokens_for_scoring(website_url: str) -> set[str]:
+    """
+    Build context tokens from URL path/query to prioritize location-specific emails.
+    """
+    n = normalize_http_url(website_url)
+    if not n:
+        return set()
+    p = urlparse(n)
+    raw = f"{p.path or ''} {p.query or ''}".lower()
+    chunks = re.split(r"[^a-z0-9]+", raw)
+    stop = {
+        "www", "http", "https", "utm", "campaign", "content", "source", "medium",
+        "term", "general", "google", "my", "business", "id", "cmp",
+        "clinic", "clinica", "dental", "san", "de", "del", "la", "el", "en",
+    }
+    tokens = {c for c in chunks if len(c) >= 4 and c not in stop and not c.isdigit()}
+    return tokens
+
+
 def pick_best_email(emails: list[str], website: str) -> str | None:
     """
     Pick the most likely business contact email from extracted candidates.
@@ -494,6 +532,7 @@ def pick_best_email(emails: list[str], website: str) -> str | None:
     if not emails:
         return None
     site_dom = _site_domain_for_scoring(website)
+    website_tokens = _website_tokens_for_scoring(website)
     prefixes = (
         "contacto", "contact", "info", "hola", "hello", "ventas", "sales",
         "comercial", "admin", "oficina", "recepcion",
@@ -524,9 +563,58 @@ def pick_best_email(emails: list[str], website: str) -> str | None:
             pen = 3
         if any(token in local_l for token in low_quality_locals):
             pen += 6
-        return (pfx + dom_match - pen, -len(a), a.lower())
+        # If URL contains locality/context tokens and this email does not match any,
+        # heavily penalize to avoid choosing generic/global inboxes from other branches.
+        if website_tokens and not any(token in local_l for token in website_tokens):
+            pen += 12
+        loc_bonus = 0
+        if website_tokens:
+            for token in website_tokens:
+                if token in local_l:
+                    loc_bonus += 16
+        return (pfx + dom_match + loc_bonus - pen, -len(a), a.lower())
 
     return max(emails, key=lambda e: score_tuple(e))
+
+
+def pick_best_email_confidence(emails: list[str], website: str) -> str | None:
+    """
+    Return confidence level for best email selection: high | medium | low.
+    """
+    if not emails:
+        return None
+    site_dom = _site_domain_for_scoring(website)
+    website_tokens = _website_tokens_for_scoring(website)
+
+    def _numeric_score(addr: str) -> int:
+        a = (addr or "").strip().lower()
+        if "@" not in a:
+            return -999
+        local, _, dom = a.partition("@")
+        score = 0
+        if site_dom and (dom == site_dom or dom.endswith("." + site_dom)):
+            score += 5
+        if website_tokens:
+            matched = any(token in local for token in website_tokens)
+            if matched:
+                score += 16
+            else:
+                score -= 12
+        if any(token in local for token in ("noreply", "no-reply", "donotreply", "do-not-reply")):
+            score -= 6
+        if local.startswith(("contacto", "contact", "info", "ventas", "comercial", "recepcion")):
+            score += 8
+        return score
+
+    ranked = sorted((_numeric_score(e), e) for e in emails)
+    best_score, _best_email = ranked[-1]
+    second_score = ranked[-2][0] if len(ranked) > 1 else -999
+    gap = best_score - second_score
+    if best_score >= 16 and gap >= 6:
+        return "high"
+    if best_score >= 8 and gap >= 2:
+        return "medium"
+    return "low"
 
 
 def _playwright_fetch_sync(url: str) -> str:
