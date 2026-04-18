@@ -37,7 +37,7 @@ URL del panel:
 #### 1) Clonar y entrar al repo
 
 ```bash
-git clone <URL_DEL_REPO>
+git clone https://github.com/R4F405/MultiScraping
 cd multiScraping
 ```
 
