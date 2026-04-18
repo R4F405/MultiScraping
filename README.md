@@ -9,7 +9,7 @@ Si es tu primera vez, pasa al siguiente punto y sigue la instalación completa (
 #### macOS / Linux
 
 ```bash
-git clone <URL_DEL_REPO>
+git clone https://github.com/R4F405/MultiScraping
 cd multiScraping
 ./start_all.sh
 ```
@@ -17,8 +17,9 @@ cd multiScraping
 #### Windows (manual rápido)
 
 ```cmd
-git clone <URL_DEL_REPO>
+git clone https://github.com/R4F405/MultiScraping
 cd multiScraping
+./start_all.sh
 ```
 
 Luego abre 4 terminales (una por módulo), activa su `venv` y arranca:
