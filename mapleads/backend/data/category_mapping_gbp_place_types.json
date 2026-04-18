@@ -1,0 +1,18 @@
+{
+  "nutritionist": ["nutritionist", "health_consultant", "doctor"],
+  "gym": ["gym", "fitness_center", "sports_complex"],
+  "personal_trainer": ["gym", "fitness_center", "sports_complex"],
+  "physiotherapist": ["physiotherapist", "health"],
+  "psychologist": ["psychologist", "mental_health_service", "health"],
+  "dentist": ["dentist", "dental_clinic", "health"],
+  "lawyer": ["lawyer"],
+  "immigration_lawyer": ["immigration_lawyer", "lawyer"],
+  "accountant": ["accounting"],
+  "marketing_agency": ["marketing_agency", "advertising_agency"],
+  "web_designer": ["marketing_agency", "computer_support_and_services"],
+  "restaurant": ["restaurant"],
+  "coffee_shop": ["cafe", "coffee_shop"],
+  "beauty_salon": ["beauty_salon", "spa"],
+  "hair_salon": ["hair_care", "beauty_salon"]
+}
+

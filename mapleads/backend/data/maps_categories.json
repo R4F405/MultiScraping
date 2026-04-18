@@ -1,0 +1,5469 @@
+[
+  {
+    "type": "academic_department",
+    "label_en": "Academic Department",
+    "label_es": "Academic Department",
+    "aliases": [
+      "Academic Department",
+      "academic department",
+      "academic_department"
+    ]
+  },
+  {
+    "type": "acai_shop",
+    "label_en": "Acai Shop",
+    "label_es": "Acai Shop",
+    "aliases": [
+      "acai shop",
+      "Acai Shop",
+      "acai_shop"
+    ]
+  },
+  {
+    "type": "accounting",
+    "label_en": "Accounting",
+    "label_es": "Asesoría Contable",
+    "aliases": [
+      "asesoria",
+      "gestoria",
+      "contable",
+      "fiscal"
+    ]
+  },
+  {
+    "type": "address",
+    "label_en": "Address",
+    "label_es": "Address",
+    "aliases": [
+      "Address",
+      "address"
+    ]
+  },
+  {
+    "type": "administrative_area_level_1",
+    "label_en": "Administrative Area Level 1",
+    "label_es": "Administrative Area Level 1",
+    "aliases": [
+      "Administrative Area Level 1",
+      "administrative area level 1",
+      "administrative_area_level_1"
+    ]
+  },
+  {
+    "type": "administrative_area_level_2",
+    "label_en": "Administrative Area Level 2",
+    "label_es": "Administrative Area Level 2",
+    "aliases": [
+      "administrative_area_level_2",
+      "Administrative Area Level 2",
+      "administrative area level 2"
+    ]
+  },
+  {
+    "type": "administrative_area_level_3",
+    "label_en": "Administrative Area Level 3",
+    "label_es": "Administrative Area Level 3",
+    "aliases": [
+      "Administrative Area Level 3",
+      "administrative_area_level_3",
+      "administrative area level 3"
+    ]
+  },
+  {
+    "type": "administrative_area_level_4",
+    "label_en": "Administrative Area Level 4",
+    "label_es": "Administrative Area Level 4",
+    "aliases": [
+      "Administrative Area Level 4",
+      "administrative area level 4",
+      "administrative_area_level_4"
+    ]
+  },
+  {
+    "type": "administrative_area_level_5",
+    "label_en": "Administrative Area Level 5",
+    "label_es": "Administrative Area Level 5",
+    "aliases": [
+      "Administrative Area Level 5",
+      "administrative_area_level_5",
+      "administrative area level 5"
+    ]
+  },
+  {
+    "type": "administrative_area_level_6",
+    "label_en": "Administrative Area Level 6",
+    "label_es": "Administrative Area Level 6",
+    "aliases": [
+      "administrative_area_level_6",
+      "Administrative Area Level 6",
+      "administrative area level 6"
+    ]
+  },
+  {
+    "type": "administrative_area_level_7",
+    "label_en": "Administrative Area Level 7",
+    "label_es": "Administrative Area Level 7",
+    "aliases": [
+      "administrative area level 7",
+      "Administrative Area Level 7",
+      "administrative_area_level_7"
+    ]
+  },
+  {
+    "type": "adventure_sports_center",
+    "label_en": "Adventure Sports Center",
+    "label_es": "Adventure Sports Center",
+    "aliases": [
+      "adventure sports center",
+      "adventure_sports_center",
+      "Adventure Sports Center"
+    ]
+  },
+  {
+    "type": "afghani_restaurant",
+    "label_en": "Afghani Restaurant",
+    "label_es": "Afghani Restaurant",
+    "aliases": [
+      "Afghani Restaurant",
+      "afghani restaurant",
+      "afghani_restaurant"
+    ]
+  },
+  {
+    "type": "african_restaurant",
+    "label_en": "African Restaurant",
+    "label_es": "African Restaurant",
+    "aliases": [
+      "African Restaurant",
+      "african_restaurant",
+      "african restaurant"
+    ]
+  },
+  {
+    "type": "aircraft_rental_service",
+    "label_en": "Aircraft Rental Service",
+    "label_es": "Aircraft Rental Service",
+    "aliases": [
+      "aircraft_rental_service",
+      "Aircraft Rental Service",
+      "aircraft rental service"
+    ]
+  },
+  {
+    "type": "airport",
+    "label_en": "Airport",
+    "label_es": "Aeropuerto",
+    "aliases": [
+      "aeropuerto",
+      "terminal"
+    ]
+  },
+  {
+    "type": "airstrip",
+    "label_en": "Airstrip",
+    "label_es": "Airstrip",
+    "aliases": [
+      "Airstrip",
+      "airstrip"
+    ]
+  },
+  {
+    "type": "american_restaurant",
+    "label_en": "American Restaurant",
+    "label_es": "American Restaurant",
+    "aliases": [
+      "american_restaurant",
+      "American Restaurant",
+      "american restaurant"
+    ]
+  },
+  {
+    "type": "amphitheatre",
+    "label_en": "Amphitheatre",
+    "label_es": "Amphitheatre",
+    "aliases": [
+      "Amphitheatre",
+      "amphitheatre"
+    ]
+  },
+  {
+    "type": "amusement_center",
+    "label_en": "Amusement Center",
+    "label_es": "Amusement Center",
+    "aliases": [
+      "Amusement Center",
+      "amusement center",
+      "amusement_center"
+    ]
+  },
+  {
+    "type": "amusement_park",
+    "label_en": "Amusement Park",
+    "label_es": "Amusement Park",
+    "aliases": [
+      "Amusement Park",
+      "amusement park",
+      "amusement_park"
+    ]
+  },
+  {
+    "type": "apartment_building",
+    "label_en": "Apartment Building",
+    "label_es": "Apartment Building",
+    "aliases": [
+      "apartment building",
+      "apartment_building",
+      "Apartment Building"
+    ]
+  },
+  {
+    "type": "apartment_complex",
+    "label_en": "Apartment Complex",
+    "label_es": "Apartment Complex",
+    "aliases": [
+      "apartment_complex",
+      "Apartment Complex",
+      "apartment complex"
+    ]
+  },
+  {
+    "type": "aquarium",
+    "label_en": "Aquarium",
+    "label_es": "Aquarium",
+    "aliases": [
+      "aquarium",
+      "Aquarium"
+    ]
+  },
+  {
+    "type": "archipelago",
+    "label_en": "Archipelago",
+    "label_es": "Archipelago",
+    "aliases": [
+      "Archipelago",
+      "archipelago"
+    ]
+  },
+  {
+    "type": "architect",
+    "label_en": "Architect",
+    "label_es": "Arquitecto",
+    "aliases": [
+      "arquitectura",
+      "arquitectos"
+    ]
+  },
+  {
+    "type": "arena",
+    "label_en": "Arena",
+    "label_es": "Arena",
+    "aliases": [
+      "Arena",
+      "arena"
+    ]
+  },
+  {
+    "type": "argentinian_restaurant",
+    "label_en": "Argentinian Restaurant",
+    "label_es": "Argentinian Restaurant",
+    "aliases": [
+      "Argentinian Restaurant",
+      "argentinian_restaurant",
+      "argentinian restaurant"
+    ]
+  },
+  {
+    "type": "art_gallery",
+    "label_en": "Art Gallery",
+    "label_es": "Galería de Arte",
+    "aliases": [
+      "galeria arte",
+      "arte"
+    ]
+  },
+  {
+    "type": "art_museum",
+    "label_en": "Art Museum",
+    "label_es": "Art Museum",
+    "aliases": [
+      "Art Museum",
+      "art_museum",
+      "art museum"
+    ]
+  },
+  {
+    "type": "art_studio",
+    "label_en": "Art Studio",
+    "label_es": "Art Studio",
+    "aliases": [
+      "Art Studio",
+      "art studio",
+      "art_studio"
+    ]
+  },
+  {
+    "type": "asian_fusion_restaurant",
+    "label_en": "Asian Fusion Restaurant",
+    "label_es": "Asian Fusion Restaurant",
+    "aliases": [
+      "asian_fusion_restaurant",
+      "asian fusion restaurant",
+      "Asian Fusion Restaurant"
+    ]
+  },
+  {
+    "type": "asian_grocery_store",
+    "label_en": "Asian Grocery Store",
+    "label_es": "Asian Grocery Store",
+    "aliases": [
+      "asian_grocery_store",
+      "asian grocery store",
+      "Asian Grocery Store"
+    ]
+  },
+  {
+    "type": "asian_restaurant",
+    "label_en": "Asian Restaurant",
+    "label_es": "Asian Restaurant",
+    "aliases": [
+      "asian restaurant",
+      "Asian Restaurant",
+      "asian_restaurant"
+    ]
+  },
+  {
+    "type": "association_or_organization",
+    "label_en": "Association Or Organization",
+    "label_es": "Association Or Organization",
+    "aliases": [
+      "association or organization",
+      "Association Or Organization",
+      "association_or_organization"
+    ]
+  },
+  {
+    "type": "astrologer",
+    "label_en": "Astrologer",
+    "label_es": "Astrologer",
+    "aliases": [
+      "astrologer",
+      "Astrologer"
+    ]
+  },
+  {
+    "type": "athletic_field",
+    "label_en": "Athletic Field",
+    "label_es": "Athletic Field",
+    "aliases": [
+      "athletic_field",
+      "athletic field",
+      "Athletic Field"
+    ]
+  },
+  {
+    "type": "atm",
+    "label_en": "ATM",
+    "label_es": "Cajero Automático",
+    "aliases": [
+      "cajero",
+      "atm"
+    ]
+  },
+  {
+    "type": "auditorium",
+    "label_en": "Auditorium",
+    "label_es": "Auditorium",
+    "aliases": [
+      "auditorium",
+      "Auditorium"
+    ]
+  },
+  {
+    "type": "australian_restaurant",
+    "label_en": "Australian Restaurant",
+    "label_es": "Australian Restaurant",
+    "aliases": [
+      "australian_restaurant",
+      "Australian Restaurant",
+      "australian restaurant"
+    ]
+  },
+  {
+    "type": "austrian_restaurant",
+    "label_en": "Austrian Restaurant",
+    "label_es": "Austrian Restaurant",
+    "aliases": [
+      "austrian restaurant",
+      "austrian_restaurant",
+      "Austrian Restaurant"
+    ]
+  },
+  {
+    "type": "auto_parts_store",
+    "label_en": "Auto Parts Store",
+    "label_es": "Auto Parts Store",
+    "aliases": [
+      "auto parts store",
+      "Auto Parts Store",
+      "auto_parts_store"
+    ]
+  },
+  {
+    "type": "baby_store",
+    "label_en": "Baby Store",
+    "label_es": "Tienda para Bebés",
+    "aliases": [
+      "bebe",
+      "puericultura"
+    ]
+  },
+  {
+    "type": "bagel_shop",
+    "label_en": "Bagel Shop",
+    "label_es": "Bagel Shop",
+    "aliases": [
+      "Bagel Shop",
+      "bagel_shop",
+      "bagel shop"
+    ]
+  },
+  {
+    "type": "bakery",
+    "label_en": "Bakery",
+    "label_es": "Panadería",
+    "aliases": [
+      "panaderia",
+      "pasteleria",
+      "bolleria"
+    ]
+  },
+  {
+    "type": "bangladeshi_restaurant",
+    "label_en": "Bangladeshi Restaurant",
+    "label_es": "Bangladeshi Restaurant",
+    "aliases": [
+      "Bangladeshi Restaurant",
+      "bangladeshi_restaurant",
+      "bangladeshi restaurant"
+    ]
+  },
+  {
+    "type": "bank",
+    "label_en": "Bank",
+    "label_es": "Banco",
+    "aliases": [
+      "banco",
+      "oficina bancaria"
+    ]
+  },
+  {
+    "type": "banquet_hall",
+    "label_en": "Banquet Hall",
+    "label_es": "Banquet Hall",
+    "aliases": [
+      "banquet_hall",
+      "Banquet Hall",
+      "banquet hall"
+    ]
+  },
+  {
+    "type": "bar",
+    "label_en": "Bar",
+    "label_es": "Bar",
+    "aliases": [
+      "bares",
+      "copas",
+      "bar"
+    ]
+  },
+  {
+    "type": "bar_and_grill",
+    "label_en": "Bar And Grill",
+    "label_es": "Bar And Grill",
+    "aliases": [
+      "Bar And Grill",
+      "bar_and_grill",
+      "bar and grill"
+    ]
+  },
+  {
+    "type": "barbecue_area",
+    "label_en": "Barbecue Area",
+    "label_es": "Barbecue Area",
+    "aliases": [
+      "barbecue area",
+      "Barbecue Area",
+      "barbecue_area"
+    ]
+  },
+  {
+    "type": "barbecue_restaurant",
+    "label_en": "Barbecue Restaurant",
+    "label_es": "Barbecue Restaurant",
+    "aliases": [
+      "barbecue restaurant",
+      "Barbecue Restaurant",
+      "barbecue_restaurant"
+    ]
+  },
+  {
+    "type": "barber_shop",
+    "label_en": "Barber Shop",
+    "label_es": "Barber Shop",
+    "aliases": [
+      "Barber Shop",
+      "barber shop",
+      "barber_shop"
+    ]
+  },
+  {
+    "type": "basque_restaurant",
+    "label_en": "Basque Restaurant",
+    "label_es": "Basque Restaurant",
+    "aliases": [
+      "basque_restaurant",
+      "basque restaurant",
+      "Basque Restaurant"
+    ]
+  },
+  {
+    "type": "bavarian_restaurant",
+    "label_en": "Bavarian Restaurant",
+    "label_es": "Bavarian Restaurant",
+    "aliases": [
+      "Bavarian Restaurant",
+      "bavarian restaurant",
+      "bavarian_restaurant"
+    ]
+  },
+  {
+    "type": "beach",
+    "label_en": "Beach",
+    "label_es": "Beach",
+    "aliases": [
+      "beach",
+      "Beach"
+    ]
+  },
+  {
+    "type": "beautician",
+    "label_en": "Beautician",
+    "label_es": "Beautician",
+    "aliases": [
+      "beautician",
+      "Beautician"
+    ]
+  },
+  {
+    "type": "beauty_salon",
+    "label_en": "Beauty Salon",
+    "label_es": "Centro de Estética",
+    "aliases": [
+      "estetica",
+      "beauty salon",
+      "centro estetico"
+    ]
+  },
+  {
+    "type": "bed_and_breakfast",
+    "label_en": "Bed And Breakfast",
+    "label_es": "Bed And Breakfast",
+    "aliases": [
+      "bed and breakfast",
+      "Bed And Breakfast",
+      "bed_and_breakfast"
+    ]
+  },
+  {
+    "type": "beer_garden",
+    "label_en": "Beer Garden",
+    "label_es": "Beer Garden",
+    "aliases": [
+      "Beer Garden",
+      "beer_garden",
+      "beer garden"
+    ]
+  },
+  {
+    "type": "belgian_restaurant",
+    "label_en": "Belgian Restaurant",
+    "label_es": "Belgian Restaurant",
+    "aliases": [
+      "belgian restaurant",
+      "belgian_restaurant",
+      "Belgian Restaurant"
+    ]
+  },
+  {
+    "type": "bicycle_store",
+    "label_en": "Bicycle Store",
+    "label_es": "Tienda de Bicicletas",
+    "aliases": [
+      "bicicletas",
+      "ciclismo"
+    ]
+  },
+  {
+    "type": "bike_sharing_station",
+    "label_en": "Bike Sharing Station",
+    "label_es": "Bike Sharing Station",
+    "aliases": [
+      "bike_sharing_station",
+      "bike sharing station",
+      "Bike Sharing Station"
+    ]
+  },
+  {
+    "type": "bistro",
+    "label_en": "Bistro",
+    "label_es": "Bistro",
+    "aliases": [
+      "bistro",
+      "Bistro"
+    ]
+  },
+  {
+    "type": "body_art_service",
+    "label_en": "Body Art Service",
+    "label_es": "Body Art Service",
+    "aliases": [
+      "body art service",
+      "Body Art Service",
+      "body_art_service"
+    ]
+  },
+  {
+    "type": "book_store",
+    "label_en": "Book Store",
+    "label_es": "Librería",
+    "aliases": [
+      "libreria",
+      "libros"
+    ]
+  },
+  {
+    "type": "bookmaker",
+    "label_en": "Bookmaker",
+    "label_es": "Casa de Apuestas",
+    "aliases": [
+      "apuestas",
+      "bet"
+    ]
+  },
+  {
+    "type": "botanical_garden",
+    "label_en": "Botanical Garden",
+    "label_es": "Botanical Garden",
+    "aliases": [
+      "botanical garden",
+      "botanical_garden",
+      "Botanical Garden"
+    ]
+  },
+  {
+    "type": "bowling_alley",
+    "label_en": "Bowling Alley",
+    "label_es": "Bowling Alley",
+    "aliases": [
+      "bowling alley",
+      "Bowling Alley",
+      "bowling_alley"
+    ]
+  },
+  {
+    "type": "brazilian_restaurant",
+    "label_en": "Brazilian Restaurant",
+    "label_es": "Brazilian Restaurant",
+    "aliases": [
+      "Brazilian Restaurant",
+      "brazilian restaurant",
+      "brazilian_restaurant"
+    ]
+  },
+  {
+    "type": "breakfast_restaurant",
+    "label_en": "Breakfast Restaurant",
+    "label_es": "Breakfast Restaurant",
+    "aliases": [
+      "breakfast_restaurant",
+      "breakfast restaurant",
+      "Breakfast Restaurant"
+    ]
+  },
+  {
+    "type": "brewery",
+    "label_en": "Brewery",
+    "label_es": "Cervecería",
+    "aliases": [
+      "cerveceria",
+      "beer"
+    ]
+  },
+  {
+    "type": "brewpub",
+    "label_en": "Brewpub",
+    "label_es": "Brewpub",
+    "aliases": [
+      "brewpub",
+      "Brewpub"
+    ]
+  },
+  {
+    "type": "bridge",
+    "label_en": "Bridge",
+    "label_es": "Bridge",
+    "aliases": [
+      "Bridge",
+      "bridge"
+    ]
+  },
+  {
+    "type": "british_restaurant",
+    "label_en": "British Restaurant",
+    "label_es": "British Restaurant",
+    "aliases": [
+      "British Restaurant",
+      "british_restaurant",
+      "british restaurant"
+    ]
+  },
+  {
+    "type": "brunch_restaurant",
+    "label_en": "Brunch Restaurant",
+    "label_es": "Brunch Restaurant",
+    "aliases": [
+      "brunch_restaurant",
+      "brunch restaurant",
+      "Brunch Restaurant"
+    ]
+  },
+  {
+    "type": "buddhist_temple",
+    "label_en": "Buddhist Temple",
+    "label_es": "Buddhist Temple",
+    "aliases": [
+      "Buddhist Temple",
+      "buddhist temple",
+      "buddhist_temple"
+    ]
+  },
+  {
+    "type": "budget_japanese_inn",
+    "label_en": "Budget Japanese Inn",
+    "label_es": "Budget Japanese Inn",
+    "aliases": [
+      "Budget Japanese Inn",
+      "budget japanese inn",
+      "budget_japanese_inn"
+    ]
+  },
+  {
+    "type": "buffet_restaurant",
+    "label_en": "Buffet Restaurant",
+    "label_es": "Buffet Restaurant",
+    "aliases": [
+      "buffet restaurant",
+      "buffet_restaurant",
+      "Buffet Restaurant"
+    ]
+  },
+  {
+    "type": "building_materials_store",
+    "label_en": "Building Materials Store",
+    "label_es": "Building Materials Store",
+    "aliases": [
+      "building_materials_store",
+      "Building Materials Store",
+      "building materials store"
+    ]
+  },
+  {
+    "type": "burmese_restaurant",
+    "label_en": "Burmese Restaurant",
+    "label_es": "Burmese Restaurant",
+    "aliases": [
+      "burmese restaurant",
+      "Burmese Restaurant",
+      "burmese_restaurant"
+    ]
+  },
+  {
+    "type": "burrito_restaurant",
+    "label_en": "Burrito Restaurant",
+    "label_es": "Burrito Restaurant",
+    "aliases": [
+      "Burrito Restaurant",
+      "burrito restaurant",
+      "burrito_restaurant"
+    ]
+  },
+  {
+    "type": "bus_station",
+    "label_en": "Bus Station",
+    "label_es": "Estación de Autobuses",
+    "aliases": [
+      "autobuses",
+      "estacion bus"
+    ]
+  },
+  {
+    "type": "bus_stop",
+    "label_en": "Bus Stop",
+    "label_es": "Bus Stop",
+    "aliases": [
+      "bus stop",
+      "bus_stop",
+      "Bus Stop"
+    ]
+  },
+  {
+    "type": "business_center",
+    "label_en": "Business Center",
+    "label_es": "Business Center",
+    "aliases": [
+      "business_center",
+      "Business Center",
+      "business center"
+    ]
+  },
+  {
+    "type": "butcher_shop",
+    "label_en": "Butcher Shop",
+    "label_es": "Butcher Shop",
+    "aliases": [
+      "Butcher Shop",
+      "butcher shop",
+      "butcher_shop"
+    ]
+  },
+  {
+    "type": "cafe",
+    "label_en": "Cafe",
+    "label_es": "Cafetería",
+    "aliases": [
+      "cafeteria",
+      "cafe",
+      "cafés"
+    ]
+  },
+  {
+    "type": "cafeteria",
+    "label_en": "Cafeteria",
+    "label_es": "Cafeteria",
+    "aliases": [
+      "Cafeteria",
+      "cafeteria"
+    ]
+  },
+  {
+    "type": "cajun_restaurant",
+    "label_en": "Cajun Restaurant",
+    "label_es": "Cajun Restaurant",
+    "aliases": [
+      "Cajun Restaurant",
+      "cajun_restaurant",
+      "cajun restaurant"
+    ]
+  },
+  {
+    "type": "cake_shop",
+    "label_en": "Cake Shop",
+    "label_es": "Cake Shop",
+    "aliases": [
+      "cake_shop",
+      "cake shop",
+      "Cake Shop"
+    ]
+  },
+  {
+    "type": "californian_restaurant",
+    "label_en": "Californian Restaurant",
+    "label_es": "Californian Restaurant",
+    "aliases": [
+      "Californian Restaurant",
+      "californian_restaurant",
+      "californian restaurant"
+    ]
+  },
+  {
+    "type": "cambodian_restaurant",
+    "label_en": "Cambodian Restaurant",
+    "label_es": "Cambodian Restaurant",
+    "aliases": [
+      "cambodian_restaurant",
+      "Cambodian Restaurant",
+      "cambodian restaurant"
+    ]
+  },
+  {
+    "type": "campground",
+    "label_en": "Campground",
+    "label_es": "Camping",
+    "aliases": [
+      "camping",
+      "campamento"
+    ]
+  },
+  {
+    "type": "camping_cabin",
+    "label_en": "Camping Cabin",
+    "label_es": "Camping Cabin",
+    "aliases": [
+      "camping cabin",
+      "camping_cabin",
+      "Camping Cabin"
+    ]
+  },
+  {
+    "type": "candy_store",
+    "label_en": "Candy Store",
+    "label_es": "Candy Store",
+    "aliases": [
+      "candy_store",
+      "Candy Store",
+      "candy store"
+    ]
+  },
+  {
+    "type": "cantonese_restaurant",
+    "label_en": "Cantonese Restaurant",
+    "label_es": "Cantonese Restaurant",
+    "aliases": [
+      "cantonese_restaurant",
+      "cantonese restaurant",
+      "Cantonese Restaurant"
+    ]
+  },
+  {
+    "type": "car_dealer",
+    "label_en": "Car Dealer",
+    "label_es": "Concesionario",
+    "aliases": [
+      "coches",
+      "concesionario",
+      "vehiculos"
+    ]
+  },
+  {
+    "type": "car_rental",
+    "label_en": "Car Rental",
+    "label_es": "Car Rental",
+    "aliases": [
+      "Car Rental",
+      "car rental",
+      "car_rental"
+    ]
+  },
+  {
+    "type": "car_repair",
+    "label_en": "Car Repair",
+    "label_es": "Taller Mecánico",
+    "aliases": [
+      "taller",
+      "mecanico",
+      "reparacion coche"
+    ]
+  },
+  {
+    "type": "car_wash",
+    "label_en": "Car Wash",
+    "label_es": "Lavado de Coches",
+    "aliases": [
+      "lavadero",
+      "car wash"
+    ]
+  },
+  {
+    "type": "caribbean_restaurant",
+    "label_en": "Caribbean Restaurant",
+    "label_es": "Caribbean Restaurant",
+    "aliases": [
+      "caribbean restaurant",
+      "caribbean_restaurant",
+      "Caribbean Restaurant"
+    ]
+  },
+  {
+    "type": "casino",
+    "label_en": "Casino",
+    "label_es": "Casino",
+    "aliases": [
+      "casino",
+      "juego"
+    ]
+  },
+  {
+    "type": "castle",
+    "label_en": "Castle",
+    "label_es": "Castle",
+    "aliases": [
+      "Castle",
+      "castle"
+    ]
+  },
+  {
+    "type": "cat_cafe",
+    "label_en": "Cat Cafe",
+    "label_es": "Cat Cafe",
+    "aliases": [
+      "cat_cafe",
+      "cat cafe",
+      "Cat Cafe"
+    ]
+  },
+  {
+    "type": "caterer",
+    "label_en": "Caterer",
+    "label_es": "Catering",
+    "aliases": [
+      "catering",
+      "servicio de catering"
+    ]
+  },
+  {
+    "type": "catering_service",
+    "label_en": "Catering Service",
+    "label_es": "Catering Service",
+    "aliases": [
+      "catering_service",
+      "catering service",
+      "Catering Service"
+    ]
+  },
+  {
+    "type": "cell_phone_store",
+    "label_en": "Cell Phone Store",
+    "label_es": "Cell Phone Store",
+    "aliases": [
+      "cell_phone_store",
+      "Cell Phone Store",
+      "cell phone store"
+    ]
+  },
+  {
+    "type": "cemetery",
+    "label_en": "Cemetery",
+    "label_es": "Cemetery",
+    "aliases": [
+      "cemetery",
+      "Cemetery"
+    ]
+  },
+  {
+    "type": "chauffeur_service",
+    "label_en": "Chauffeur Service",
+    "label_es": "Chauffeur Service",
+    "aliases": [
+      "chauffeur service",
+      "Chauffeur Service",
+      "chauffeur_service"
+    ]
+  },
+  {
+    "type": "chicken_restaurant",
+    "label_en": "Chicken Restaurant",
+    "label_es": "Chicken Restaurant",
+    "aliases": [
+      "chicken restaurant",
+      "Chicken Restaurant",
+      "chicken_restaurant"
+    ]
+  },
+  {
+    "type": "chicken_wings_restaurant",
+    "label_en": "Chicken Wings Restaurant",
+    "label_es": "Chicken Wings Restaurant",
+    "aliases": [
+      "chicken_wings_restaurant",
+      "Chicken Wings Restaurant",
+      "chicken wings restaurant"
+    ]
+  },
+  {
+    "type": "child_care_agency",
+    "label_en": "Child Care Agency",
+    "label_es": "Child Care Agency",
+    "aliases": [
+      "child care agency",
+      "child_care_agency",
+      "Child Care Agency"
+    ]
+  },
+  {
+    "type": "childrens_camp",
+    "label_en": "Childrens Camp",
+    "label_es": "Childrens Camp",
+    "aliases": [
+      "childrens_camp",
+      "childrens camp",
+      "Childrens Camp"
+    ]
+  },
+  {
+    "type": "chilean_restaurant",
+    "label_en": "Chilean Restaurant",
+    "label_es": "Chilean Restaurant",
+    "aliases": [
+      "chilean_restaurant",
+      "chilean restaurant",
+      "Chilean Restaurant"
+    ]
+  },
+  {
+    "type": "chinese_noodle_restaurant",
+    "label_en": "Chinese Noodle Restaurant",
+    "label_es": "Chinese Noodle Restaurant",
+    "aliases": [
+      "chinese_noodle_restaurant",
+      "chinese noodle restaurant",
+      "Chinese Noodle Restaurant"
+    ]
+  },
+  {
+    "type": "chinese_restaurant",
+    "label_en": "Chinese Restaurant",
+    "label_es": "Restaurante Chino",
+    "aliases": [
+      "chino",
+      "comida china"
+    ]
+  },
+  {
+    "type": "chiropractor",
+    "label_en": "Chiropractor",
+    "label_es": "Quiropráctico",
+    "aliases": [
+      "quiropractico",
+      "quiropractica"
+    ]
+  },
+  {
+    "type": "chocolate_factory",
+    "label_en": "Chocolate Factory",
+    "label_es": "Chocolate Factory",
+    "aliases": [
+      "chocolate_factory",
+      "Chocolate Factory",
+      "chocolate factory"
+    ]
+  },
+  {
+    "type": "chocolate_shop",
+    "label_en": "Chocolate Shop",
+    "label_es": "Chocolate Shop",
+    "aliases": [
+      "chocolate shop",
+      "chocolate_shop",
+      "Chocolate Shop"
+    ]
+  },
+  {
+    "type": "church",
+    "label_en": "Church",
+    "label_es": "Church",
+    "aliases": [
+      "church",
+      "Church"
+    ]
+  },
+  {
+    "type": "city_hall",
+    "label_en": "City Hall",
+    "label_es": "City Hall",
+    "aliases": [
+      "city_hall",
+      "city hall",
+      "City Hall"
+    ]
+  },
+  {
+    "type": "city_park",
+    "label_en": "City Park",
+    "label_es": "City Park",
+    "aliases": [
+      "City Park",
+      "city park",
+      "city_park"
+    ]
+  },
+  {
+    "type": "cleaning_service",
+    "label_en": "Cleaning Service",
+    "label_es": "Servicio de Limpieza",
+    "aliases": [
+      "limpieza",
+      "empresa de limpieza"
+    ]
+  },
+  {
+    "type": "clothing_store",
+    "label_en": "Clothing Store",
+    "label_es": "Tienda de Ropa",
+    "aliases": [
+      "ropa",
+      "moda",
+      "boutique"
+    ]
+  },
+  {
+    "type": "cocktail_bar",
+    "label_en": "Cocktail Bar",
+    "label_es": "Cocktail Bar",
+    "aliases": [
+      "cocktail_bar",
+      "Cocktail Bar",
+      "cocktail bar"
+    ]
+  },
+  {
+    "type": "coffee_roastery",
+    "label_en": "Coffee Roastery",
+    "label_es": "Coffee Roastery",
+    "aliases": [
+      "coffee roastery",
+      "coffee_roastery",
+      "Coffee Roastery"
+    ]
+  },
+  {
+    "type": "coffee_shop",
+    "label_en": "Coffee Shop",
+    "label_es": "Coffee Shop",
+    "aliases": [
+      "coffee shop",
+      "cafe especialidad"
+    ]
+  },
+  {
+    "type": "coffee_stand",
+    "label_en": "Coffee Stand",
+    "label_es": "Coffee Stand",
+    "aliases": [
+      "coffee stand",
+      "Coffee Stand",
+      "coffee_stand"
+    ]
+  },
+  {
+    "type": "colloquial_area",
+    "label_en": "Colloquial Area",
+    "label_es": "Colloquial Area",
+    "aliases": [
+      "colloquial area",
+      "colloquial_area",
+      "Colloquial Area"
+    ]
+  },
+  {
+    "type": "colombian_restaurant",
+    "label_en": "Colombian Restaurant",
+    "label_es": "Colombian Restaurant",
+    "aliases": [
+      "colombian restaurant",
+      "Colombian Restaurant",
+      "colombian_restaurant"
+    ]
+  },
+  {
+    "type": "comedy_club",
+    "label_en": "Comedy Club",
+    "label_es": "Comedy Club",
+    "aliases": [
+      "comedy club",
+      "Comedy Club",
+      "comedy_club"
+    ]
+  },
+  {
+    "type": "community_center",
+    "label_en": "Community Center",
+    "label_es": "Community Center",
+    "aliases": [
+      "Community Center",
+      "community center",
+      "community_center"
+    ]
+  },
+  {
+    "type": "computer_repair",
+    "label_en": "Computer Repair Service",
+    "label_es": "Reparación de Ordenadores",
+    "aliases": [
+      "reparacion pc",
+      "servicio tecnico"
+    ]
+  },
+  {
+    "type": "concert_hall",
+    "label_en": "Concert Hall",
+    "label_es": "Concert Hall",
+    "aliases": [
+      "concert_hall",
+      "Concert Hall",
+      "concert hall"
+    ]
+  },
+  {
+    "type": "condominium_complex",
+    "label_en": "Condominium Complex",
+    "label_es": "Condominium Complex",
+    "aliases": [
+      "condominium_complex",
+      "condominium complex",
+      "Condominium Complex"
+    ]
+  },
+  {
+    "type": "confectionery",
+    "label_en": "Confectionery",
+    "label_es": "Confectionery",
+    "aliases": [
+      "confectionery",
+      "Confectionery"
+    ]
+  },
+  {
+    "type": "construction_company",
+    "label_en": "Construction Company",
+    "label_es": "Empresa de Construcción",
+    "aliases": [
+      "construccion",
+      "constructora",
+      "reformas"
+    ]
+  },
+  {
+    "type": "consultant",
+    "label_en": "Consultant",
+    "label_es": "Consultor",
+    "aliases": [
+      "consultoria",
+      "consultor"
+    ]
+  },
+  {
+    "type": "continent",
+    "label_en": "Continent",
+    "label_es": "Continent",
+    "aliases": [
+      "Continent",
+      "continent"
+    ]
+  },
+  {
+    "type": "convenience_store",
+    "label_en": "Convenience Store",
+    "label_es": "Convenience Store",
+    "aliases": [
+      "Convenience Store",
+      "convenience_store",
+      "convenience store"
+    ]
+  },
+  {
+    "type": "convention_center",
+    "label_en": "Convention Center",
+    "label_es": "Convention Center",
+    "aliases": [
+      "Convention Center",
+      "convention center",
+      "convention_center"
+    ]
+  },
+  {
+    "type": "corporate_office",
+    "label_en": "Corporate Office",
+    "label_es": "Corporate Office",
+    "aliases": [
+      "corporate office",
+      "corporate_office",
+      "Corporate Office"
+    ]
+  },
+  {
+    "type": "cosmetics_store",
+    "label_en": "Cosmetics Store",
+    "label_es": "Cosmetics Store",
+    "aliases": [
+      "cosmetics store",
+      "cosmetics_store",
+      "Cosmetics Store"
+    ]
+  },
+  {
+    "type": "cottage",
+    "label_en": "Cottage",
+    "label_es": "Cottage",
+    "aliases": [
+      "cottage",
+      "Cottage"
+    ]
+  },
+  {
+    "type": "country",
+    "label_en": "Country",
+    "label_es": "Country",
+    "aliases": [
+      "country",
+      "Country"
+    ]
+  },
+  {
+    "type": "courier_service",
+    "label_en": "Courier Service",
+    "label_es": "Mensajería",
+    "aliases": [
+      "mensajeria",
+      "paqueteria"
+    ]
+  },
+  {
+    "type": "courthouse",
+    "label_en": "Courthouse",
+    "label_es": "Courthouse",
+    "aliases": [
+      "courthouse",
+      "Courthouse"
+    ]
+  },
+  {
+    "type": "coworking_space",
+    "label_en": "Coworking Space",
+    "label_es": "Coworking",
+    "aliases": [
+      "coworking",
+      "espacio compartido"
+    ]
+  },
+  {
+    "type": "croatian_restaurant",
+    "label_en": "Croatian Restaurant",
+    "label_es": "Croatian Restaurant",
+    "aliases": [
+      "croatian_restaurant",
+      "Croatian Restaurant",
+      "croatian restaurant"
+    ]
+  },
+  {
+    "type": "cuban_restaurant",
+    "label_en": "Cuban Restaurant",
+    "label_es": "Cuban Restaurant",
+    "aliases": [
+      "Cuban Restaurant",
+      "cuban_restaurant",
+      "cuban restaurant"
+    ]
+  },
+  {
+    "type": "cultural_center",
+    "label_en": "Cultural Center",
+    "label_es": "Cultural Center",
+    "aliases": [
+      "Cultural Center",
+      "cultural center",
+      "cultural_center"
+    ]
+  },
+  {
+    "type": "cultural_landmark",
+    "label_en": "Cultural Landmark",
+    "label_es": "Cultural Landmark",
+    "aliases": [
+      "cultural landmark",
+      "cultural_landmark",
+      "Cultural Landmark"
+    ]
+  },
+  {
+    "type": "cycling_park",
+    "label_en": "Cycling Park",
+    "label_es": "Cycling Park",
+    "aliases": [
+      "Cycling Park",
+      "cycling park",
+      "cycling_park"
+    ]
+  },
+  {
+    "type": "czech_restaurant",
+    "label_en": "Czech Restaurant",
+    "label_es": "Czech Restaurant",
+    "aliases": [
+      "czech restaurant",
+      "czech_restaurant",
+      "Czech Restaurant"
+    ]
+  },
+  {
+    "type": "dance_hall",
+    "label_en": "Dance Hall",
+    "label_es": "Dance Hall",
+    "aliases": [
+      "dance hall",
+      "Dance Hall",
+      "dance_hall"
+    ]
+  },
+  {
+    "type": "dance_school",
+    "label_en": "Dance School",
+    "label_es": "Escuela de Danza",
+    "aliases": [
+      "danza",
+      "baile"
+    ]
+  },
+  {
+    "type": "danish_restaurant",
+    "label_en": "Danish Restaurant",
+    "label_es": "Danish Restaurant",
+    "aliases": [
+      "danish_restaurant",
+      "Danish Restaurant",
+      "danish restaurant"
+    ]
+  },
+  {
+    "type": "day_care_center",
+    "label_en": "Day Care Center",
+    "label_es": "Guardería",
+    "aliases": [
+      "guarderia",
+      "escuela infantil"
+    ]
+  },
+  {
+    "type": "deli",
+    "label_en": "Deli",
+    "label_es": "Deli",
+    "aliases": [
+      "Deli",
+      "deli"
+    ]
+  },
+  {
+    "type": "delivery_restaurant",
+    "label_en": "Delivery Restaurant",
+    "label_es": "Restaurante a Domicilio",
+    "aliases": [
+      "domicilio",
+      "delivery"
+    ]
+  },
+  {
+    "type": "dental_clinic",
+    "label_en": "Dental Clinic",
+    "label_es": "Clínica Dental",
+    "aliases": [
+      "clinica dental",
+      "odontologia"
+    ]
+  },
+  {
+    "type": "dentist",
+    "label_en": "Dentist",
+    "label_es": "Dentista",
+    "aliases": [
+      "dentistas",
+      "clinica dental",
+      "odontologo",
+      "odontología"
+    ]
+  },
+  {
+    "type": "department_store",
+    "label_en": "Department Store",
+    "label_es": "Department Store",
+    "aliases": [
+      "Department Store",
+      "department store",
+      "department_store"
+    ]
+  },
+  {
+    "type": "dessert_restaurant",
+    "label_en": "Dessert Restaurant",
+    "label_es": "Dessert Restaurant",
+    "aliases": [
+      "Dessert Restaurant",
+      "dessert restaurant",
+      "dessert_restaurant"
+    ]
+  },
+  {
+    "type": "dessert_shop",
+    "label_en": "Dessert Shop",
+    "label_es": "Dessert Shop",
+    "aliases": [
+      "dessert shop",
+      "Dessert Shop",
+      "dessert_shop"
+    ]
+  },
+  {
+    "type": "dim_sum_restaurant",
+    "label_en": "Dim Sum Restaurant",
+    "label_es": "Dim Sum Restaurant",
+    "aliases": [
+      "Dim Sum Restaurant",
+      "dim_sum_restaurant",
+      "dim sum restaurant"
+    ]
+  },
+  {
+    "type": "diner",
+    "label_en": "Diner",
+    "label_es": "Diner",
+    "aliases": [
+      "diner",
+      "Diner"
+    ]
+  },
+  {
+    "type": "discount_store",
+    "label_en": "Discount Store",
+    "label_es": "Discount Store",
+    "aliases": [
+      "Discount Store",
+      "discount_store",
+      "discount store"
+    ]
+  },
+  {
+    "type": "discount_supermarket",
+    "label_en": "Discount Supermarket",
+    "label_es": "Discount Supermarket",
+    "aliases": [
+      "Discount Supermarket",
+      "discount supermarket",
+      "discount_supermarket"
+    ]
+  },
+  {
+    "type": "doctor",
+    "label_en": "Doctor",
+    "label_es": "Médico",
+    "aliases": [
+      "medico",
+      "clinica",
+      "consulta medica"
+    ]
+  },
+  {
+    "type": "dog_cafe",
+    "label_en": "Dog Cafe",
+    "label_es": "Dog Cafe",
+    "aliases": [
+      "Dog Cafe",
+      "dog_cafe",
+      "dog cafe"
+    ]
+  },
+  {
+    "type": "dog_park",
+    "label_en": "Dog Park",
+    "label_es": "Dog Park",
+    "aliases": [
+      "dog_park",
+      "dog park",
+      "Dog Park"
+    ]
+  },
+  {
+    "type": "donut_shop",
+    "label_en": "Donut Shop",
+    "label_es": "Donut Shop",
+    "aliases": [
+      "donut_shop",
+      "donut shop",
+      "Donut Shop"
+    ]
+  },
+  {
+    "type": "driving_school",
+    "label_en": "Driving School",
+    "label_es": "Autoescuela",
+    "aliases": [
+      "autoescuela",
+      "carnet conducir"
+    ]
+  },
+  {
+    "type": "drugstore",
+    "label_en": "Drugstore",
+    "label_es": "Drugstore",
+    "aliases": [
+      "Drugstore",
+      "drugstore"
+    ]
+  },
+  {
+    "type": "dumpling_restaurant",
+    "label_en": "Dumpling Restaurant",
+    "label_es": "Dumpling Restaurant",
+    "aliases": [
+      "dumpling_restaurant",
+      "dumpling restaurant",
+      "Dumpling Restaurant"
+    ]
+  },
+  {
+    "type": "dutch_restaurant",
+    "label_en": "Dutch Restaurant",
+    "label_es": "Dutch Restaurant",
+    "aliases": [
+      "Dutch Restaurant",
+      "dutch_restaurant",
+      "dutch restaurant"
+    ]
+  },
+  {
+    "type": "eastern_european_restaurant",
+    "label_en": "Eastern European Restaurant",
+    "label_es": "Eastern European Restaurant",
+    "aliases": [
+      "Eastern European Restaurant",
+      "eastern european restaurant",
+      "eastern_european_restaurant"
+    ]
+  },
+  {
+    "type": "ebike_charging_station",
+    "label_en": "Ebike Charging Station",
+    "label_es": "Ebike Charging Station",
+    "aliases": [
+      "ebike_charging_station",
+      "Ebike Charging Station",
+      "ebike charging station"
+    ]
+  },
+  {
+    "type": "educational_institution",
+    "label_en": "Educational Institution",
+    "label_es": "Educational Institution",
+    "aliases": [
+      "educational_institution",
+      "Educational Institution",
+      "educational institution"
+    ]
+  },
+  {
+    "type": "electric_vehicle_charging_station",
+    "label_en": "Electric Vehicle Charging Station",
+    "label_es": "Electric Vehicle Charging Station",
+    "aliases": [
+      "Electric Vehicle Charging Station",
+      "electric vehicle charging station",
+      "electric_vehicle_charging_station"
+    ]
+  },
+  {
+    "type": "electrician",
+    "label_en": "Electrician",
+    "label_es": "Electricista",
+    "aliases": [
+      "electricistas",
+      "instalaciones electricas"
+    ]
+  },
+  {
+    "type": "electronics_store",
+    "label_en": "Electronics Store",
+    "label_es": "Tienda de Electrónica",
+    "aliases": [
+      "electronica",
+      "informática",
+      "moviles"
+    ]
+  },
+  {
+    "type": "embassy",
+    "label_en": "Embassy",
+    "label_es": "Embassy",
+    "aliases": [
+      "Embassy",
+      "embassy"
+    ]
+  },
+  {
+    "type": "employment_agency",
+    "label_en": "Employment Agency",
+    "label_es": "Agencia de Empleo",
+    "aliases": [
+      "rrhh",
+      "seleccion de personal"
+    ]
+  },
+  {
+    "type": "establishment",
+    "label_en": "Establishment",
+    "label_es": "Establishment",
+    "aliases": [
+      "establishment",
+      "Establishment"
+    ]
+  },
+  {
+    "type": "ethiopian_restaurant",
+    "label_en": "Ethiopian Restaurant",
+    "label_es": "Ethiopian Restaurant",
+    "aliases": [
+      "ethiopian_restaurant",
+      "ethiopian restaurant",
+      "Ethiopian Restaurant"
+    ]
+  },
+  {
+    "type": "european_restaurant",
+    "label_en": "European Restaurant",
+    "label_es": "European Restaurant",
+    "aliases": [
+      "european restaurant",
+      "European Restaurant",
+      "european_restaurant"
+    ]
+  },
+  {
+    "type": "event_venue",
+    "label_en": "Event Venue",
+    "label_es": "Sala de Eventos",
+    "aliases": [
+      "eventos",
+      "salon de eventos"
+    ]
+  },
+  {
+    "type": "extended_stay_hotel",
+    "label_en": "Extended Stay Hotel",
+    "label_es": "Extended Stay Hotel",
+    "aliases": [
+      "extended_stay_hotel",
+      "extended stay hotel",
+      "Extended Stay Hotel"
+    ]
+  },
+  {
+    "type": "falafel_restaurant",
+    "label_en": "Falafel Restaurant",
+    "label_es": "Falafel Restaurant",
+    "aliases": [
+      "Falafel Restaurant",
+      "falafel_restaurant",
+      "falafel restaurant"
+    ]
+  },
+  {
+    "type": "family_restaurant",
+    "label_en": "Family Restaurant",
+    "label_es": "Family Restaurant",
+    "aliases": [
+      "Family Restaurant",
+      "family restaurant",
+      "family_restaurant"
+    ]
+  },
+  {
+    "type": "farm",
+    "label_en": "Farm",
+    "label_es": "Farm",
+    "aliases": [
+      "farm",
+      "Farm"
+    ]
+  },
+  {
+    "type": "farmers_market",
+    "label_en": "Farmers Market",
+    "label_es": "Farmers Market",
+    "aliases": [
+      "farmers_market",
+      "Farmers Market",
+      "farmers market"
+    ]
+  },
+  {
+    "type": "farmstay",
+    "label_en": "Farmstay",
+    "label_es": "Farmstay",
+    "aliases": [
+      "farmstay",
+      "Farmstay"
+    ]
+  },
+  {
+    "type": "fast_food_restaurant",
+    "label_en": "Fast Food Restaurant",
+    "label_es": "Comida Rápida",
+    "aliases": [
+      "fast food",
+      "comida rapida"
+    ]
+  },
+  {
+    "type": "ferris_wheel",
+    "label_en": "Ferris Wheel",
+    "label_es": "Ferris Wheel",
+    "aliases": [
+      "ferris wheel",
+      "Ferris Wheel",
+      "ferris_wheel"
+    ]
+  },
+  {
+    "type": "ferry_service",
+    "label_en": "Ferry Service",
+    "label_es": "Ferry Service",
+    "aliases": [
+      "ferry service",
+      "ferry_service",
+      "Ferry Service"
+    ]
+  },
+  {
+    "type": "ferry_terminal",
+    "label_en": "Ferry Terminal",
+    "label_es": "Ferry Terminal",
+    "aliases": [
+      "ferry terminal",
+      "Ferry Terminal",
+      "ferry_terminal"
+    ]
+  },
+  {
+    "type": "filipino_restaurant",
+    "label_en": "Filipino Restaurant",
+    "label_es": "Filipino Restaurant",
+    "aliases": [
+      "Filipino Restaurant",
+      "filipino_restaurant",
+      "filipino restaurant"
+    ]
+  },
+  {
+    "type": "finance",
+    "label_en": "Finance",
+    "label_es": "Finance",
+    "aliases": [
+      "finance",
+      "Finance"
+    ]
+  },
+  {
+    "type": "financial_planner",
+    "label_en": "Financial Planner",
+    "label_es": "Asesor Financiero",
+    "aliases": [
+      "finanzas",
+      "planificador financiero"
+    ]
+  },
+  {
+    "type": "fine_dining_restaurant",
+    "label_en": "Fine Dining Restaurant",
+    "label_es": "Fine Dining Restaurant",
+    "aliases": [
+      "fine_dining_restaurant",
+      "fine dining restaurant",
+      "Fine Dining Restaurant"
+    ]
+  },
+  {
+    "type": "fire_station",
+    "label_en": "Fire Station",
+    "label_es": "Fire Station",
+    "aliases": [
+      "fire station",
+      "Fire Station",
+      "fire_station"
+    ]
+  },
+  {
+    "type": "fish_and_chips_restaurant",
+    "label_en": "Fish And Chips Restaurant",
+    "label_es": "Fish And Chips Restaurant",
+    "aliases": [
+      "fish and chips restaurant",
+      "Fish And Chips Restaurant",
+      "fish_and_chips_restaurant"
+    ]
+  },
+  {
+    "type": "fishing_charter",
+    "label_en": "Fishing Charter",
+    "label_es": "Fishing Charter",
+    "aliases": [
+      "fishing charter",
+      "fishing_charter",
+      "Fishing Charter"
+    ]
+  },
+  {
+    "type": "fishing_pier",
+    "label_en": "Fishing Pier",
+    "label_es": "Fishing Pier",
+    "aliases": [
+      "Fishing Pier",
+      "fishing_pier",
+      "fishing pier"
+    ]
+  },
+  {
+    "type": "fishing_pond",
+    "label_en": "Fishing Pond",
+    "label_es": "Fishing Pond",
+    "aliases": [
+      "Fishing Pond",
+      "fishing pond",
+      "fishing_pond"
+    ]
+  },
+  {
+    "type": "fitness_center",
+    "label_en": "Fitness Center",
+    "label_es": "Fitness Center",
+    "aliases": [
+      "fitness center",
+      "fitness_center",
+      "Fitness Center"
+    ]
+  },
+  {
+    "type": "flea_market",
+    "label_en": "Flea Market",
+    "label_es": "Flea Market",
+    "aliases": [
+      "Flea Market",
+      "flea market",
+      "flea_market"
+    ]
+  },
+  {
+    "type": "floor",
+    "label_en": "Floor",
+    "label_es": "Floor",
+    "aliases": [
+      "Floor",
+      "floor"
+    ]
+  },
+  {
+    "type": "florist",
+    "label_en": "Florist",
+    "label_es": "Floristería",
+    "aliases": [
+      "floristeria",
+      "flores"
+    ]
+  },
+  {
+    "type": "fondue_restaurant",
+    "label_en": "Fondue Restaurant",
+    "label_es": "Fondue Restaurant",
+    "aliases": [
+      "Fondue Restaurant",
+      "fondue restaurant",
+      "fondue_restaurant"
+    ]
+  },
+  {
+    "type": "food",
+    "label_en": "Food",
+    "label_es": "Food",
+    "aliases": [
+      "food",
+      "Food"
+    ]
+  },
+  {
+    "type": "food_court",
+    "label_en": "Food Court",
+    "label_es": "Food Court",
+    "aliases": [
+      "food court",
+      "food_court",
+      "Food Court"
+    ]
+  },
+  {
+    "type": "food_delivery",
+    "label_en": "Food Delivery",
+    "label_es": "Food Delivery",
+    "aliases": [
+      "food_delivery",
+      "Food Delivery",
+      "food delivery"
+    ]
+  },
+  {
+    "type": "food_store",
+    "label_en": "Food Store",
+    "label_es": "Food Store",
+    "aliases": [
+      "Food Store",
+      "food store",
+      "food_store"
+    ]
+  },
+  {
+    "type": "foot_care",
+    "label_en": "Foot Care",
+    "label_es": "Foot Care",
+    "aliases": [
+      "Foot Care",
+      "foot care",
+      "foot_care"
+    ]
+  },
+  {
+    "type": "fountain",
+    "label_en": "Fountain",
+    "label_es": "Fountain",
+    "aliases": [
+      "fountain",
+      "Fountain"
+    ]
+  },
+  {
+    "type": "french_restaurant",
+    "label_en": "French Restaurant",
+    "label_es": "French Restaurant",
+    "aliases": [
+      "french restaurant",
+      "French Restaurant",
+      "french_restaurant"
+    ]
+  },
+  {
+    "type": "funeral_home",
+    "label_en": "Funeral Home",
+    "label_es": "Funeraria",
+    "aliases": [
+      "funeraria",
+      "tanatorio"
+    ]
+  },
+  {
+    "type": "furniture_store",
+    "label_en": "Furniture Store",
+    "label_es": "Tienda de Muebles",
+    "aliases": [
+      "muebles",
+      "decoracion"
+    ]
+  },
+  {
+    "type": "fusion_restaurant",
+    "label_en": "Fusion Restaurant",
+    "label_es": "Fusion Restaurant",
+    "aliases": [
+      "fusion_restaurant",
+      "Fusion Restaurant",
+      "fusion restaurant"
+    ]
+  },
+  {
+    "type": "garden",
+    "label_en": "Garden",
+    "label_es": "Garden",
+    "aliases": [
+      "Garden",
+      "garden"
+    ]
+  },
+  {
+    "type": "garden_center",
+    "label_en": "Garden Center",
+    "label_es": "Vivero",
+    "aliases": [
+      "vivero",
+      "jardineria"
+    ]
+  },
+  {
+    "type": "gas_station",
+    "label_en": "Gas Station",
+    "label_es": "Gasolinera",
+    "aliases": [
+      "gasolinera",
+      "estacion de servicio"
+    ]
+  },
+  {
+    "type": "gastropub",
+    "label_en": "Gastropub",
+    "label_es": "Gastropub",
+    "aliases": [
+      "Gastropub",
+      "gastropub"
+    ]
+  },
+  {
+    "type": "general_contractor",
+    "label_en": "General Contractor",
+    "label_es": "General Contractor",
+    "aliases": [
+      "General Contractor",
+      "general_contractor",
+      "general contractor"
+    ]
+  },
+  {
+    "type": "general_hospital",
+    "label_en": "General Hospital",
+    "label_es": "General Hospital",
+    "aliases": [
+      "general_hospital",
+      "general hospital",
+      "General Hospital"
+    ]
+  },
+  {
+    "type": "general_store",
+    "label_en": "General Store",
+    "label_es": "General Store",
+    "aliases": [
+      "general_store",
+      "general store",
+      "General Store"
+    ]
+  },
+  {
+    "type": "geocode",
+    "label_en": "Geocode",
+    "label_es": "Geocode",
+    "aliases": [
+      "Geocode",
+      "geocode"
+    ]
+  },
+  {
+    "type": "german_restaurant",
+    "label_en": "German Restaurant",
+    "label_es": "German Restaurant",
+    "aliases": [
+      "German Restaurant",
+      "german restaurant",
+      "german_restaurant"
+    ]
+  },
+  {
+    "type": "gift_shop",
+    "label_en": "Gift Shop",
+    "label_es": "Gift Shop",
+    "aliases": [
+      "gift_shop",
+      "gift shop",
+      "Gift Shop"
+    ]
+  },
+  {
+    "type": "go_karting_venue",
+    "label_en": "Go Karting Venue",
+    "label_es": "Go Karting Venue",
+    "aliases": [
+      "go_karting_venue",
+      "Go Karting Venue",
+      "go karting venue"
+    ]
+  },
+  {
+    "type": "golf_course",
+    "label_en": "Golf Course",
+    "label_es": "Golf Course",
+    "aliases": [
+      "Golf Course",
+      "golf course",
+      "golf_course"
+    ]
+  },
+  {
+    "type": "government_office",
+    "label_en": "Government Office",
+    "label_es": "Government Office",
+    "aliases": [
+      "government office",
+      "government_office",
+      "Government Office"
+    ]
+  },
+  {
+    "type": "greek_restaurant",
+    "label_en": "Greek Restaurant",
+    "label_es": "Greek Restaurant",
+    "aliases": [
+      "greek_restaurant",
+      "Greek Restaurant",
+      "greek restaurant"
+    ]
+  },
+  {
+    "type": "grocery_store",
+    "label_en": "Grocery Store",
+    "label_es": "Grocery Store",
+    "aliases": [
+      "grocery store",
+      "grocery_store",
+      "Grocery Store"
+    ]
+  },
+  {
+    "type": "guest_house",
+    "label_en": "Guest House",
+    "label_es": "Guest House",
+    "aliases": [
+      "guest_house",
+      "guest house",
+      "Guest House"
+    ]
+  },
+  {
+    "type": "gym",
+    "label_en": "Gym",
+    "label_es": "Gimnasio",
+    "aliases": [
+      "gimnasio",
+      "fitness",
+      "crossfit"
+    ]
+  },
+  {
+    "type": "gyro_restaurant",
+    "label_en": "Gyro Restaurant",
+    "label_es": "Gyro Restaurant",
+    "aliases": [
+      "gyro_restaurant",
+      "gyro restaurant",
+      "Gyro Restaurant"
+    ]
+  },
+  {
+    "type": "hair_care",
+    "label_en": "Hair Salon",
+    "label_es": "Peluquería",
+    "aliases": [
+      "peluqueria",
+      "barberia",
+      "barbero"
+    ]
+  },
+  {
+    "type": "hair_salon",
+    "label_en": "Hair Salon",
+    "label_es": "Hair Salon",
+    "aliases": [
+      "hair salon",
+      "hair_salon",
+      "Hair Salon"
+    ]
+  },
+  {
+    "type": "halal_restaurant",
+    "label_en": "Halal Restaurant",
+    "label_es": "Halal Restaurant",
+    "aliases": [
+      "halal restaurant",
+      "halal_restaurant",
+      "Halal Restaurant"
+    ]
+  },
+  {
+    "type": "hamburger_restaurant",
+    "label_en": "Hamburger Restaurant",
+    "label_es": "Hamburguesería",
+    "aliases": [
+      "hamburgueseria",
+      "burgers"
+    ]
+  },
+  {
+    "type": "hardware_store",
+    "label_en": "Hardware Store",
+    "label_es": "Ferretería",
+    "aliases": [
+      "ferreteria",
+      "bricolaje"
+    ]
+  },
+  {
+    "type": "hawaiian_restaurant",
+    "label_en": "Hawaiian Restaurant",
+    "label_es": "Hawaiian Restaurant",
+    "aliases": [
+      "hawaiian restaurant",
+      "Hawaiian Restaurant",
+      "hawaiian_restaurant"
+    ]
+  },
+  {
+    "type": "health",
+    "label_en": "Health",
+    "label_es": "Health",
+    "aliases": [
+      "health",
+      "Health"
+    ]
+  },
+  {
+    "type": "health_food_store",
+    "label_en": "Health Food Store",
+    "label_es": "Health Food Store",
+    "aliases": [
+      "health food store",
+      "Health Food Store",
+      "health_food_store"
+    ]
+  },
+  {
+    "type": "heliport",
+    "label_en": "Heliport",
+    "label_es": "Heliport",
+    "aliases": [
+      "heliport",
+      "Heliport"
+    ]
+  },
+  {
+    "type": "hiking_area",
+    "label_en": "Hiking Area",
+    "label_es": "Hiking Area",
+    "aliases": [
+      "hiking area",
+      "hiking_area",
+      "Hiking Area"
+    ]
+  },
+  {
+    "type": "hindu_temple",
+    "label_en": "Hindu Temple",
+    "label_es": "Hindu Temple",
+    "aliases": [
+      "hindu_temple",
+      "Hindu Temple",
+      "hindu temple"
+    ]
+  },
+  {
+    "type": "historical_landmark",
+    "label_en": "Historical Landmark",
+    "label_es": "Historical Landmark",
+    "aliases": [
+      "historical_landmark",
+      "Historical Landmark",
+      "historical landmark"
+    ]
+  },
+  {
+    "type": "historical_place",
+    "label_en": "Historical Place",
+    "label_es": "Historical Place",
+    "aliases": [
+      "historical_place",
+      "historical place",
+      "Historical Place"
+    ]
+  },
+  {
+    "type": "history_museum",
+    "label_en": "History Museum",
+    "label_es": "History Museum",
+    "aliases": [
+      "history museum",
+      "history_museum",
+      "History Museum"
+    ]
+  },
+  {
+    "type": "home_goods_store",
+    "label_en": "Home Goods Store",
+    "label_es": "Home Goods Store",
+    "aliases": [
+      "home_goods_store",
+      "home goods store",
+      "Home Goods Store"
+    ]
+  },
+  {
+    "type": "home_health_care_service",
+    "label_en": "Home Health Care Service",
+    "label_es": "Atención Sanitaria a Domicilio",
+    "aliases": [
+      "cuidados domicilio",
+      "asistencia domiciliaria"
+    ]
+  },
+  {
+    "type": "home_improvement_store",
+    "label_en": "Home Improvement Store",
+    "label_es": "Home Improvement Store",
+    "aliases": [
+      "Home Improvement Store",
+      "home_improvement_store",
+      "home improvement store"
+    ]
+  },
+  {
+    "type": "hookah_bar",
+    "label_en": "Hookah Bar",
+    "label_es": "Hookah Bar",
+    "aliases": [
+      "Hookah Bar",
+      "hookah_bar",
+      "hookah bar"
+    ]
+  },
+  {
+    "type": "hospital",
+    "label_en": "Hospital",
+    "label_es": "Hospital",
+    "aliases": [
+      "hospitales",
+      "centro hospitalario"
+    ]
+  },
+  {
+    "type": "hostel",
+    "label_en": "Hostel",
+    "label_es": "Hostel",
+    "aliases": [
+      "Hostel",
+      "hostel"
+    ]
+  },
+  {
+    "type": "hot_dog_restaurant",
+    "label_en": "Hot Dog Restaurant",
+    "label_es": "Hot Dog Restaurant",
+    "aliases": [
+      "hot_dog_restaurant",
+      "Hot Dog Restaurant",
+      "hot dog restaurant"
+    ]
+  },
+  {
+    "type": "hot_dog_stand",
+    "label_en": "Hot Dog Stand",
+    "label_es": "Hot Dog Stand",
+    "aliases": [
+      "Hot Dog Stand",
+      "hot_dog_stand",
+      "hot dog stand"
+    ]
+  },
+  {
+    "type": "hot_pot_restaurant",
+    "label_en": "Hot Pot Restaurant",
+    "label_es": "Hot Pot Restaurant",
+    "aliases": [
+      "Hot Pot Restaurant",
+      "hot_pot_restaurant",
+      "hot pot restaurant"
+    ]
+  },
+  {
+    "type": "hotel",
+    "label_en": "Hotel",
+    "label_es": "Hotel",
+    "aliases": [
+      "hoteles",
+      "alojamiento"
+    ]
+  },
+  {
+    "type": "housing_complex",
+    "label_en": "Housing Complex",
+    "label_es": "Housing Complex",
+    "aliases": [
+      "housing complex",
+      "housing_complex",
+      "Housing Complex"
+    ]
+  },
+  {
+    "type": "hungarian_restaurant",
+    "label_en": "Hungarian Restaurant",
+    "label_es": "Hungarian Restaurant",
+    "aliases": [
+      "Hungarian Restaurant",
+      "hungarian restaurant",
+      "hungarian_restaurant"
+    ]
+  },
+  {
+    "type": "hypermarket",
+    "label_en": "Hypermarket",
+    "label_es": "Hypermarket",
+    "aliases": [
+      "Hypermarket",
+      "hypermarket"
+    ]
+  },
+  {
+    "type": "ice_cream_shop",
+    "label_en": "Ice Cream Shop",
+    "label_es": "Heladería",
+    "aliases": [
+      "heladeria",
+      "helados"
+    ]
+  },
+  {
+    "type": "ice_skating_rink",
+    "label_en": "Ice Skating Rink",
+    "label_es": "Ice Skating Rink",
+    "aliases": [
+      "ice_skating_rink",
+      "ice skating rink",
+      "Ice Skating Rink"
+    ]
+  },
+  {
+    "type": "immigration_lawyer",
+    "label_en": "Immigration Lawyer",
+    "label_es": "Abogado de Extranjería",
+    "aliases": [
+      "extranjeria",
+      "inmigracion"
+    ]
+  },
+  {
+    "type": "indian_restaurant",
+    "label_en": "Indian Restaurant",
+    "label_es": "Indian Restaurant",
+    "aliases": [
+      "indian restaurant",
+      "Indian Restaurant",
+      "indian_restaurant"
+    ]
+  },
+  {
+    "type": "indonesian_restaurant",
+    "label_en": "Indonesian Restaurant",
+    "label_es": "Indonesian Restaurant",
+    "aliases": [
+      "Indonesian Restaurant",
+      "indonesian_restaurant",
+      "indonesian restaurant"
+    ]
+  },
+  {
+    "type": "indoor_golf_course",
+    "label_en": "Indoor Golf Course",
+    "label_es": "Indoor Golf Course",
+    "aliases": [
+      "indoor_golf_course",
+      "indoor golf course",
+      "Indoor Golf Course"
+    ]
+  },
+  {
+    "type": "indoor_playground",
+    "label_en": "Indoor Playground",
+    "label_es": "Indoor Playground",
+    "aliases": [
+      "indoor_playground",
+      "indoor playground",
+      "Indoor Playground"
+    ]
+  },
+  {
+    "type": "inn",
+    "label_en": "Inn",
+    "label_es": "Inn",
+    "aliases": [
+      "inn",
+      "Inn"
+    ]
+  },
+  {
+    "type": "insurance_agency",
+    "label_en": "Insurance Agency",
+    "label_es": "Agencia de Seguros",
+    "aliases": [
+      "seguros",
+      "correduria"
+    ]
+  },
+  {
+    "type": "insurance_broker",
+    "label_en": "Insurance Broker",
+    "label_es": "Corredor de Seguros",
+    "aliases": [
+      "corredor seguros",
+      "broker seguros"
+    ]
+  },
+  {
+    "type": "interior_designer",
+    "label_en": "Interior Designer",
+    "label_es": "Diseñador de Interiores",
+    "aliases": [
+      "interiorismo",
+      "decorador"
+    ]
+  },
+  {
+    "type": "international_airport",
+    "label_en": "International Airport",
+    "label_es": "International Airport",
+    "aliases": [
+      "international_airport",
+      "international airport",
+      "International Airport"
+    ]
+  },
+  {
+    "type": "internet_cafe",
+    "label_en": "Internet Cafe",
+    "label_es": "Internet Cafe",
+    "aliases": [
+      "Internet Cafe",
+      "internet_cafe",
+      "internet cafe"
+    ]
+  },
+  {
+    "type": "intersection",
+    "label_en": "Intersection",
+    "label_es": "Intersection",
+    "aliases": [
+      "Intersection",
+      "intersection"
+    ]
+  },
+  {
+    "type": "irish_pub",
+    "label_en": "Irish Pub",
+    "label_es": "Irish Pub",
+    "aliases": [
+      "irish_pub",
+      "Irish Pub",
+      "irish pub"
+    ]
+  },
+  {
+    "type": "irish_restaurant",
+    "label_en": "Irish Restaurant",
+    "label_es": "Irish Restaurant",
+    "aliases": [
+      "irish restaurant",
+      "irish_restaurant",
+      "Irish Restaurant"
+    ]
+  },
+  {
+    "type": "island",
+    "label_en": "Island",
+    "label_es": "Island",
+    "aliases": [
+      "Island",
+      "island"
+    ]
+  },
+  {
+    "type": "israeli_restaurant",
+    "label_en": "Israeli Restaurant",
+    "label_es": "Israeli Restaurant",
+    "aliases": [
+      "Israeli Restaurant",
+      "israeli restaurant",
+      "israeli_restaurant"
+    ]
+  },
+  {
+    "type": "italian_restaurant",
+    "label_en": "Italian Restaurant",
+    "label_es": "Restaurante Italiano",
+    "aliases": [
+      "italiano",
+      "pasta",
+      "pizza"
+    ]
+  },
+  {
+    "type": "japanese_curry_restaurant",
+    "label_en": "Japanese Curry Restaurant",
+    "label_es": "Japanese Curry Restaurant",
+    "aliases": [
+      "japanese_curry_restaurant",
+      "japanese curry restaurant",
+      "Japanese Curry Restaurant"
+    ]
+  },
+  {
+    "type": "japanese_inn",
+    "label_en": "Japanese Inn",
+    "label_es": "Japanese Inn",
+    "aliases": [
+      "japanese_inn",
+      "Japanese Inn",
+      "japanese inn"
+    ]
+  },
+  {
+    "type": "japanese_izakaya_restaurant",
+    "label_en": "Japanese Izakaya Restaurant",
+    "label_es": "Japanese Izakaya Restaurant",
+    "aliases": [
+      "Japanese Izakaya Restaurant",
+      "japanese_izakaya_restaurant",
+      "japanese izakaya restaurant"
+    ]
+  },
+  {
+    "type": "japanese_restaurant",
+    "label_en": "Japanese Restaurant",
+    "label_es": "Japanese Restaurant",
+    "aliases": [
+      "japanese restaurant",
+      "japanese_restaurant",
+      "Japanese Restaurant"
+    ]
+  },
+  {
+    "type": "jewelry_store",
+    "label_en": "Jewelry Store",
+    "label_es": "Joyería",
+    "aliases": [
+      "joyeria",
+      "relojeria"
+    ]
+  },
+  {
+    "type": "juice_shop",
+    "label_en": "Juice Shop",
+    "label_es": "Juice Shop",
+    "aliases": [
+      "Juice Shop",
+      "juice shop",
+      "juice_shop"
+    ]
+  },
+  {
+    "type": "karaoke",
+    "label_en": "Karaoke",
+    "label_es": "Karaoke",
+    "aliases": [
+      "karaoke",
+      "Karaoke"
+    ]
+  },
+  {
+    "type": "kebab_shop",
+    "label_en": "Kebab Shop",
+    "label_es": "Kebab Shop",
+    "aliases": [
+      "kebab shop",
+      "kebab_shop",
+      "Kebab Shop"
+    ]
+  },
+  {
+    "type": "korean_barbecue_restaurant",
+    "label_en": "Korean Barbecue Restaurant",
+    "label_es": "Korean Barbecue Restaurant",
+    "aliases": [
+      "korean_barbecue_restaurant",
+      "Korean Barbecue Restaurant",
+      "korean barbecue restaurant"
+    ]
+  },
+  {
+    "type": "korean_restaurant",
+    "label_en": "Korean Restaurant",
+    "label_es": "Korean Restaurant",
+    "aliases": [
+      "Korean Restaurant",
+      "korean restaurant",
+      "korean_restaurant"
+    ]
+  },
+  {
+    "type": "laboratory",
+    "label_en": "Laboratory",
+    "label_es": "Laboratorio",
+    "aliases": [
+      "analisis",
+      "laboratorio clinico"
+    ]
+  },
+  {
+    "type": "lake",
+    "label_en": "Lake",
+    "label_es": "Lake",
+    "aliases": [
+      "lake",
+      "Lake"
+    ]
+  },
+  {
+    "type": "landmark",
+    "label_en": "Landmark",
+    "label_es": "Landmark",
+    "aliases": [
+      "Landmark",
+      "landmark"
+    ]
+  },
+  {
+    "type": "landscaper",
+    "label_en": "Landscaper",
+    "label_es": "Paisajista",
+    "aliases": [
+      "paisajismo",
+      "jardines"
+    ]
+  },
+  {
+    "type": "language_school",
+    "label_en": "Language School",
+    "label_es": "Academia de Idiomas",
+    "aliases": [
+      "idiomas",
+      "ingles",
+      "frances"
+    ]
+  },
+  {
+    "type": "latin_american_restaurant",
+    "label_en": "Latin American Restaurant",
+    "label_es": "Latin American Restaurant",
+    "aliases": [
+      "latin american restaurant",
+      "latin_american_restaurant",
+      "Latin American Restaurant"
+    ]
+  },
+  {
+    "type": "laundry",
+    "label_en": "Laundry",
+    "label_es": "Lavandería",
+    "aliases": [
+      "lavanderia",
+      "tintoreria"
+    ]
+  },
+  {
+    "type": "lawyer",
+    "label_en": "Lawyer",
+    "label_es": "Abogado",
+    "aliases": [
+      "abogados",
+      "bufete",
+      "despacho legal"
+    ]
+  },
+  {
+    "type": "lebanese_restaurant",
+    "label_en": "Lebanese Restaurant",
+    "label_es": "Lebanese Restaurant",
+    "aliases": [
+      "lebanese_restaurant",
+      "Lebanese Restaurant",
+      "lebanese restaurant"
+    ]
+  },
+  {
+    "type": "library",
+    "label_en": "Library",
+    "label_es": "Library",
+    "aliases": [
+      "library",
+      "Library"
+    ]
+  },
+  {
+    "type": "light_rail_station",
+    "label_en": "Light Rail Station",
+    "label_es": "Light Rail Station",
+    "aliases": [
+      "light_rail_station",
+      "Light Rail Station",
+      "light rail station"
+    ]
+  },
+  {
+    "type": "liquor_store",
+    "label_en": "Liquor Store",
+    "label_es": "Liquor Store",
+    "aliases": [
+      "liquor store",
+      "liquor_store",
+      "Liquor Store"
+    ]
+  },
+  {
+    "type": "live_music_venue",
+    "label_en": "Live Music Venue",
+    "label_es": "Live Music Venue",
+    "aliases": [
+      "live music venue",
+      "Live Music Venue",
+      "live_music_venue"
+    ]
+  },
+  {
+    "type": "local_government_office",
+    "label_en": "Local Government Office",
+    "label_es": "Local Government Office",
+    "aliases": [
+      "Local Government Office",
+      "local_government_office",
+      "local government office"
+    ]
+  },
+  {
+    "type": "locality",
+    "label_en": "Locality",
+    "label_es": "Locality",
+    "aliases": [
+      "Locality",
+      "locality"
+    ]
+  },
+  {
+    "type": "locksmith",
+    "label_en": "Locksmith",
+    "label_es": "Cerrajero",
+    "aliases": [
+      "cerrajeria",
+      "cerrajeros"
+    ]
+  },
+  {
+    "type": "lodging",
+    "label_en": "Lodging",
+    "label_es": "Alojamiento",
+    "aliases": [
+      "hostal",
+      "pension",
+      "apartahotel"
+    ]
+  },
+  {
+    "type": "lounge_bar",
+    "label_en": "Lounge Bar",
+    "label_es": "Lounge Bar",
+    "aliases": [
+      "lounge bar",
+      "Lounge Bar",
+      "lounge_bar"
+    ]
+  },
+  {
+    "type": "makeup_artist",
+    "label_en": "Makeup Artist",
+    "label_es": "Makeup Artist",
+    "aliases": [
+      "makeup artist",
+      "makeup_artist",
+      "Makeup Artist"
+    ]
+  },
+  {
+    "type": "malaysian_restaurant",
+    "label_en": "Malaysian Restaurant",
+    "label_es": "Malaysian Restaurant",
+    "aliases": [
+      "Malaysian Restaurant",
+      "malaysian restaurant",
+      "malaysian_restaurant"
+    ]
+  },
+  {
+    "type": "manufacturer",
+    "label_en": "Manufacturer",
+    "label_es": "Manufacturer",
+    "aliases": [
+      "manufacturer",
+      "Manufacturer"
+    ]
+  },
+  {
+    "type": "marina",
+    "label_en": "Marina",
+    "label_es": "Marina",
+    "aliases": [
+      "Marina",
+      "marina"
+    ]
+  },
+  {
+    "type": "market",
+    "label_en": "Market",
+    "label_es": "Market",
+    "aliases": [
+      "Market",
+      "market"
+    ]
+  },
+  {
+    "type": "marketing_agency",
+    "label_en": "Marketing Agency",
+    "label_es": "Agencia de Marketing",
+    "aliases": [
+      "marketing",
+      "agencia digital",
+      "seo"
+    ]
+  },
+  {
+    "type": "marketing_consultant",
+    "label_en": "Marketing Consultant",
+    "label_es": "Marketing Consultant",
+    "aliases": [
+      "Marketing Consultant",
+      "marketing consultant",
+      "marketing_consultant"
+    ]
+  },
+  {
+    "type": "massage",
+    "label_en": "Massage",
+    "label_es": "Massage",
+    "aliases": [
+      "massage",
+      "Massage"
+    ]
+  },
+  {
+    "type": "massage_spa",
+    "label_en": "Massage Spa",
+    "label_es": "Massage Spa",
+    "aliases": [
+      "Massage Spa",
+      "massage_spa",
+      "massage spa"
+    ]
+  },
+  {
+    "type": "massage_therapist",
+    "label_en": "Massage Therapist",
+    "label_es": "Masajista",
+    "aliases": [
+      "masajista",
+      "masajes"
+    ]
+  },
+  {
+    "type": "meal_delivery",
+    "label_en": "Meal Delivery",
+    "label_es": "Meal Delivery",
+    "aliases": [
+      "meal delivery",
+      "meal_delivery",
+      "Meal Delivery"
+    ]
+  },
+  {
+    "type": "meal_takeaway",
+    "label_en": "Meal Takeaway",
+    "label_es": "Meal Takeaway",
+    "aliases": [
+      "meal_takeaway",
+      "Meal Takeaway",
+      "meal takeaway"
+    ]
+  },
+  {
+    "type": "medical_center",
+    "label_en": "Medical Center",
+    "label_es": "Centro Médico",
+    "aliases": [
+      "centro medico",
+      "policlinica"
+    ]
+  },
+  {
+    "type": "medical_clinic",
+    "label_en": "Medical Clinic",
+    "label_es": "Medical Clinic",
+    "aliases": [
+      "Medical Clinic",
+      "medical_clinic",
+      "medical clinic"
+    ]
+  },
+  {
+    "type": "medical_lab",
+    "label_en": "Medical Lab",
+    "label_es": "Medical Lab",
+    "aliases": [
+      "medical lab",
+      "Medical Lab",
+      "medical_lab"
+    ]
+  },
+  {
+    "type": "mediterranean_restaurant",
+    "label_en": "Mediterranean Restaurant",
+    "label_es": "Mediterranean Restaurant",
+    "aliases": [
+      "mediterranean restaurant",
+      "Mediterranean Restaurant",
+      "mediterranean_restaurant"
+    ]
+  },
+  {
+    "type": "mexican_restaurant",
+    "label_en": "Mexican Restaurant",
+    "label_es": "Restaurante Mexicano",
+    "aliases": [
+      "mexicano",
+      "comida mexicana"
+    ]
+  },
+  {
+    "type": "middle_eastern_restaurant",
+    "label_en": "Middle Eastern Restaurant",
+    "label_es": "Middle Eastern Restaurant",
+    "aliases": [
+      "middle eastern restaurant",
+      "middle_eastern_restaurant",
+      "Middle Eastern Restaurant"
+    ]
+  },
+  {
+    "type": "miniature_golf_course",
+    "label_en": "Miniature Golf Course",
+    "label_es": "Miniature Golf Course",
+    "aliases": [
+      "Miniature Golf Course",
+      "miniature golf course",
+      "miniature_golf_course"
+    ]
+  },
+  {
+    "type": "mobile_home_park",
+    "label_en": "Mobile Home Park",
+    "label_es": "Mobile Home Park",
+    "aliases": [
+      "Mobile Home Park",
+      "mobile_home_park",
+      "mobile home park"
+    ]
+  },
+  {
+    "type": "mobile_phone_store",
+    "label_en": "Mobile Phone Store",
+    "label_es": "Tienda de Móviles",
+    "aliases": [
+      "moviles",
+      "telefonia"
+    ]
+  },
+  {
+    "type": "mongolian_barbecue_restaurant",
+    "label_en": "Mongolian Barbecue Restaurant",
+    "label_es": "Mongolian Barbecue Restaurant",
+    "aliases": [
+      "mongolian barbecue restaurant",
+      "mongolian_barbecue_restaurant",
+      "Mongolian Barbecue Restaurant"
+    ]
+  },
+  {
+    "type": "monument",
+    "label_en": "Monument",
+    "label_es": "Monument",
+    "aliases": [
+      "Monument",
+      "monument"
+    ]
+  },
+  {
+    "type": "moroccan_restaurant",
+    "label_en": "Moroccan Restaurant",
+    "label_es": "Moroccan Restaurant",
+    "aliases": [
+      "moroccan_restaurant",
+      "moroccan restaurant",
+      "Moroccan Restaurant"
+    ]
+  },
+  {
+    "type": "mosque",
+    "label_en": "Mosque",
+    "label_es": "Mosque",
+    "aliases": [
+      "Mosque",
+      "mosque"
+    ]
+  },
+  {
+    "type": "motel",
+    "label_en": "Motel",
+    "label_es": "Motel",
+    "aliases": [
+      "motel",
+      "Motel"
+    ]
+  },
+  {
+    "type": "mountain_peak",
+    "label_en": "Mountain Peak",
+    "label_es": "Mountain Peak",
+    "aliases": [
+      "mountain peak",
+      "Mountain Peak",
+      "mountain_peak"
+    ]
+  },
+  {
+    "type": "movie_rental",
+    "label_en": "Movie Rental",
+    "label_es": "Movie Rental",
+    "aliases": [
+      "movie_rental",
+      "Movie Rental",
+      "movie rental"
+    ]
+  },
+  {
+    "type": "movie_theater",
+    "label_en": "Movie Theater",
+    "label_es": "Cine",
+    "aliases": [
+      "cine",
+      "cinema"
+    ]
+  },
+  {
+    "type": "moving_company",
+    "label_en": "Moving Company",
+    "label_es": "Mudanzas",
+    "aliases": [
+      "mudanzas",
+      "portes",
+      "traslados"
+    ]
+  },
+  {
+    "type": "museum",
+    "label_en": "Museum",
+    "label_es": "Museo",
+    "aliases": [
+      "museo",
+      "exposiciones"
+    ]
+  },
+  {
+    "type": "music_school",
+    "label_en": "Music School",
+    "label_es": "Escuela de Música",
+    "aliases": [
+      "musica",
+      "conservatorio"
+    ]
+  },
+  {
+    "type": "nail_salon",
+    "label_en": "Nail Salon",
+    "label_es": "Nail Salon",
+    "aliases": [
+      "nail salon",
+      "Nail Salon",
+      "nail_salon"
+    ]
+  },
+  {
+    "type": "national_park",
+    "label_en": "National Park",
+    "label_es": "National Park",
+    "aliases": [
+      "national park",
+      "national_park",
+      "National Park"
+    ]
+  },
+  {
+    "type": "natural_feature",
+    "label_en": "Natural Feature",
+    "label_es": "Natural Feature",
+    "aliases": [
+      "Natural Feature",
+      "natural feature",
+      "natural_feature"
+    ]
+  },
+  {
+    "type": "nature_preserve",
+    "label_en": "Nature Preserve",
+    "label_es": "Nature Preserve",
+    "aliases": [
+      "nature_preserve",
+      "Nature Preserve",
+      "nature preserve"
+    ]
+  },
+  {
+    "type": "neighborhood",
+    "label_en": "Neighborhood",
+    "label_es": "Neighborhood",
+    "aliases": [
+      "Neighborhood",
+      "neighborhood"
+    ]
+  },
+  {
+    "type": "neighborhood_police_station",
+    "label_en": "Neighborhood Police Station",
+    "label_es": "Neighborhood Police Station",
+    "aliases": [
+      "Neighborhood Police Station",
+      "neighborhood_police_station",
+      "neighborhood police station"
+    ]
+  },
+  {
+    "type": "night_club",
+    "label_en": "Night Club",
+    "label_es": "Discoteca",
+    "aliases": [
+      "discoteca",
+      "club nocturno"
+    ]
+  },
+  {
+    "type": "non_profit_organization",
+    "label_en": "Non Profit Organization",
+    "label_es": "Non Profit Organization",
+    "aliases": [
+      "Non Profit Organization",
+      "non_profit_organization",
+      "non profit organization"
+    ]
+  },
+  {
+    "type": "noodle_shop",
+    "label_en": "Noodle Shop",
+    "label_es": "Noodle Shop",
+    "aliases": [
+      "noodle shop",
+      "noodle_shop",
+      "Noodle Shop"
+    ]
+  },
+  {
+    "type": "north_indian_restaurant",
+    "label_en": "North Indian Restaurant",
+    "label_es": "North Indian Restaurant",
+    "aliases": [
+      "North Indian Restaurant",
+      "north indian restaurant",
+      "north_indian_restaurant"
+    ]
+  },
+  {
+    "type": "notary_public",
+    "label_en": "Notary Public",
+    "label_es": "Notaría",
+    "aliases": [
+      "notaria",
+      "notario"
+    ]
+  },
+  {
+    "type": "nursing_home",
+    "label_en": "Nursing Home",
+    "label_es": "Residencia de Mayores",
+    "aliases": [
+      "residencia mayores",
+      "geriatrico"
+    ]
+  },
+  {
+    "type": "observation_deck",
+    "label_en": "Observation Deck",
+    "label_es": "Observation Deck",
+    "aliases": [
+      "observation_deck",
+      "observation deck",
+      "Observation Deck"
+    ]
+  },
+  {
+    "type": "off_roading_area",
+    "label_en": "Off Roading Area",
+    "label_es": "Off Roading Area",
+    "aliases": [
+      "Off Roading Area",
+      "off_roading_area",
+      "off roading area"
+    ]
+  },
+  {
+    "type": "opera_house",
+    "label_en": "Opera House",
+    "label_es": "Opera House",
+    "aliases": [
+      "Opera House",
+      "opera house",
+      "opera_house"
+    ]
+  },
+  {
+    "type": "optician",
+    "label_en": "Optician",
+    "label_es": "Óptica",
+    "aliases": [
+      "optica",
+      "gafas",
+      "optometrista"
+    ]
+  },
+  {
+    "type": "orthodontist",
+    "label_en": "Orthodontist",
+    "label_es": "Ortodoncista",
+    "aliases": [
+      "ortodoncia",
+      "ortodoncista"
+    ]
+  },
+  {
+    "type": "oyster_bar_restaurant",
+    "label_en": "Oyster Bar Restaurant",
+    "label_es": "Oyster Bar Restaurant",
+    "aliases": [
+      "Oyster Bar Restaurant",
+      "oyster bar restaurant",
+      "oyster_bar_restaurant"
+    ]
+  },
+  {
+    "type": "paintball_center",
+    "label_en": "Paintball Center",
+    "label_es": "Paintball Center",
+    "aliases": [
+      "Paintball Center",
+      "paintball center",
+      "paintball_center"
+    ]
+  },
+  {
+    "type": "painter",
+    "label_en": "Painter",
+    "label_es": "Painter",
+    "aliases": [
+      "Painter",
+      "painter"
+    ]
+  },
+  {
+    "type": "pakistani_restaurant",
+    "label_en": "Pakistani Restaurant",
+    "label_es": "Pakistani Restaurant",
+    "aliases": [
+      "pakistani restaurant",
+      "pakistani_restaurant",
+      "Pakistani Restaurant"
+    ]
+  },
+  {
+    "type": "park",
+    "label_en": "Park",
+    "label_es": "Park",
+    "aliases": [
+      "Park",
+      "park"
+    ]
+  },
+  {
+    "type": "park_and_ride",
+    "label_en": "Park And Ride",
+    "label_es": "Park And Ride",
+    "aliases": [
+      "park_and_ride",
+      "Park And Ride",
+      "park and ride"
+    ]
+  },
+  {
+    "type": "parking",
+    "label_en": "Parking",
+    "label_es": "Parking",
+    "aliases": [
+      "aparcamiento",
+      "estacionamiento"
+    ]
+  },
+  {
+    "type": "parking_garage",
+    "label_en": "Parking Garage",
+    "label_es": "Parking Garage",
+    "aliases": [
+      "parking garage",
+      "parking_garage",
+      "Parking Garage"
+    ]
+  },
+  {
+    "type": "parking_lot",
+    "label_en": "Parking Lot",
+    "label_es": "Parking Lot",
+    "aliases": [
+      "parking lot",
+      "parking_lot",
+      "Parking Lot"
+    ]
+  },
+  {
+    "type": "pastry_shop",
+    "label_en": "Pastry Shop",
+    "label_es": "Pastry Shop",
+    "aliases": [
+      "pastry shop",
+      "Pastry Shop",
+      "pastry_shop"
+    ]
+  },
+  {
+    "type": "pediatrician",
+    "label_en": "Pediatrician",
+    "label_es": "Pediatra",
+    "aliases": [
+      "pediatra",
+      "medico infantil"
+    ]
+  },
+  {
+    "type": "performing_arts_theater",
+    "label_en": "Performing Arts Theater",
+    "label_es": "Teatro",
+    "aliases": [
+      "teatro",
+      "artes escenicas"
+    ]
+  },
+  {
+    "type": "persian_restaurant",
+    "label_en": "Persian Restaurant",
+    "label_es": "Persian Restaurant",
+    "aliases": [
+      "persian restaurant",
+      "Persian Restaurant",
+      "persian_restaurant"
+    ]
+  },
+  {
+    "type": "peruvian_restaurant",
+    "label_en": "Peruvian Restaurant",
+    "label_es": "Peruvian Restaurant",
+    "aliases": [
+      "peruvian restaurant",
+      "Peruvian Restaurant",
+      "peruvian_restaurant"
+    ]
+  },
+  {
+    "type": "pet_boarding_service",
+    "label_en": "Pet Boarding Service",
+    "label_es": "Pet Boarding Service",
+    "aliases": [
+      "Pet Boarding Service",
+      "pet_boarding_service",
+      "pet boarding service"
+    ]
+  },
+  {
+    "type": "pet_care",
+    "label_en": "Pet Care",
+    "label_es": "Pet Care",
+    "aliases": [
+      "pet_care",
+      "pet care",
+      "Pet Care"
+    ]
+  },
+  {
+    "type": "pet_store",
+    "label_en": "Pet Store",
+    "label_es": "Tienda de Mascotas",
+    "aliases": [
+      "mascotas",
+      "pet shop"
+    ]
+  },
+  {
+    "type": "pharmacy",
+    "label_en": "Pharmacy",
+    "label_es": "Farmacia",
+    "aliases": [
+      "farmacias",
+      "botica"
+    ]
+  },
+  {
+    "type": "philharmonic_hall",
+    "label_en": "Philharmonic Hall",
+    "label_es": "Philharmonic Hall",
+    "aliases": [
+      "philharmonic hall",
+      "philharmonic_hall",
+      "Philharmonic Hall"
+    ]
+  },
+  {
+    "type": "photographer",
+    "label_en": "Photographer",
+    "label_es": "Fotógrafo",
+    "aliases": [
+      "fotografo",
+      "fotografia"
+    ]
+  },
+  {
+    "type": "physiotherapist",
+    "label_en": "Physiotherapist",
+    "label_es": "Fisioterapeuta",
+    "aliases": [
+      "fisioterapia",
+      "fisio"
+    ]
+  },
+  {
+    "type": "picnic_ground",
+    "label_en": "Picnic Ground",
+    "label_es": "Picnic Ground",
+    "aliases": [
+      "Picnic Ground",
+      "picnic ground",
+      "picnic_ground"
+    ]
+  },
+  {
+    "type": "pizza_delivery",
+    "label_en": "Pizza Delivery",
+    "label_es": "Pizza Delivery",
+    "aliases": [
+      "pizza delivery",
+      "Pizza Delivery",
+      "pizza_delivery"
+    ]
+  },
+  {
+    "type": "pizza_restaurant",
+    "label_en": "Pizza Restaurant",
+    "label_es": "Pizzería",
+    "aliases": [
+      "pizzeria",
+      "pizza"
+    ]
+  },
+  {
+    "type": "place_of_worship",
+    "label_en": "Place Of Worship",
+    "label_es": "Place Of Worship",
+    "aliases": [
+      "place of worship",
+      "place_of_worship",
+      "Place Of Worship"
+    ]
+  },
+  {
+    "type": "planetarium",
+    "label_en": "Planetarium",
+    "label_es": "Planetarium",
+    "aliases": [
+      "Planetarium",
+      "planetarium"
+    ]
+  },
+  {
+    "type": "playground",
+    "label_en": "Playground",
+    "label_es": "Playground",
+    "aliases": [
+      "Playground",
+      "playground"
+    ]
+  },
+  {
+    "type": "plaza",
+    "label_en": "Plaza",
+    "label_es": "Plaza",
+    "aliases": [
+      "plaza",
+      "Plaza"
+    ]
+  },
+  {
+    "type": "plumber",
+    "label_en": "Plumber",
+    "label_es": "Fontanero",
+    "aliases": [
+      "fontaneria",
+      "fontaneros"
+    ]
+  },
+  {
+    "type": "plus_code",
+    "label_en": "Plus Code",
+    "label_es": "Plus Code",
+    "aliases": [
+      "plus code",
+      "Plus Code",
+      "plus_code"
+    ]
+  },
+  {
+    "type": "point_of_interest",
+    "label_en": "Point Of Interest",
+    "label_es": "Point Of Interest",
+    "aliases": [
+      "Point Of Interest",
+      "point of interest",
+      "point_of_interest"
+    ]
+  },
+  {
+    "type": "police",
+    "label_en": "Police",
+    "label_es": "Police",
+    "aliases": [
+      "police",
+      "Police"
+    ]
+  },
+  {
+    "type": "polish_restaurant",
+    "label_en": "Polish Restaurant",
+    "label_es": "Polish Restaurant",
+    "aliases": [
+      "Polish Restaurant",
+      "polish_restaurant",
+      "polish restaurant"
+    ]
+  },
+  {
+    "type": "political",
+    "label_en": "Political",
+    "label_es": "Political",
+    "aliases": [
+      "Political",
+      "political"
+    ]
+  },
+  {
+    "type": "pool_cleaning_service",
+    "label_en": "Pool Cleaning Service",
+    "label_es": "Mantenimiento de Piscinas",
+    "aliases": [
+      "piscinas",
+      "limpieza de piscinas"
+    ]
+  },
+  {
+    "type": "portuguese_restaurant",
+    "label_en": "Portuguese Restaurant",
+    "label_es": "Portuguese Restaurant",
+    "aliases": [
+      "Portuguese Restaurant",
+      "portuguese_restaurant",
+      "portuguese restaurant"
+    ]
+  },
+  {
+    "type": "post_box",
+    "label_en": "Post Box",
+    "label_es": "Post Box",
+    "aliases": [
+      "post box",
+      "post_box",
+      "Post Box"
+    ]
+  },
+  {
+    "type": "post_office",
+    "label_en": "Post Office",
+    "label_es": "Oficina de Correos",
+    "aliases": [
+      "correos",
+      "postal"
+    ]
+  },
+  {
+    "type": "postal_code",
+    "label_en": "Postal Code",
+    "label_es": "Postal Code",
+    "aliases": [
+      "postal_code",
+      "postal code",
+      "Postal Code"
+    ]
+  },
+  {
+    "type": "postal_code_prefix",
+    "label_en": "Postal Code Prefix",
+    "label_es": "Postal Code Prefix",
+    "aliases": [
+      "Postal Code Prefix",
+      "postal code prefix",
+      "postal_code_prefix"
+    ]
+  },
+  {
+    "type": "postal_code_suffix",
+    "label_en": "Postal Code Suffix",
+    "label_es": "Postal Code Suffix",
+    "aliases": [
+      "postal code suffix",
+      "Postal Code Suffix",
+      "postal_code_suffix"
+    ]
+  },
+  {
+    "type": "postal_town",
+    "label_en": "Postal Town",
+    "label_es": "Postal Town",
+    "aliases": [
+      "postal town",
+      "Postal Town",
+      "postal_town"
+    ]
+  },
+  {
+    "type": "premise",
+    "label_en": "Premise",
+    "label_es": "Premise",
+    "aliases": [
+      "premise",
+      "Premise"
+    ]
+  },
+  {
+    "type": "preschool",
+    "label_en": "Preschool",
+    "label_es": "Preschool",
+    "aliases": [
+      "preschool",
+      "Preschool"
+    ]
+  },
+  {
+    "type": "primary_school",
+    "label_en": "Primary School",
+    "label_es": "Primary School",
+    "aliases": [
+      "primary school",
+      "primary_school",
+      "Primary School"
+    ]
+  },
+  {
+    "type": "print_shop",
+    "label_en": "Print Shop",
+    "label_es": "Imprenta",
+    "aliases": [
+      "imprenta",
+      "copisteria"
+    ]
+  },
+  {
+    "type": "private_guest_room",
+    "label_en": "Private Guest Room",
+    "label_es": "Private Guest Room",
+    "aliases": [
+      "private_guest_room",
+      "Private Guest Room",
+      "private guest room"
+    ]
+  },
+  {
+    "type": "psychic",
+    "label_en": "Psychic",
+    "label_es": "Psychic",
+    "aliases": [
+      "psychic",
+      "Psychic"
+    ]
+  },
+  {
+    "type": "psychologist",
+    "label_en": "Psychologist",
+    "label_es": "Psicólogo",
+    "aliases": [
+      "psicologo",
+      "psicologia",
+      "terapia"
+    ]
+  },
+  {
+    "type": "pub",
+    "label_en": "Pub",
+    "label_es": "Pub",
+    "aliases": [
+      "pub",
+      "Pub"
+    ]
+  },
+  {
+    "type": "public_bath",
+    "label_en": "Public Bath",
+    "label_es": "Public Bath",
+    "aliases": [
+      "public bath",
+      "Public Bath",
+      "public_bath"
+    ]
+  },
+  {
+    "type": "public_bathroom",
+    "label_en": "Public Bathroom",
+    "label_es": "Public Bathroom",
+    "aliases": [
+      "Public Bathroom",
+      "public_bathroom",
+      "public bathroom"
+    ]
+  },
+  {
+    "type": "public_transport_station",
+    "label_en": "Public Transport Station",
+    "label_es": "Estación de Transporte Público",
+    "aliases": [
+      "estacion bus",
+      "metro",
+      "tren"
+    ]
+  },
+  {
+    "type": "race_course",
+    "label_en": "Race Course",
+    "label_es": "Race Course",
+    "aliases": [
+      "Race Course",
+      "race course",
+      "race_course"
+    ]
+  },
+  {
+    "type": "radiologist",
+    "label_en": "Radiologist",
+    "label_es": "Radiólogo",
+    "aliases": [
+      "radiologia",
+      "radiologo"
+    ]
+  },
+  {
+    "type": "ramen_restaurant",
+    "label_en": "Ramen Restaurant",
+    "label_es": "Ramen Restaurant",
+    "aliases": [
+      "ramen_restaurant",
+      "ramen restaurant",
+      "Ramen Restaurant"
+    ]
+  },
+  {
+    "type": "ranch",
+    "label_en": "Ranch",
+    "label_es": "Ranch",
+    "aliases": [
+      "Ranch",
+      "ranch"
+    ]
+  },
+  {
+    "type": "real_estate_agency",
+    "label_en": "Real Estate Agency",
+    "label_es": "Inmobiliaria",
+    "aliases": [
+      "inmobiliaria",
+      "agencia inmobiliaria"
+    ]
+  },
+  {
+    "type": "research_institute",
+    "label_en": "Research Institute",
+    "label_es": "Research Institute",
+    "aliases": [
+      "Research Institute",
+      "research_institute",
+      "research institute"
+    ]
+  },
+  {
+    "type": "resort_hotel",
+    "label_en": "Resort Hotel",
+    "label_es": "Resort Hotel",
+    "aliases": [
+      "resort_hotel",
+      "Resort Hotel",
+      "resort hotel"
+    ]
+  },
+  {
+    "type": "rest_stop",
+    "label_en": "Rest Stop",
+    "label_es": "Rest Stop",
+    "aliases": [
+      "rest_stop",
+      "rest stop",
+      "Rest Stop"
+    ]
+  },
+  {
+    "type": "restaurant",
+    "label_en": "Restaurant",
+    "label_es": "Restaurante",
+    "aliases": [
+      "restaurantes",
+      "comida",
+      "cocina",
+      "restaurant"
+    ]
+  },
+  {
+    "type": "river",
+    "label_en": "River",
+    "label_es": "River",
+    "aliases": [
+      "River",
+      "river"
+    ]
+  },
+  {
+    "type": "roller_coaster",
+    "label_en": "Roller Coaster",
+    "label_es": "Roller Coaster",
+    "aliases": [
+      "Roller Coaster",
+      "roller_coaster",
+      "roller coaster"
+    ]
+  },
+  {
+    "type": "romanian_restaurant",
+    "label_en": "Romanian Restaurant",
+    "label_es": "Romanian Restaurant",
+    "aliases": [
+      "Romanian Restaurant",
+      "romanian restaurant",
+      "romanian_restaurant"
+    ]
+  },
+  {
+    "type": "roofing_contractor",
+    "label_en": "Roofing Contractor",
+    "label_es": "Tejados y Cubiertas",
+    "aliases": [
+      "tejados",
+      "cubiertas",
+      "impermeabilizacion"
+    ]
+  },
+  {
+    "type": "room",
+    "label_en": "Room",
+    "label_es": "Room",
+    "aliases": [
+      "Room",
+      "room"
+    ]
+  },
+  {
+    "type": "route",
+    "label_en": "Route",
+    "label_es": "Route",
+    "aliases": [
+      "Route",
+      "route"
+    ]
+  },
+  {
+    "type": "russian_restaurant",
+    "label_en": "Russian Restaurant",
+    "label_es": "Russian Restaurant",
+    "aliases": [
+      "russian restaurant",
+      "Russian Restaurant",
+      "russian_restaurant"
+    ]
+  },
+  {
+    "type": "rv_park",
+    "label_en": "Rv Park",
+    "label_es": "Rv Park",
+    "aliases": [
+      "rv park",
+      "rv_park",
+      "Rv Park"
+    ]
+  },
+  {
+    "type": "salad_shop",
+    "label_en": "Salad Shop",
+    "label_es": "Salad Shop",
+    "aliases": [
+      "salad shop",
+      "salad_shop",
+      "Salad Shop"
+    ]
+  },
+  {
+    "type": "sandwich_shop",
+    "label_en": "Sandwich Shop",
+    "label_es": "Sandwich Shop",
+    "aliases": [
+      "sandwich_shop",
+      "sandwich shop",
+      "Sandwich Shop"
+    ]
+  },
+  {
+    "type": "sauna",
+    "label_en": "Sauna",
+    "label_es": "Sauna",
+    "aliases": [
+      "Sauna",
+      "sauna"
+    ]
+  },
+  {
+    "type": "scandinavian_restaurant",
+    "label_en": "Scandinavian Restaurant",
+    "label_es": "Scandinavian Restaurant",
+    "aliases": [
+      "Scandinavian Restaurant",
+      "scandinavian restaurant",
+      "scandinavian_restaurant"
+    ]
+  },
+  {
+    "type": "scenic_spot",
+    "label_en": "Scenic Spot",
+    "label_es": "Scenic Spot",
+    "aliases": [
+      "scenic_spot",
+      "scenic spot",
+      "Scenic Spot"
+    ]
+  },
+  {
+    "type": "school",
+    "label_en": "School",
+    "label_es": "Colegio",
+    "aliases": [
+      "escuela",
+      "colegio",
+      "centro educativo"
+    ]
+  },
+  {
+    "type": "school_district",
+    "label_en": "School District",
+    "label_es": "School District",
+    "aliases": [
+      "school district",
+      "School District",
+      "school_district"
+    ]
+  },
+  {
+    "type": "sculpture",
+    "label_en": "Sculpture",
+    "label_es": "Sculpture",
+    "aliases": [
+      "sculpture",
+      "Sculpture"
+    ]
+  },
+  {
+    "type": "seafood_restaurant",
+    "label_en": "Seafood Restaurant",
+    "label_es": "Marisquería",
+    "aliases": [
+      "marisqueria",
+      "pescado"
+    ]
+  },
+  {
+    "type": "secondary_school",
+    "label_en": "Secondary School",
+    "label_es": "Secondary School",
+    "aliases": [
+      "Secondary School",
+      "secondary_school",
+      "secondary school"
+    ]
+  },
+  {
+    "type": "security_system_supplier",
+    "label_en": "Security System Supplier",
+    "label_es": "Sistemas de Seguridad",
+    "aliases": [
+      "alarmas",
+      "seguridad"
+    ]
+  },
+  {
+    "type": "service",
+    "label_en": "Service",
+    "label_es": "Service",
+    "aliases": [
+      "Service",
+      "service"
+    ]
+  },
+  {
+    "type": "shawarma_restaurant",
+    "label_en": "Shawarma Restaurant",
+    "label_es": "Shawarma Restaurant",
+    "aliases": [
+      "Shawarma Restaurant",
+      "shawarma_restaurant",
+      "shawarma restaurant"
+    ]
+  },
+  {
+    "type": "shinto_shrine",
+    "label_en": "Shinto Shrine",
+    "label_es": "Shinto Shrine",
+    "aliases": [
+      "Shinto Shrine",
+      "shinto shrine",
+      "shinto_shrine"
+    ]
+  },
+  {
+    "type": "shipping_service",
+    "label_en": "Shipping Service",
+    "label_es": "Shipping Service",
+    "aliases": [
+      "shipping service",
+      "Shipping Service",
+      "shipping_service"
+    ]
+  },
+  {
+    "type": "shoe_store",
+    "label_en": "Shoe Store",
+    "label_es": "Zapatería",
+    "aliases": [
+      "zapateria",
+      "calzado"
+    ]
+  },
+  {
+    "type": "shopping_mall",
+    "label_en": "Shopping Mall",
+    "label_es": "Shopping Mall",
+    "aliases": [
+      "shopping_mall",
+      "Shopping Mall",
+      "shopping mall"
+    ]
+  },
+  {
+    "type": "sign_shop",
+    "label_en": "Sign Shop",
+    "label_es": "Rotulación",
+    "aliases": [
+      "rotulos",
+      "vinilos"
+    ]
+  },
+  {
+    "type": "skateboard_park",
+    "label_en": "Skateboard Park",
+    "label_es": "Skateboard Park",
+    "aliases": [
+      "skateboard park",
+      "Skateboard Park",
+      "skateboard_park"
+    ]
+  },
+  {
+    "type": "ski_resort",
+    "label_en": "Ski Resort",
+    "label_es": "Ski Resort",
+    "aliases": [
+      "Ski Resort",
+      "ski_resort",
+      "ski resort"
+    ]
+  },
+  {
+    "type": "skin_care_clinic",
+    "label_en": "Skin Care Clinic",
+    "label_es": "Skin Care Clinic",
+    "aliases": [
+      "skin care clinic",
+      "Skin Care Clinic",
+      "skin_care_clinic"
+    ]
+  },
+  {
+    "type": "snack_bar",
+    "label_en": "Snack Bar",
+    "label_es": "Snack Bar",
+    "aliases": [
+      "Snack Bar",
+      "snack bar",
+      "snack_bar"
+    ]
+  },
+  {
+    "type": "soul_food_restaurant",
+    "label_en": "Soul Food Restaurant",
+    "label_es": "Soul Food Restaurant",
+    "aliases": [
+      "soul food restaurant",
+      "soul_food_restaurant",
+      "Soul Food Restaurant"
+    ]
+  },
+  {
+    "type": "soup_restaurant",
+    "label_en": "Soup Restaurant",
+    "label_es": "Soup Restaurant",
+    "aliases": [
+      "soup_restaurant",
+      "Soup Restaurant",
+      "soup restaurant"
+    ]
+  },
+  {
+    "type": "south_american_restaurant",
+    "label_en": "South American Restaurant",
+    "label_es": "South American Restaurant",
+    "aliases": [
+      "South American Restaurant",
+      "south american restaurant",
+      "south_american_restaurant"
+    ]
+  },
+  {
+    "type": "south_indian_restaurant",
+    "label_en": "South Indian Restaurant",
+    "label_es": "South Indian Restaurant",
+    "aliases": [
+      "south indian restaurant",
+      "south_indian_restaurant",
+      "South Indian Restaurant"
+    ]
+  },
+  {
+    "type": "southwestern_us_restaurant",
+    "label_en": "Southwestern Us Restaurant",
+    "label_es": "Southwestern Us Restaurant",
+    "aliases": [
+      "southwestern_us_restaurant",
+      "Southwestern Us Restaurant",
+      "southwestern us restaurant"
+    ]
+  },
+  {
+    "type": "spa",
+    "label_en": "Spa",
+    "label_es": "Spa",
+    "aliases": [
+      "masajes",
+      "wellness"
+    ]
+  },
+  {
+    "type": "spanish_restaurant",
+    "label_en": "Spanish Restaurant",
+    "label_es": "Spanish Restaurant",
+    "aliases": [
+      "Spanish Restaurant",
+      "spanish restaurant",
+      "spanish_restaurant"
+    ]
+  },
+  {
+    "type": "sporting_goods_store",
+    "label_en": "Sporting Goods Store",
+    "label_es": "Sporting Goods Store",
+    "aliases": [
+      "sporting goods store",
+      "sporting_goods_store",
+      "Sporting Goods Store"
+    ]
+  },
+  {
+    "type": "sports_activity_location",
+    "label_en": "Sports Activity Location",
+    "label_es": "Sports Activity Location",
+    "aliases": [
+      "Sports Activity Location",
+      "sports_activity_location",
+      "sports activity location"
+    ]
+  },
+  {
+    "type": "sports_bar",
+    "label_en": "Sports Bar",
+    "label_es": "Sports Bar",
+    "aliases": [
+      "Sports Bar",
+      "sports bar",
+      "sports_bar"
+    ]
+  },
+  {
+    "type": "sports_club",
+    "label_en": "Sports Club",
+    "label_es": "Sports Club",
+    "aliases": [
+      "sports_club",
+      "Sports Club",
+      "sports club"
+    ]
+  },
+  {
+    "type": "sports_coaching",
+    "label_en": "Sports Coaching",
+    "label_es": "Sports Coaching",
+    "aliases": [
+      "sports_coaching",
+      "Sports Coaching",
+      "sports coaching"
+    ]
+  },
+  {
+    "type": "sports_complex",
+    "label_en": "Sports Complex",
+    "label_es": "Sports Complex",
+    "aliases": [
+      "sports_complex",
+      "sports complex",
+      "Sports Complex"
+    ]
+  },
+  {
+    "type": "sports_school",
+    "label_en": "Sports School",
+    "label_es": "Sports School",
+    "aliases": [
+      "sports school",
+      "Sports School",
+      "sports_school"
+    ]
+  },
+  {
+    "type": "sports_store",
+    "label_en": "Sporting Goods Store",
+    "label_es": "Tienda de Deportes",
+    "aliases": [
+      "deportes",
+      "material deportivo"
+    ]
+  },
+  {
+    "type": "sportswear_store",
+    "label_en": "Sportswear Store",
+    "label_es": "Sportswear Store",
+    "aliases": [
+      "Sportswear Store",
+      "sportswear store",
+      "sportswear_store"
+    ]
+  },
+  {
+    "type": "sri_lankan_restaurant",
+    "label_en": "Sri Lankan Restaurant",
+    "label_es": "Sri Lankan Restaurant",
+    "aliases": [
+      "sri lankan restaurant",
+      "Sri Lankan Restaurant",
+      "sri_lankan_restaurant"
+    ]
+  },
+  {
+    "type": "stable",
+    "label_en": "Stable",
+    "label_es": "Stable",
+    "aliases": [
+      "stable",
+      "Stable"
+    ]
+  },
+  {
+    "type": "stadium",
+    "label_en": "Stadium",
+    "label_es": "Stadium",
+    "aliases": [
+      "Stadium",
+      "stadium"
+    ]
+  },
+  {
+    "type": "state_park",
+    "label_en": "State Park",
+    "label_es": "State Park",
+    "aliases": [
+      "State Park",
+      "state park",
+      "state_park"
+    ]
+  },
+  {
+    "type": "steak_house",
+    "label_en": "Steak House",
+    "label_es": "Asador",
+    "aliases": [
+      "asador",
+      "parrilla"
+    ]
+  },
+  {
+    "type": "storage",
+    "label_en": "Storage",
+    "label_es": "Trasteros",
+    "aliases": [
+      "almacenaje",
+      "guardamuebles"
+    ]
+  },
+  {
+    "type": "store",
+    "label_en": "Store",
+    "label_es": "Store",
+    "aliases": [
+      "Store",
+      "store"
+    ]
+  },
+  {
+    "type": "street_address",
+    "label_en": "Street Address",
+    "label_es": "Street Address",
+    "aliases": [
+      "street address",
+      "Street Address",
+      "street_address"
+    ]
+  },
+  {
+    "type": "street_number",
+    "label_en": "Street Number",
+    "label_es": "Street Number",
+    "aliases": [
+      "street number",
+      "street_number",
+      "Street Number"
+    ]
+  },
+  {
+    "type": "sublocality",
+    "label_en": "Sublocality",
+    "label_es": "Sublocality",
+    "aliases": [
+      "sublocality",
+      "Sublocality"
+    ]
+  },
+  {
+    "type": "sublocality_level_1",
+    "label_en": "Sublocality Level 1",
+    "label_es": "Sublocality Level 1",
+    "aliases": [
+      "Sublocality Level 1",
+      "sublocality_level_1",
+      "sublocality level 1"
+    ]
+  },
+  {
+    "type": "sublocality_level_2",
+    "label_en": "Sublocality Level 2",
+    "label_es": "Sublocality Level 2",
+    "aliases": [
+      "sublocality_level_2",
+      "Sublocality Level 2",
+      "sublocality level 2"
+    ]
+  },
+  {
+    "type": "sublocality_level_3",
+    "label_en": "Sublocality Level 3",
+    "label_es": "Sublocality Level 3",
+    "aliases": [
+      "Sublocality Level 3",
+      "sublocality level 3",
+      "sublocality_level_3"
+    ]
+  },
+  {
+    "type": "sublocality_level_4",
+    "label_en": "Sublocality Level 4",
+    "label_es": "Sublocality Level 4",
+    "aliases": [
+      "sublocality level 4",
+      "Sublocality Level 4",
+      "sublocality_level_4"
+    ]
+  },
+  {
+    "type": "sublocality_level_5",
+    "label_en": "Sublocality Level 5",
+    "label_es": "Sublocality Level 5",
+    "aliases": [
+      "sublocality level 5",
+      "Sublocality Level 5",
+      "sublocality_level_5"
+    ]
+  },
+  {
+    "type": "subpremise",
+    "label_en": "Subpremise",
+    "label_es": "Subpremise",
+    "aliases": [
+      "subpremise",
+      "Subpremise"
+    ]
+  },
+  {
+    "type": "subway_station",
+    "label_en": "Subway Station",
+    "label_es": "Subway Station",
+    "aliases": [
+      "Subway Station",
+      "subway_station",
+      "subway station"
+    ]
+  },
+  {
+    "type": "summer_camp_organizer",
+    "label_en": "Summer Camp Organizer",
+    "label_es": "Summer Camp Organizer",
+    "aliases": [
+      "summer camp organizer",
+      "Summer Camp Organizer",
+      "summer_camp_organizer"
+    ]
+  },
+  {
+    "type": "supermarket",
+    "label_en": "Supermarket",
+    "label_es": "Supermercado",
+    "aliases": [
+      "supermercado",
+      "alimentacion"
+    ]
+  },
+  {
+    "type": "supplier",
+    "label_en": "Supplier",
+    "label_es": "Supplier",
+    "aliases": [
+      "supplier",
+      "Supplier"
+    ]
+  },
+  {
+    "type": "sushi_restaurant",
+    "label_en": "Sushi Restaurant",
+    "label_es": "Restaurante Sushi",
+    "aliases": [
+      "sushi",
+      "japones"
+    ]
+  },
+  {
+    "type": "swimming_pool",
+    "label_en": "Swimming Pool",
+    "label_es": "Swimming Pool",
+    "aliases": [
+      "swimming_pool",
+      "Swimming Pool",
+      "swimming pool"
+    ]
+  },
+  {
+    "type": "swiss_restaurant",
+    "label_en": "Swiss Restaurant",
+    "label_es": "Swiss Restaurant",
+    "aliases": [
+      "Swiss Restaurant",
+      "swiss_restaurant",
+      "swiss restaurant"
+    ]
+  },
+  {
+    "type": "synagogue",
+    "label_en": "Synagogue",
+    "label_es": "Synagogue",
+    "aliases": [
+      "synagogue",
+      "Synagogue"
+    ]
+  },
+  {
+    "type": "taco_restaurant",
+    "label_en": "Taco Restaurant",
+    "label_es": "Taco Restaurant",
+    "aliases": [
+      "taco restaurant",
+      "taco_restaurant",
+      "Taco Restaurant"
+    ]
+  },
+  {
+    "type": "tailor",
+    "label_en": "Tailor",
+    "label_es": "Tailor",
+    "aliases": [
+      "Tailor",
+      "tailor"
+    ]
+  },
+  {
+    "type": "taiwanese_restaurant",
+    "label_en": "Taiwanese Restaurant",
+    "label_es": "Taiwanese Restaurant",
+    "aliases": [
+      "Taiwanese Restaurant",
+      "taiwanese_restaurant",
+      "taiwanese restaurant"
+    ]
+  },
+  {
+    "type": "takeout_restaurant",
+    "label_en": "Takeout Restaurant",
+    "label_es": "Comida para Llevar",
+    "aliases": [
+      "take away",
+      "para llevar"
+    ]
+  },
+  {
+    "type": "tanning_studio",
+    "label_en": "Tanning Studio",
+    "label_es": "Tanning Studio",
+    "aliases": [
+      "tanning studio",
+      "Tanning Studio",
+      "tanning_studio"
+    ]
+  },
+  {
+    "type": "tapas_restaurant",
+    "label_en": "Tapas Restaurant",
+    "label_es": "Tapas Restaurant",
+    "aliases": [
+      "tapas_restaurant",
+      "tapas restaurant",
+      "Tapas Restaurant"
+    ]
+  },
+  {
+    "type": "tattoo_shop",
+    "label_en": "Tattoo Shop",
+    "label_es": "Estudio de Tatuajes",
+    "aliases": [
+      "tatuajes",
+      "tattoo"
+    ]
+  },
+  {
+    "type": "taxi_service",
+    "label_en": "Taxi Service",
+    "label_es": "Taxi Service",
+    "aliases": [
+      "taxi_service",
+      "Taxi Service",
+      "taxi service"
+    ]
+  },
+  {
+    "type": "taxi_stand",
+    "label_en": "Taxi Stand",
+    "label_es": "Taxi Stand",
+    "aliases": [
+      "taxi_stand",
+      "taxi stand",
+      "Taxi Stand"
+    ]
+  },
+  {
+    "type": "tea_house",
+    "label_en": "Tea House",
+    "label_es": "Tetería",
+    "aliases": [
+      "teteria",
+      "te"
+    ]
+  },
+  {
+    "type": "tea_store",
+    "label_en": "Tea Store",
+    "label_es": "Tea Store",
+    "aliases": [
+      "Tea Store",
+      "tea_store",
+      "tea store"
+    ]
+  },
+  {
+    "type": "telecommunications_service_provider",
+    "label_en": "Telecommunications Service Provider",
+    "label_es": "Telecommunications Service Provider",
+    "aliases": [
+      "telecommunications_service_provider",
+      "telecommunications service provider",
+      "Telecommunications Service Provider"
+    ]
+  },
+  {
+    "type": "television_studio",
+    "label_en": "Television Studio",
+    "label_es": "Television Studio",
+    "aliases": [
+      "television studio",
+      "television_studio",
+      "Television Studio"
+    ]
+  },
+  {
+    "type": "tennis_court",
+    "label_en": "Tennis Court",
+    "label_es": "Tennis Court",
+    "aliases": [
+      "tennis court",
+      "tennis_court",
+      "Tennis Court"
+    ]
+  },
+  {
+    "type": "tex_mex_restaurant",
+    "label_en": "Tex Mex Restaurant",
+    "label_es": "Tex Mex Restaurant",
+    "aliases": [
+      "tex mex restaurant",
+      "Tex Mex Restaurant",
+      "tex_mex_restaurant"
+    ]
+  },
+  {
+    "type": "thai_restaurant",
+    "label_en": "Thai Restaurant",
+    "label_es": "Thai Restaurant",
+    "aliases": [
+      "thai_restaurant",
+      "Thai Restaurant",
+      "thai restaurant"
+    ]
+  },
+  {
+    "type": "thrift_store",
+    "label_en": "Thrift Store",
+    "label_es": "Thrift Store",
+    "aliases": [
+      "thrift store",
+      "thrift_store",
+      "Thrift Store"
+    ]
+  },
+  {
+    "type": "tibetan_restaurant",
+    "label_en": "Tibetan Restaurant",
+    "label_es": "Tibetan Restaurant",
+    "aliases": [
+      "Tibetan Restaurant",
+      "tibetan restaurant",
+      "tibetan_restaurant"
+    ]
+  },
+  {
+    "type": "tire_shop",
+    "label_en": "Tire Shop",
+    "label_es": "Tire Shop",
+    "aliases": [
+      "Tire Shop",
+      "tire shop",
+      "tire_shop"
+    ]
+  },
+  {
+    "type": "toll_station",
+    "label_en": "Toll Station",
+    "label_es": "Toll Station",
+    "aliases": [
+      "toll station",
+      "Toll Station",
+      "toll_station"
+    ]
+  },
+  {
+    "type": "tonkatsu_restaurant",
+    "label_en": "Tonkatsu Restaurant",
+    "label_es": "Tonkatsu Restaurant",
+    "aliases": [
+      "tonkatsu_restaurant",
+      "tonkatsu restaurant",
+      "Tonkatsu Restaurant"
+    ]
+  },
+  {
+    "type": "tour_agency",
+    "label_en": "Tour Agency",
+    "label_es": "Tour Agency",
+    "aliases": [
+      "tour_agency",
+      "Tour Agency",
+      "tour agency"
+    ]
+  },
+  {
+    "type": "tourist_attraction",
+    "label_en": "Tourist Attraction",
+    "label_es": "Atracción Turística",
+    "aliases": [
+      "turismo",
+      "atraccion"
+    ]
+  },
+  {
+    "type": "tourist_information_center",
+    "label_en": "Tourist Information Center",
+    "label_es": "Tourist Information Center",
+    "aliases": [
+      "tourist_information_center",
+      "Tourist Information Center",
+      "tourist information center"
+    ]
+  },
+  {
+    "type": "town_square",
+    "label_en": "Town Square",
+    "label_es": "Town Square",
+    "aliases": [
+      "town square",
+      "Town Square",
+      "town_square"
+    ]
+  },
+  {
+    "type": "toy_store",
+    "label_en": "Toy Store",
+    "label_es": "Juguetería",
+    "aliases": [
+      "jugueteria",
+      "juguetes"
+    ]
+  },
+  {
+    "type": "train_station",
+    "label_en": "Train Station",
+    "label_es": "Estación de Tren",
+    "aliases": [
+      "tren",
+      "renfe"
+    ]
+  },
+  {
+    "type": "train_ticket_office",
+    "label_en": "Train Ticket Office",
+    "label_es": "Train Ticket Office",
+    "aliases": [
+      "Train Ticket Office",
+      "train_ticket_office",
+      "train ticket office"
+    ]
+  },
+  {
+    "type": "tram_stop",
+    "label_en": "Tram Stop",
+    "label_es": "Tram Stop",
+    "aliases": [
+      "tram_stop",
+      "Tram Stop",
+      "tram stop"
+    ]
+  },
+  {
+    "type": "transit_depot",
+    "label_en": "Transit Depot",
+    "label_es": "Transit Depot",
+    "aliases": [
+      "transit depot",
+      "Transit Depot",
+      "transit_depot"
+    ]
+  },
+  {
+    "type": "transit_station",
+    "label_en": "Transit Station",
+    "label_es": "Transit Station",
+    "aliases": [
+      "transit_station",
+      "transit station",
+      "Transit Station"
+    ]
+  },
+  {
+    "type": "transit_stop",
+    "label_en": "Transit Stop",
+    "label_es": "Transit Stop",
+    "aliases": [
+      "Transit Stop",
+      "transit stop",
+      "transit_stop"
+    ]
+  },
+  {
+    "type": "translator",
+    "label_en": "Translator",
+    "label_es": "Traductor",
+    "aliases": [
+      "traduccion",
+      "traductor"
+    ]
+  },
+  {
+    "type": "transportation_service",
+    "label_en": "Transportation Service",
+    "label_es": "Transportation Service",
+    "aliases": [
+      "Transportation Service",
+      "transportation service",
+      "transportation_service"
+    ]
+  },
+  {
+    "type": "travel_agency",
+    "label_en": "Travel Agency",
+    "label_es": "Agencia de Viajes",
+    "aliases": [
+      "viajes",
+      "agencia"
+    ]
+  },
+  {
+    "type": "truck_dealer",
+    "label_en": "Truck Dealer",
+    "label_es": "Truck Dealer",
+    "aliases": [
+      "truck dealer",
+      "Truck Dealer",
+      "truck_dealer"
+    ]
+  },
+  {
+    "type": "truck_stop",
+    "label_en": "Truck Stop",
+    "label_es": "Truck Stop",
+    "aliases": [
+      "truck_stop",
+      "truck stop",
+      "Truck Stop"
+    ]
+  },
+  {
+    "type": "turkish_restaurant",
+    "label_en": "Turkish Restaurant",
+    "label_es": "Turkish Restaurant",
+    "aliases": [
+      "Turkish Restaurant",
+      "turkish_restaurant",
+      "turkish restaurant"
+    ]
+  },
+  {
+    "type": "tutoring_service",
+    "label_en": "Tutoring Service",
+    "label_es": "Clases Particulares",
+    "aliases": [
+      "academia",
+      "refuerzo escolar"
+    ]
+  },
+  {
+    "type": "type",
+    "label_en": "Type",
+    "label_es": "Type",
+    "aliases": [
+      "type",
+      "Type"
+    ]
+  },
+  {
+    "type": "types",
+    "label_en": "Types",
+    "label_es": "Types",
+    "aliases": [
+      "Types",
+      "types"
+    ]
+  },
+  {
+    "type": "ukrainian_restaurant",
+    "label_en": "Ukrainian Restaurant",
+    "label_es": "Ukrainian Restaurant",
+    "aliases": [
+      "ukrainian restaurant",
+      "ukrainian_restaurant",
+      "Ukrainian Restaurant"
+    ]
+  },
+  {
+    "type": "university",
+    "label_en": "University",
+    "label_es": "Universidad",
+    "aliases": [
+      "universidad",
+      "facultad"
+    ]
+  },
+  {
+    "type": "urgent_care_center",
+    "label_en": "Urgent Care Center",
+    "label_es": "Urgencias",
+    "aliases": [
+      "urgencias",
+      "atencion urgente"
+    ]
+  },
+  {
+    "type": "vegan_restaurant",
+    "label_en": "Vegan Restaurant",
+    "label_es": "Restaurante Vegano",
+    "aliases": [
+      "vegano",
+      "vegan"
+    ]
+  },
+  {
+    "type": "vegetarian_restaurant",
+    "label_en": "Vegetarian Restaurant",
+    "label_es": "Restaurante Vegetariano",
+    "aliases": [
+      "vegetariano"
+    ]
+  },
+  {
+    "type": "veterinary_care",
+    "label_en": "Veterinary",
+    "label_es": "Veterinario",
+    "aliases": [
+      "veterinario",
+      "clinica veterinaria"
+    ]
+  },
+  {
+    "type": "video_arcade",
+    "label_en": "Video Arcade",
+    "label_es": "Video Arcade",
+    "aliases": [
+      "video arcade",
+      "video_arcade",
+      "Video Arcade"
+    ]
+  },
+  {
+    "type": "vietnamese_restaurant",
+    "label_en": "Vietnamese Restaurant",
+    "label_es": "Vietnamese Restaurant",
+    "aliases": [
+      "vietnamese_restaurant",
+      "Vietnamese Restaurant",
+      "vietnamese restaurant"
+    ]
+  },
+  {
+    "type": "vineyard",
+    "label_en": "Vineyard",
+    "label_es": "Vineyard",
+    "aliases": [
+      "vineyard",
+      "Vineyard"
+    ]
+  },
+  {
+    "type": "visitor_center",
+    "label_en": "Visitor Center",
+    "label_es": "Visitor Center",
+    "aliases": [
+      "visitor_center",
+      "Visitor Center",
+      "visitor center"
+    ]
+  },
+  {
+    "type": "warehouse_store",
+    "label_en": "Warehouse Store",
+    "label_es": "Warehouse Store",
+    "aliases": [
+      "Warehouse Store",
+      "warehouse store",
+      "warehouse_store"
+    ]
+  },
+  {
+    "type": "water_park",
+    "label_en": "Water Park",
+    "label_es": "Water Park",
+    "aliases": [
+      "water_park",
+      "Water Park",
+      "water park"
+    ]
+  },
+  {
+    "type": "web_hosting_company",
+    "label_en": "Web Hosting Company",
+    "label_es": "Empresa de Hosting",
+    "aliases": [
+      "hosting",
+      "servidores"
+    ]
+  },
+  {
+    "type": "wedding_planner",
+    "label_en": "Wedding Planner",
+    "label_es": "Organizador de Bodas",
+    "aliases": [
+      "bodas",
+      "wedding planner"
+    ]
+  },
+  {
+    "type": "wedding_venue",
+    "label_en": "Wedding Venue",
+    "label_es": "Wedding Venue",
+    "aliases": [
+      "wedding_venue",
+      "wedding venue",
+      "Wedding Venue"
+    ]
+  },
+  {
+    "type": "wellness_center",
+    "label_en": "Wellness Center",
+    "label_es": "Wellness Center",
+    "aliases": [
+      "wellness_center",
+      "Wellness Center",
+      "wellness center"
+    ]
+  },
+  {
+    "type": "western_restaurant",
+    "label_en": "Western Restaurant",
+    "label_es": "Western Restaurant",
+    "aliases": [
+      "western_restaurant",
+      "Western Restaurant",
+      "western restaurant"
+    ]
+  },
+  {
+    "type": "wholesaler",
+    "label_en": "Wholesaler",
+    "label_es": "Wholesaler",
+    "aliases": [
+      "Wholesaler",
+      "wholesaler"
+    ]
+  },
+  {
+    "type": "wildlife_park",
+    "label_en": "Wildlife Park",
+    "label_es": "Wildlife Park",
+    "aliases": [
+      "wildlife_park",
+      "Wildlife Park",
+      "wildlife park"
+    ]
+  },
+  {
+    "type": "wildlife_refuge",
+    "label_en": "Wildlife Refuge",
+    "label_es": "Wildlife Refuge",
+    "aliases": [
+      "Wildlife Refuge",
+      "wildlife_refuge",
+      "wildlife refuge"
+    ]
+  },
+  {
+    "type": "window_cleaning_service",
+    "label_en": "Window Cleaning Service",
+    "label_es": "Limpieza de Cristales",
+    "aliases": [
+      "cristales",
+      "limpieza ventanas"
+    ]
+  },
+  {
+    "type": "wine_bar",
+    "label_en": "Wine Bar",
+    "label_es": "Vinoteca",
+    "aliases": [
+      "vinoteca",
+      "wine bar"
+    ]
+  },
+  {
+    "type": "winery",
+    "label_en": "Winery",
+    "label_es": "Winery",
+    "aliases": [
+      "winery",
+      "Winery"
+    ]
+  },
+  {
+    "type": "womens_clothing_store",
+    "label_en": "Womens Clothing Store",
+    "label_es": "Womens Clothing Store",
+    "aliases": [
+      "Womens Clothing Store",
+      "womens clothing store",
+      "womens_clothing_store"
+    ]
+  },
+  {
+    "type": "woods",
+    "label_en": "Woods",
+    "label_es": "Woods",
+    "aliases": [
+      "Woods",
+      "woods"
+    ]
+  },
+  {
+    "type": "yakiniku_restaurant",
+    "label_en": "Yakiniku Restaurant",
+    "label_es": "Yakiniku Restaurant",
+    "aliases": [
+      "yakiniku restaurant",
+      "Yakiniku Restaurant",
+      "yakiniku_restaurant"
+    ]
+  },
+  {
+    "type": "yakitori_restaurant",
+    "label_en": "Yakitori Restaurant",
+    "label_es": "Yakitori Restaurant",
+    "aliases": [
+      "Yakitori Restaurant",
+      "yakitori_restaurant",
+      "yakitori restaurant"
+    ]
+  },
+  {
+    "type": "yoga_studio",
+    "label_en": "Yoga Studio",
+    "label_es": "Yoga Studio",
+    "aliases": [
+      "yoga studio",
+      "Yoga Studio",
+      "yoga_studio"
+    ]
+  },
+  {
+    "type": "zoo",
+    "label_en": "Zoo",
+    "label_es": "Zoo",
+    "aliases": [
+      "Zoo",
+      "zoo"
+    ]
+  }
+]

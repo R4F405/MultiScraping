@@ -1,5 +1,6 @@
 .env
-data/
+# Solo la carpeta data en la raíz de mapleads (no backend/data/ con el catálogo JSON)
+/data/
 __pycache__/
 .pytest_cache/
 *.pyc

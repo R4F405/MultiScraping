@@ -1,0 +1,93 @@
+[
+  {
+    "id": "nutritionist",
+    "label_es": "Nutricionista",
+    "label_en": "Nutritionist",
+    "aliases": ["nutricionista", "nutricion", "dietista", "dietitian", "nutritionist"]
+  },
+  {
+    "id": "gym",
+    "label_es": "Gimnasio",
+    "label_en": "Gym",
+    "aliases": ["gimnasio", "gym", "fitness", "centro fitness"]
+  },
+  {
+    "id": "personal_trainer",
+    "label_es": "Entrenador personal",
+    "label_en": "Personal Trainer",
+    "aliases": ["entrenador personal", "personal trainer", "coach fitness"]
+  },
+  {
+    "id": "physiotherapist",
+    "label_es": "Fisioterapeuta",
+    "label_en": "Physiotherapist",
+    "aliases": ["fisioterapeuta", "fisio", "fisioterapia", "physiotherapist"]
+  },
+  {
+    "id": "psychologist",
+    "label_es": "Psicologo",
+    "label_en": "Psychologist",
+    "aliases": ["psicologo", "psicologa", "psicologia", "psychologist"]
+  },
+  {
+    "id": "dentist",
+    "label_es": "Dentista",
+    "label_en": "Dentist",
+    "aliases": ["dentista", "dentistas", "dentist", "odontologo", "clinica dental"]
+  },
+  {
+    "id": "lawyer",
+    "label_es": "Abogado",
+    "label_en": "Lawyer",
+    "aliases": ["abogado", "abogada", "despacho", "lawyer"]
+  },
+  {
+    "id": "immigration_lawyer",
+    "label_es": "Abogado de Extranjeria",
+    "label_en": "Immigration Lawyer",
+    "aliases": ["abogado extranjeria", "immigration lawyer", "extranjeria", "inmigracion"]
+  },
+  {
+    "id": "accountant",
+    "label_es": "Asesoria contable",
+    "label_en": "Accountant",
+    "aliases": ["asesoria", "gestoria", "contable", "accountant", "fiscal"]
+  },
+  {
+    "id": "marketing_agency",
+    "label_es": "Agencia de marketing",
+    "label_en": "Marketing Agency",
+    "aliases": ["marketing", "agencia marketing", "seo", "agencia digital"]
+  },
+  {
+    "id": "web_designer",
+    "label_es": "Disenador web",
+    "label_en": "Web Designer",
+    "aliases": ["disenador web", "web designer", "diseño web", "desarrollo web"]
+  },
+  {
+    "id": "restaurant",
+    "label_es": "Restaurante",
+    "label_en": "Restaurant",
+    "aliases": ["restaurante", "restaurant", "comida"]
+  },
+  {
+    "id": "coffee_shop",
+    "label_es": "Cafeteria",
+    "label_en": "Coffee Shop",
+    "aliases": ["cafeteria", "cafe", "coffee shop"]
+  },
+  {
+    "id": "beauty_salon",
+    "label_es": "Centro de estetica",
+    "label_en": "Beauty Salon",
+    "aliases": ["estetica", "centro estetica", "beauty salon", "peluqueria estetica"]
+  },
+  {
+    "id": "hair_salon",
+    "label_es": "Peluqueria",
+    "label_en": "Hair Salon",
+    "aliases": ["peluqueria", "barberia", "hair salon", "barber shop"]
+  }
+]
+

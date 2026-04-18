@@ -1,0 +1,25 @@
+{
+  "catalog_version": "local-derived-places-2026-04-16",
+  "catalog_path": "/Users/miquelroca/Desktop/practicas/leads/mapleads/backend/data/maps_categories.json",
+  "meta_path": "/Users/miquelroca/Desktop/practicas/leads/mapleads/backend/data/maps_categories.meta.json",
+  "updated_at": "2026-04-16T10:31:16.455001+00:00",
+  "source_urls": [
+    "https://developers.google.com/maps/documentation/places/web-service/legacy/supported_types",
+    "https://developers.google.com/maps/documentation/places/web-service/place-types"
+  ],
+  "extracted_types_count": 0,
+  "existing_types_count": 566,
+  "catalog_types_count": 566,
+  "preview_types": [],
+  "fetch_errors": [
+    "https://developers.google.com/maps/documentation/places/web-service/legacy/supported_types => 403 Forbidden",
+    "https://developers.google.com/maps/documentation/places/web-service/place-types => 403 Forbidden"
+  ],
+  "hybrid_summary": {
+    "gbp_categories_count": 15,
+    "mapping_entries_count": 15,
+    "mapping_missing_gbp_count": 0,
+    "gbp_missing_mapping_count": 0,
+    "warnings": []
+  }
+}
