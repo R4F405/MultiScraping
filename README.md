@@ -122,6 +122,7 @@ venv\Scripts\activate
 copy .env.example .env
 pip install -r requirements.txt
 deactivate
+cd ..
 ```
 
 ## Cómo arrancar todo
