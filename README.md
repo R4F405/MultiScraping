@@ -85,7 +85,7 @@ cd ..
 #### 1) Clonar y entrar al repo
 
 ```cmd
-git clone <URL_DEL_REPO>
+git clone https://github.com/R4F405/MultiScraping
 cd multiScraping
 ```
 
