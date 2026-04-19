@@ -165,20 +165,13 @@ Arranca cada proceso en su terminal:
    - activar venv
    - `python main.py`
 
-### Opción C (solo MapLeads + frontend)
-
-Útil para trabajar solo con Google Maps. Instagram/LinkedIn quedan desactivados en el panel (el script apunta sus URLs a un puerto vacío).
-
-- macOS/Linux: `./start_mapleads.sh`
-- Windows: doble clic en `start_mapleads.bat` (requiere haber compilado el frontend con `scraperLead-web/build_exe.bat`; el `.bat` lanza el `.exe` generado en `scraperLead-web/dist/MapLeads-Frontend/`).
-
 ## Qué es, cómo funciona y para qué sirve
 
 - **Qué es:** una plataforma con 3 backends (`mapleads`, `instaleads`, `linkedinleads`) y 1 frontend (`scraperLead-web`).
 - **Cómo funciona:** el frontend (FastAPI + Jinja + estáticos) llama a cada API, lanza jobs de scraping en segundo plano y muestra progreso y resultados.
 - **Para qué sirve:** generar bases de datos de contactos (emails, teléfonos y metadatos) y exportarlas a CSV.
 
-El frontend incluye rutas de interfaz para TikTok (`/tiktok`, etc.); en este repositorio no hay backend TikTok — en el arranque “solo MapLeads” esas secciones quedan sin servicio activo.
+El frontend incluye rutas de interfaz para TikTok (`/tiktok`, etc.); en este repositorio no hay backend TikTok — esas secciones quedan sin servicio activo salvo que integres uno por tu cuenta.
 
 ## Estructura del proyecto
 
@@ -187,7 +180,6 @@ El frontend incluye rutas de interfaz para TikTok (`/tiktok`, etc.); en este rep
 - `linkedinleads`: backend FastAPI para scraping de LinkedIn con Playwright (cuentas, sesiones, colas).
 - `scraperLead-web`: frontend FastAPI + Jinja + JS (dashboard, formularios y vistas de datos).
 - `start_all.sh`: inicia en macOS/Linux los cuatro servicios.
-- `start_mapleads.sh` y `start_mapleads.bat`: arranque rápido solo MapLeads + frontend.
 
 ## Requisitos mínimos
 

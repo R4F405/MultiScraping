@@ -4,10 +4,10 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ============================================
-echo    MapLeads - Iniciando todo...
+echo    MultiScraping - Iniciando panel y backend
 echo ============================================
 echo.
-echo Modo operativo: solo Google Maps (Instagram/TikTok deshabilitados)
+echo Modo: MapLeads (Google Maps) + panel web. Instagram/TikTok deshabilitados en este arranque.
 echo.
 
 REM Verificar que el venv del backend existe
@@ -39,7 +39,7 @@ if not exist "scraperLead-web\dist\MapLeads-Frontend\MapLeads-Frontend.exe" (
 
 REM Iniciar el backend en una ventana separada
 echo Iniciando backend (Google Maps scraper)...
-start "MapLeads Backend" cmd /k "cd /d %~dp0mapleads && venv\Scripts\activate && uvicorn backend.main:app --port 8001"
+start "MultiScraping - MapLeads API" cmd /k "cd /d %~dp0mapleads && venv\Scripts\activate && uvicorn backend.main:app --port 8001"
 
 REM Esperar a que el backend arranque
 echo Esperando a que el backend este listo...
