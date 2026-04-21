@@ -61,6 +61,38 @@ async def test_search_multi_locality_requires_locations(client):
 
 
 @pytest.mark.asyncio
+async def test_search_multi_locality_accepts_companies_target_alias(client):
+    res = await client.post(
+        "/api/search",
+        json={
+            "mode": "multi_locality",
+            "category_query": "dentistas",
+            "locations": ["Valencia, Valencia, España"],
+            "companies_target_per_location": 3,
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "job_id" in data
+    assert data["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_search_multi_locality_rejects_too_many_locations(client):
+    locations = [f"Loc{i}, Provincia, España" for i in range(5001)]
+    res = await client.post(
+        "/api/search",
+        json={
+            "mode": "multi_locality",
+            "category_query": "dentistas",
+            "locations": locations,
+            "companies_target_per_location": 2,
+        },
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_get_job_not_found(client):
     res = await client.get("/api/jobs/nonexistent-job-id")
     assert res.status_code == 404

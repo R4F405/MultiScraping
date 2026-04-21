@@ -78,7 +78,7 @@
           Multiarea
         </button>
       </div>
-      <p class="text-xs text-slate-400 mt-2">El modo por localidades procesa una localidad detrás de otra para reducir carga y bloqueos.</p>
+      <p class="text-xs text-slate-400 mt-2">El modo por localidades procesa una localidad detrás de otra para recopilar empresas aunque no tengan email.</p>
     </div>
 
     <div id="single-mode-fields">
@@ -193,15 +193,55 @@
           <label for="companies-per-location" class="block text-[10px] font-semibold tracking-widest text-slate-400 uppercase mb-2">Empresas objetivo por localidad</label>
           <input id="companies-per-location" type="number" min="1" max="200" value="10"
                  class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+          <p class="mt-2 text-[11px] text-slate-500">Este objetivo se mide por empresas encontradas, no por emails válidos.</p>
         </div>
         <div>
-          <label for="locations-textarea" class="block text-[10px] font-semibold tracking-widest text-slate-400 uppercase mb-2">Localidades (1 por línea)</label>
-          <textarea id="locations-textarea" rows="8"
-                    maxlength="200000"
-                    class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                    placeholder="Alcantera del Xuquer, Valencia, España&#10;Gandia, Valencia, España&#10;Albacete, Albacete, España"></textarea>
-          <div class="mt-2 flex items-center justify-between gap-3">
-            <p class="text-xs text-slate-400">Pega directamente desde Excel (una fila por línea).</p>
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <label class="block text-[10px] font-semibold tracking-widest text-slate-400 uppercase">Localidades</label>
+            <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+              <button id="locations-source-text-btn" type="button"
+                      class="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white">
+                Pegar texto
+              </button>
+              <button id="locations-source-file-btn" type="button"
+                      class="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100">
+                Adjuntar archivo
+              </button>
+            </div>
+          </div>
+          <div id="locations-text-mode-wrap">
+            <textarea id="locations-textarea" rows="8"
+                      maxlength="500000"
+                      class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                      placeholder="Alcantera del Xuquer, Valencia, España&#10;Gandia, Valencia, España&#10;Albacete, Albacete, España"></textarea>
+            <p class="mt-2 text-xs text-slate-400">Pega directamente desde Excel (una fila por línea).</p>
+          </div>
+          <div id="locations-file-mode-wrap" class="hidden border border-slate-200 rounded-xl p-4 bg-slate-50/70">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">Importar archivo de localidades</p>
+              <span id="locations-file-name" class="text-xs text-slate-500 font-medium"></span>
+            </div>
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input id="locations-file-input" type="file" accept=".csv,.xlsx,.xls"
+                     class="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-blue-700" />
+              <button id="locations-file-clear" type="button"
+                      class="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition">
+                Limpiar archivo
+              </button>
+            </div>
+            <p class="mt-2 text-xs text-slate-500">
+              Formato recomendado: columna <code>localidad</code>. También se aceptan alias: <code>location</code>, <code>ciudad</code>, <code>municipio</code>, <code>poblacion</code>.
+            </p>
+            <p class="mt-1 text-xs text-slate-500">Límite recomendado: hasta 5000 localidades por archivo.</p>
+            <p class="mt-1 text-xs text-slate-500">Si hay varias columnas y no se detecta automáticamente, podrás elegir la columna manualmente.</p>
+            <div id="locations-column-picker-wrap" class="hidden mt-3">
+              <label for="locations-column-picker" class="block text-xs font-medium text-slate-700 mb-1">Selecciona la columna de localidades</label>
+              <select id="locations-column-picker"
+                      class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            </div>
+            <div id="locations-file-preview" class="hidden mt-3 text-xs text-slate-600 bg-white border border-slate-200 rounded-lg p-3"></div>
+          </div>
+          <div class="mt-2 flex items-center justify-end gap-3">
             <p id="locations-summary" class="text-xs text-slate-500 font-medium">0 localidades válidas</p>
           </div>
           <p id="companies-total-summary" class="mt-2 text-xs text-slate-500 font-medium">Total a scrapear: —</p>
@@ -293,4 +333,5 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 {% endblock %}

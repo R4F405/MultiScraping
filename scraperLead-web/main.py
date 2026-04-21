@@ -257,7 +257,17 @@ async def databases(request: Request):
 @app.get("/instagram")
 async def instagram(request: Request, from_page: str | None = Query(default=None, alias="from")):
     _ = from_page
-    return templates.TemplateResponse("instagram.html", {"request": request})
+    health, health_state = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/health", timeout=5.0)
+    health = health or {"status": "unknown"}
+    state = health_state if health_state in ("timeout", "upstream_error") else "ok"
+    recent_jobs, _ = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/jobs?limit=6", timeout=5.0)
+    recent_jobs = recent_jobs if isinstance(recent_jobs, list) else []
+    return templates.TemplateResponse("instagram.html", {
+        "request": request,
+        "health": health,
+        "state": state,
+        "recent_jobs": recent_jobs,
+    })
 
 
 @app.get("/instagram/leads")

@@ -1,239 +1,305 @@
+import asyncio
+import csv
+import io
 import uuid
-from asyncio import Task, create_task
-from datetime import datetime, timezone
+import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import (
-    AccountAddRequest,
-    DiagnoseResponse,
-    HealthResponse,
+    DorkingRequest,
+    FollowersRequest,
     JobResponse,
-    ProfilePreview,
-    ProxyStatusResponse,
+    LeadOut,
+    LimitsUpdate,
+    LoginRequest,
     SearchRequest,
-    SessionLoginRequest,
 )
-from backend.config.settings import settings
-from backend.instagram.ig_health import get_health, snapshot_metrics
-from backend.instagram.ig_proxy_manager import proxy_manager
-from backend.instagram.ig_service import run_job
-from backend.storage import database
+from backend.config.settings import Settings
+from backend.scraper.ig_health import run_health_check
+from backend.scraper.ig_session import clear_session, get_authenticated_client, session_info
+from backend.storage import database as db
 
-router = APIRouter()
-proxy_router = APIRouter()
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/instagram")
 
-_job_tasks: dict[str, Task[Any]] = {}
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+# In-memory job registry: job_id → asyncio.Task
+_jobs: dict[str, asyncio.Task] = {}
 
 
-def _job_payload(job_id: str, request: SearchRequest) -> dict[str, Any]:
-    now = _now_iso()
-    target = request.target or " ".join(filter(None, [request.niche, request.location])).strip()
-    return {
-        "job_id": job_id,
-        "mode": request.mode,
-        "target": target,
-        "niche": request.niche,
-        "location": request.location,
-        "language": request.language,
-        "market": request.market,
-        "email_goal": request.email_goal,
-        "status": "queued",
-        "progress": 0,
-        "total": request.email_goal,
-        "emails_found": 0,
-        "status_detail": "Job encolado",
-        "started_at": now,
-        "finished_at": None,
-    }
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@router.get("/health")
+async def health():
+    return await run_health_check()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health() -> Any:
-    return await get_health()
-
-
-@router.api_route("/diagnose", methods=["GET", "POST"], response_model=DiagnoseResponse)
-async def diagnose() -> Any:
-    health = await get_health()
-    return {
-        "blocked": health["status"] == "blocked",
-        "rate_limited": health["status"] == "rate_limited",
-        "last_error": health.get("last_error"),
-        "consecutive_errors": health.get("consecutive_errors", 0),
-        "session_active": True,
-    }
-
-
-@router.get("/debug/last")
-async def debug_last() -> Any:
-    leads = await database.list_leads(limit=1)
-    return {
-        "stats": snapshot_metrics(),
-        "last_lead": leads[0] if leads else None,
-        "message": "debug_ok",
-    }
-
+# ── Session ───────────────────────────────────────────────────────────────────
 
 @router.post("/login")
-async def login(body: SessionLoginRequest) -> Any:
-    await database.upsert_account(body.username)
-    return {"status": "ok", "username": body.username}
+async def login(body: LoginRequest):
+    try:
+        get_authenticated_client(body.username, body.password)
+        return {"status": "ok", "message": "Login successful"}
+    except RuntimeError as e:
+        msg = str(e)
+        if "challenge" in msg.lower() or "2fa" in msg.lower():
+            return {"status": "2fa_required", "message": msg}
+        raise HTTPException(status_code=400, detail=msg)
 
 
 @router.get("/session")
-async def get_session() -> Any:
-    accounts = await database.list_accounts()
-    return {"logged_in": bool(accounts), "username": accounts[0]["username"] if accounts else None, "session_age_hours": 0}
+async def get_session():
+    return session_info()
 
 
 @router.delete("/session")
-async def delete_session() -> Any:
-    return {"status": "ok"}
+async def delete_session():
+    clear_session()
+    return {"status": "cleared"}
 
 
-@router.post("/session/login")
-async def session_login(body: SessionLoginRequest) -> Any:
-    return await login(body)
-
-
-@router.post("/session/logout")
-async def session_logout() -> Any:
-    return {"status": "ok"}
-
-
-@router.get("/session/status")
-async def session_status() -> Any:
-    accounts = await database.list_accounts()
-    return {"active": bool(accounts)}
-
+# ── Limits ────────────────────────────────────────────────────────────────────
 
 @router.get("/limits")
-async def limits() -> Any:
+async def get_limits():
+    used_unauth = await db.get_daily_count("unauth")
+    used_auth = await db.get_daily_count("auth")
+    used_hourly = await db.get_hourly_count("auth")
+    unauth_reached = used_unauth >= Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
+    auth_daily_reached = used_auth >= Settings.IG_LIMIT_DAILY_AUTHENTICATED
+    auth_hourly_reached = used_hourly >= Settings.IG_LIMIT_HOURLY_AUTHENTICATED
     return {
-        "can_start_dorking": True,
-        "can_start_followers": True,
-        "unauth_daily_reached": False,
-        "auth_daily_reached": False,
-        "auth_hourly_reached": False,
-        "used_today_unauth": 0,
-        "used_today_auth": 0,
-        "used_this_hour_auth": 0,
-        "hourly_auth": settings.max_hourly_auth,
-        "message": "ok",
+        "daily_unauth": Settings.IG_LIMIT_DAILY_UNAUTHENTICATED,
+        "daily_auth": Settings.IG_LIMIT_DAILY_AUTHENTICATED,
+        "hourly_auth": Settings.IG_LIMIT_HOURLY_AUTHENTICATED,
+        "used_today_unauth": used_unauth,
+        "used_today_auth": used_auth,
+        "used_this_hour_auth": used_hourly,
+        "unauth_daily_reached": unauth_reached,
+        "auth_daily_reached": auth_daily_reached,
+        "auth_hourly_reached": auth_hourly_reached,
+        "can_start_dorking": not unauth_reached,
+        "can_start_followers": not auth_daily_reached and not auth_hourly_reached,
     }
 
 
-@router.get("/accounts")
-async def list_accounts() -> Any:
-    return await database.list_accounts()
+@router.put("/limits")
+async def update_limits(body: LimitsUpdate):
+    if body.daily_unauth is not None:
+        Settings.IG_LIMIT_DAILY_UNAUTHENTICATED = body.daily_unauth
+    if body.daily_auth is not None:
+        Settings.IG_LIMIT_DAILY_AUTHENTICATED = body.daily_auth
+    if body.hourly_auth is not None:
+        Settings.IG_LIMIT_HOURLY_AUTHENTICATED = body.hourly_auth
+    return {"status": "updated"}
 
 
-@router.post("/accounts")
-async def add_account(body: AccountAddRequest) -> Any:
-    await database.upsert_account(body.username)
-    return {"status": "ok", "username": body.username}
+# ── Jobs ──────────────────────────────────────────────────────────────────────
 
-
-@router.post("/accounts/{username}/relogin")
-async def relogin_account(username: str) -> Any:
-    await database.upsert_account(username)
-    return {"status": "ok", "username": username}
-
-
-@router.delete("/accounts/{username}")
-async def remove_account(_username: str) -> Any:
-    await database.remove_account(_username)
-    return {"status": "ok"}
-
-
-@router.get("/profile/{username}", response_model=ProfilePreview)
-async def profile(username: str) -> Any:
-    leads = await database.list_leads(limit=500)
-    for lead in leads:
-        if lead["username"] == username:
-            return {
-                "username": username,
-                "full_name": username,
-                "biography": "Perfil detectado en campaign pipeline",
-                "bio_url": None,
-                "is_business_account": True,
-                "follower_count": None,
-                "profile_pic_url": None,
-                "email": lead["email"],
-                "email_source": lead["email_source"],
-                "is_private": False,
-                "phone": lead["phone"],
-                "business_category": lead["business_category"],
-            }
-    raise HTTPException(status_code=404, detail=f"Perfil no encontrado (@{username})")
-
-
-@router.post("/search", response_model=JobResponse)
-async def start_search(body: SearchRequest) -> Any:
-    job_id = str(uuid.uuid4())
-    payload = _job_payload(job_id, body)
-    await database.create_job(payload)
-    task = create_task(run_job(job_id))
-    _job_tasks[job_id] = task
-    return payload
+def _normalize_job(job: dict) -> dict:
+    """Normalize legacy job records so the frontend JS can interpret them correctly."""
+    if not job.get("total") and job.get("max_results"):
+        job["total"] = job["max_results"]
+    # JS expects 'completed' but old records stored 'done'
+    if job.get("status") == "done":
+        job["status"] = "completed"
+    return job
 
 
 @router.get("/jobs")
-async def list_jobs(limit: int = 20) -> Any:
-    return await database.list_jobs(limit=limit)
+async def list_jobs(limit: int = 24):
+    jobs = await db.get_all_jobs(limit=limit)
+    return [_normalize_job(j) for j in jobs]
 
 
-@router.get("/jobs/{job_id}", response_model=JobResponse)
-async def get_job(job_id: str) -> Any:
-    payload = await database.get_job(job_id)
-    if not payload:
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = await db.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return payload
+    return _normalize_job(job)
 
 
-@router.get("/stats")
-async def get_stats() -> Any:
-    stats = await database.get_today_stats()
-    return {"today": stats["leads"], "total": stats["leads"], "message": "ok"}
+# ── Search: Unified endpoint ─────────────────────────────────────────────────
+
+@router.post("/search", response_model=JobResponse)
+async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
+    if body.mode == "dorking":
+        parts = body.target.split("|", 1)
+        niche = parts[0].strip()
+        location = parts[1].strip() if len(parts) > 1 else ""
+        existing = await db.find_recent_job("dorking", body.target, within_seconds=15)
+        if existing:
+            return JobResponse(job_id=existing["job_id"], status=existing["status"])
+        job_id = str(uuid.uuid4())
+        await db.upsert_job(job_id, "dorking", body.target, body.email_goal)
+        background_tasks.add_task(_run_dorking_job, niche, location, body.email_goal, job_id)
+        return JobResponse(job_id=job_id, status="running")
+
+    if body.mode == "followers":
+        info = session_info()
+        if not info["logged_in"]:
+            raise HTTPException(status_code=401, detail="No active Instagram session. Login first.")
+        target = body.target.lstrip("@")
+        existing = await db.find_recent_job("followers", target, within_seconds=15)
+        if existing:
+            return JobResponse(job_id=existing["job_id"], status=existing["status"])
+        job_id = str(uuid.uuid4())
+        await db.upsert_job(job_id, "followers", target, body.email_goal)
+        background_tasks.add_task(_run_followers_job, target, body.email_goal, job_id)
+        return JobResponse(job_id=job_id, status="running")
+
+    raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
 
 
-@router.get("/diagnostics/accounts")
-async def diagnostics_accounts(hours: int = 24) -> Any:
-    return {"hours": hours, "accounts": await database.list_accounts(), "message": "ok"}
+# ── Accounts pool (single-session stub) ──────────────────────────────────────
+
+@router.get("/accounts")
+async def list_accounts():
+    info = session_info()
+    if info["logged_in"]:
+        return [{"username": info.get("username", ""), "status": "active", "manual_login_required": False}]
+    return []
 
 
-@router.get("/diagnostics/pipeline")
-async def diagnostics_pipeline() -> Any:
-    payload = await database.diagnostics_pipeline()
-    payload["fallback_usage"] = snapshot_metrics().get("discovery", {})
-    payload["message"] = "ok"
-    return payload
+@router.post("/accounts")
+async def add_account(body: LoginRequest):
+    try:
+        get_authenticated_client(body.username, body.password)
+        return {"status": "ok", "username": body.username}
+    except RuntimeError as e:
+        msg = str(e)
+        if "challenge" in msg.lower() or "2fa" in msg.lower():
+            return {"status": "2fa_required", "message": msg}
+        raise HTTPException(status_code=400, detail=msg)
 
+
+@router.delete("/accounts/{username}")
+async def remove_account(username: str):
+    info = session_info()
+    if info.get("username") == username:
+        clear_session()
+    return {"status": "removed"}
+
+
+# ── Search: Dorking (Modo A) ──────────────────────────────────────────────────
+
+async def _run_dorking_job(niche: str, location: str, max_results: int, job_id: str):
+    from backend.scraper.ig_dorking import search_and_extract
+    try:
+        async for _ in search_and_extract(niche, location, max_results, job_id):
+            pass
+        job = await db.get_job(job_id)
+        emails_found = job["emails_found"] if job else 0
+        status = "completed" if emails_found >= max_results else "completed_partial"
+        await db.finish_job(job_id, status)
+    except Exception as e:
+        logger.error("Dorking job %s failed: %s", job_id, e)
+        await db.finish_job(job_id, "failed")
+
+
+@router.post("/search/dorking", response_model=JobResponse)
+async def start_dorking(body: DorkingRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    target = f"{body.niche}|{body.location}"
+    await db.upsert_job(job_id, "dorking", target, body.max_results)
+    background_tasks.add_task(
+        _run_dorking_job, body.niche, body.location, body.max_results, job_id
+    )
+    return JobResponse(job_id=job_id, status="running")
+
+
+# ── Search: Followers (Modo B) ────────────────────────────────────────────────
+
+async def _run_followers_job(target_username: str, max_followers: int, job_id: str):
+    from backend.scraper.ig_followers import get_followers_emails
+    try:
+        async for _ in get_followers_emails(target_username, max_followers, job_id):
+            pass
+        job = await db.get_job(job_id)
+        emails_found = job["emails_found"] if job else 0
+        status = "completed" if emails_found >= max_followers else "completed_partial"
+        await db.finish_job(job_id, status)
+    except Exception as e:
+        logger.error("Followers job %s failed: %s", job_id, e)
+        await db.finish_job(job_id, "failed")
+
+
+@router.post("/search/followers", response_model=JobResponse)
+async def start_followers(body: FollowersRequest, background_tasks: BackgroundTasks):
+    info = session_info()
+    if not info["logged_in"]:
+        raise HTTPException(status_code=401, detail="No active Instagram session. Login first.")
+    job_id = str(uuid.uuid4())
+    await db.upsert_job(job_id, "followers", body.target_username, body.max_followers)
+    background_tasks.add_task(
+        _run_followers_job, body.target_username, body.max_followers, job_id
+    )
+    return JobResponse(job_id=job_id, status="running")
+
+
+# ── Leads ─────────────────────────────────────────────────────────────────────
 
 @router.get("/leads")
-async def list_leads(job_id: str | None = None, limit: int = 200) -> Any:
-    return await database.list_leads(job_id=job_id, limit=limit)
+async def get_leads(limit: int = 200, offset: int = 0, job_id: str | None = None):
+    if job_id:
+        return await db.get_leads_by_job(job_id)
+    return await db.get_all_leads(limit=limit, offset=offset)
 
+
+@router.get("/leads/job/{job_id}")
+async def get_leads_by_job(job_id: str):
+    return await db.get_leads_by_job(job_id)
+
+
+# ── Export ────────────────────────────────────────────────────────────────────
 
 @router.get("/export/{job_id}")
-async def export(job_id: str) -> Any:
-    leads = await database.list_leads(job_id=job_id, limit=2000)
+async def export_csv(job_id: str):
+    leads = await db.get_leads_by_job(job_id)
     if not leads:
-        raise HTTPException(status_code=404, detail=f"No hay leads para {job_id}")
-    headers = ["username", "email", "email_source", "confidence", "phone", "business_category", "created_at"]
-    rows = [",".join(headers)]
+        raise HTTPException(status_code=404, detail="No leads found for this job")
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["username", "full_name", "email", "email_source", "phone",
+                    "website", "follower_count", "is_business", "source_type", "source_value", "scraped_at"],
+    )
+    writer.writeheader()
     for lead in leads:
-        row = ",".join([str(lead.get(key, "") or "") for key in headers])
-        rows.append(row)
-    return Response(content="\n".join(rows), media_type="text/csv")
+        writer.writerow({k: lead.get(k) for k in writer.fieldnames})
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=instaleads_{job_id[:8]}.csv"},
+    )
 
 
-@proxy_router.get("/status", response_model=ProxyStatusResponse)
-async def proxy_status() -> Any:
-    return {"available": proxy_manager.has_proxy(), "message": "ok"}
+@router.get("/export")
+async def export_all_csv():
+    leads = await db.get_all_leads(limit=10000)
+    if not leads:
+        raise HTTPException(status_code=404, detail="No leads found")
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["username", "full_name", "email", "email_source", "phone",
+                    "website", "follower_count", "is_business", "source_type", "source_value", "scraped_at"],
+    )
+    writer.writeheader()
+    for lead in leads:
+        writer.writerow({k: lead.get(k) for k in writer.fieldnames})
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=instaleads_all.csv"},
+    )

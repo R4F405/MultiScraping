@@ -309,9 +309,12 @@ def _normalize_locations(raw_locations: list[str]) -> list[str]:
     unique: list[str] = []
     seen: set[str] = set()
     for raw in raw_locations:
-        parts = [p.strip() for p in (raw or "").split(",") if p.strip()]
+        raw_value = (raw or "").strip()
+        if len(raw_value) > 220:
+            raw_value = raw_value[:220]
+        parts = [p.strip() for p in raw_value.split(",") if p.strip()]
         normalized = ", ".join(parts)
-        if not normalized:
+        if not normalized or len(normalized) < 2:
             continue
         key = normalized.lower()
         if key in seen:
@@ -356,7 +359,7 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
                 businesses = await _search_unique_businesses(
                     query=query,
                     location=location,
-                    target=request.emails_target_per_location,
+                    target=request.target_per_location,
                     dedupe_days=settings.dedupe_days,
                 )
                 total_scanned += len(businesses)
@@ -397,7 +400,7 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
                         current_location_emails_found=locality_leads_found,
                     )
 
-                    if locality_leads_found >= request.emails_target_per_location:
+                    if locality_leads_found >= request.target_per_location:
                         break
             except MapsFetchError as exc:
                 locality_status = "failed"
@@ -614,11 +617,17 @@ async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
     if body.mode == "multi_locality":
         normalized_locations = _normalize_locations(body.locations)
         if not normalized_locations:
-            raise HTTPException(status_code=422, detail="No valid locations provided")
+            raise HTTPException(
+                status_code=422,
+                detail="No valid locations provided. Use one locality per line or a valid imported file column.",
+            )
         if len(normalized_locations) > _MAX_MULTI_LOCALITIES:
             raise HTTPException(
                 status_code=422,
-                detail=f"Too many locations. Maximum allowed is {_MAX_MULTI_LOCALITIES}.",
+                detail=(
+                    f"Too many locations after normalization ({len(normalized_locations)}). "
+                    f"Maximum allowed is {_MAX_MULTI_LOCALITIES}."
+                ),
             )
 
         await db.create_job(
@@ -628,12 +637,12 @@ async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
             total=0,
             mode="multi_locality",
             total_locations=len(normalized_locations),
-            emails_target_per_location=body.emails_target_per_location,
+            emails_target_per_location=body.target_per_location,
         )
         background_tasks.add_task(_run_multi_locality_job, job_id, body, normalized_locations)
         logger.info(
             "Started multi-locality job %s: category='%s' locations=%d target/location=%d",
-            job_id, body.category_query, len(normalized_locations), body.emails_target_per_location,
+            job_id, body.category_query, len(normalized_locations), body.target_per_location,
         )
     else:
         await db.create_job(job_id, body.query, body.location, total=0, mode="single")

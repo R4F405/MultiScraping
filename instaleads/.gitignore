@@ -1,0 +1,7 @@
+backend/session/session.json.enc
+data/instaleads.db
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/

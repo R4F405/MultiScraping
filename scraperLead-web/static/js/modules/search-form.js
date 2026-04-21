@@ -35,10 +35,15 @@ function initSearchPage() {
   const modeButtons = () => Array.from(document.querySelectorAll('.search-mode-btn[data-mode]'));
   const categoryInput = document.getElementById('multi-category-query');
   const categoryDropdown = document.getElementById('category-autocomplete');
+  const locationAliases = new Set(['localidad', 'location', 'ciudad', 'municipio', 'poblacion']);
   let map = null;
   let categorySuggestions = [];
   let categoryHighlightIndex = -1;
   let categoryDebounce = null;
+  let importedLocationsMeta = null;
+  let importedFileRows = null;
+  let importedFileHeaders = null;
+  let locationsInputMode = 'text';
 
   // -- Categories catalog sync (manual, from UI) ----------------------------
   const categoriesSyncBtn = document.getElementById('categories-sync-btn');
@@ -379,6 +384,291 @@ function initSearchPage() {
     return deduped;
   }
 
+  function normalizeLocationValue(raw) {
+    return String(raw || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\s*,\s*/g, ', ')
+      .replace(/,+$/g, '');
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        out.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    out.push(current);
+    return out;
+  }
+
+  function parseCsvText(text) {
+    return String(text || '')
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0)
+      .map(parseCsvLine);
+  }
+
+  function getHeaderCandidates(firstRow) {
+    return firstRow.map((value, index) => ({
+      index,
+      raw: String(value || ''),
+      normalized: String(value || '').trim().toLowerCase(),
+    }));
+  }
+
+  function detectColumnIndex(headers) {
+    for (const item of headers) {
+      if (locationAliases.has(item.normalized)) return item.index;
+    }
+    return null;
+  }
+
+  function extractLocationsFromColumn(rows, columnIndex, hasHeader) {
+    const start = hasHeader ? 1 : 0;
+    const seen = new Set();
+    const locations = [];
+    let emptyRows = 0;
+    let duplicates = 0;
+    for (let i = start; i < rows.length; i += 1) {
+      const row = rows[i] || [];
+      const normalized = normalizeLocationValue(row[columnIndex]);
+      if (!normalized || normalized.length < 2) {
+        emptyRows += 1;
+        continue;
+      }
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) {
+        duplicates += 1;
+        continue;
+      }
+      seen.add(key);
+      locations.push(normalized);
+    }
+    return {
+      locations,
+      emptyRows,
+      duplicates,
+    };
+  }
+
+  function renderFilePreview(summary, level = 'info') {
+    const preview = document.getElementById('locations-file-preview');
+    if (!preview) return;
+    preview.classList.remove('hidden');
+    const styleMap = {
+      info: 'border-slate-200 text-slate-600',
+      success: 'border-green-200 text-green-700 bg-green-50',
+      warning: 'border-amber-200 text-amber-700 bg-amber-50',
+      danger: 'border-red-200 text-red-700 bg-red-50',
+    };
+    preview.className = `mt-3 text-xs border rounded-lg p-3 ${styleMap[level] || styleMap.info}`;
+    preview.innerHTML = summary;
+  }
+
+  function clearImportedFileState() {
+    importedLocationsMeta = null;
+    importedFileRows = null;
+    importedFileHeaders = null;
+    const fileInput = document.getElementById('locations-file-input');
+    const fileName = document.getElementById('locations-file-name');
+    const pickerWrap = document.getElementById('locations-column-picker-wrap');
+    const picker = document.getElementById('locations-column-picker');
+    const preview = document.getElementById('locations-file-preview');
+    if (fileInput) fileInput.value = '';
+    if (fileName) fileName.textContent = '';
+    if (pickerWrap) pickerWrap.classList.add('hidden');
+    if (picker) picker.replaceChildren();
+    if (preview) {
+      preview.classList.add('hidden');
+      preview.textContent = '';
+    }
+  }
+
+  function setLocationsSourceButtonStyles() {
+    const textBtn = document.getElementById('locations-source-text-btn');
+    const fileBtn = document.getElementById('locations-source-file-btn');
+    if (textBtn) {
+      textBtn.className = locationsInputMode === 'text'
+        ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white'
+        : 'px-3 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100';
+    }
+    if (fileBtn) {
+      fileBtn.className = locationsInputMode === 'file'
+        ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white'
+        : 'px-3 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:bg-slate-100';
+    }
+  }
+
+  function applyLocationsInputMode(mode, { clearOpposite = true } = {}) {
+    locationsInputMode = mode === 'file' ? 'file' : 'text';
+    const textarea = document.getElementById('locations-textarea');
+    const textModeWrap = document.getElementById('locations-text-mode-wrap');
+    const fileModeWrap = document.getElementById('locations-file-mode-wrap');
+    const fileInput = document.getElementById('locations-file-input');
+    const fileClear = document.getElementById('locations-file-clear');
+
+    if (locationsInputMode === 'text') {
+      if (textModeWrap) textModeWrap.classList.remove('hidden');
+      if (fileModeWrap) fileModeWrap.classList.add('hidden');
+      if (textarea) textarea.disabled = false;
+      if (fileInput) {
+        fileInput.disabled = true;
+      }
+      if (fileClear) fileClear.disabled = true;
+      if (clearOpposite) clearImportedFileState();
+    } else {
+      if (textModeWrap) textModeWrap.classList.add('hidden');
+      if (fileModeWrap) fileModeWrap.classList.remove('hidden');
+      if (textarea) textarea.disabled = true;
+      if (fileInput) {
+        fileInput.disabled = false;
+      }
+      if (fileClear) fileClear.disabled = false;
+      if (clearOpposite && textarea) {
+        textarea.value = '';
+        importedLocationsMeta = null;
+      }
+    }
+    setLocationsSourceButtonStyles();
+    updateLocationsSummary();
+    updateCompaniesTotalSummary();
+  }
+
+  function applyExtractedLocations(extracted, meta = {}) {
+    const textarea = document.getElementById('locations-textarea');
+    if (!textarea) return;
+    textarea.value = extracted.locations.join('\n');
+    importedLocationsMeta = {
+      source: 'file',
+      totalRows: meta.totalRows || 0,
+      hasHeader: !!meta.hasHeader,
+      columnLabel: meta.columnLabel || '',
+      emptyRows: extracted.emptyRows,
+      duplicates: extracted.duplicates,
+      validLocations: extracted.locations.length,
+    };
+    updateLocationsSummary();
+    updateCompaniesTotalSummary();
+    const shown = extracted.locations.slice(0, 5).join(' · ') || '—';
+    const summary = [
+      `<p><strong>Archivo procesado.</strong></p>`,
+      `<p>Filas leídas: ${importedLocationsMeta.totalRows} · Localidades válidas: ${importedLocationsMeta.validLocations}</p>`,
+      `<p>Vacías/incorrectas: ${importedLocationsMeta.emptyRows} · Duplicadas: ${importedLocationsMeta.duplicates}</p>`,
+      `<p>Columna utilizada: ${importedLocationsMeta.columnLabel || 'Columna seleccionada'}</p>`,
+      `<p class="mt-1">Ejemplos: ${shown}</p>`,
+    ].join('');
+    const level = extracted.locations.length ? 'success' : 'danger';
+    renderFilePreview(summary, level);
+  }
+
+  function setupColumnPicker(headers, rows, hasHeader) {
+    const pickerWrap = document.getElementById('locations-column-picker-wrap');
+    const picker = document.getElementById('locations-column-picker');
+    if (!pickerWrap || !picker) return;
+    picker.replaceChildren();
+    headers.forEach((header) => {
+      const option = document.createElement('option');
+      option.value = String(header.index);
+      option.textContent = header.raw ? `${header.raw} (col ${header.index + 1})` : `Columna ${header.index + 1}`;
+      picker.appendChild(option);
+    });
+    pickerWrap.classList.remove('hidden');
+    picker.onchange = () => {
+      const selectedIndex = parseInt(picker.value, 10);
+      if (Number.isNaN(selectedIndex)) return;
+      const extracted = extractLocationsFromColumn(rows, selectedIndex, hasHeader);
+      const selectedHeader = headers.find((h) => h.index === selectedIndex);
+      applyExtractedLocations(extracted, {
+        totalRows: rows.length,
+        hasHeader,
+        columnLabel: selectedHeader?.raw || `Columna ${selectedIndex + 1}`,
+      });
+    };
+    picker.dispatchEvent(new Event('change'));
+  }
+
+  async function readFileRows(file) {
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'csv') {
+      const text = await file.text();
+      return parseCsvText(text);
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = window.XLSX?.read(arrayBuffer, { type: 'array' });
+    if (!wb || !wb.SheetNames?.length) return [];
+    const firstSheetName = wb.SheetNames[0];
+    const sheet = wb.Sheets[firstSheetName];
+    return window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  }
+
+  async function handleLocationsFileImport(file) {
+    if (!file) return;
+    applyLocationsInputMode('file', { clearOpposite: false });
+    const fileName = document.getElementById('locations-file-name');
+    const pickerWrap = document.getElementById('locations-column-picker-wrap');
+    if (fileName) fileName.textContent = file.name;
+    if (pickerWrap) pickerWrap.classList.add('hidden');
+    renderFilePreview('<p>Procesando archivo...</p>', 'info');
+
+    try {
+      const rows = await readFileRows(file);
+      if (!rows.length) {
+        renderFilePreview('<p>El archivo está vacío o no contiene filas legibles.</p>', 'danger');
+        return;
+      }
+      importedFileRows = rows;
+      const headerCandidates = getHeaderCandidates(rows[0] || []);
+      importedFileHeaders = headerCandidates;
+      const aliasIndex = detectColumnIndex(headerCandidates);
+      const hasHeader = aliasIndex !== null || rows.length > 1;
+
+      if ((headerCandidates.length || 0) === 1) {
+        const extracted = extractLocationsFromColumn(rows, 0, hasHeader && aliasIndex !== null);
+        applyExtractedLocations(extracted, {
+          totalRows: rows.length,
+          hasHeader: hasHeader && aliasIndex !== null,
+          columnLabel: headerCandidates[0].raw || 'Columna 1',
+        });
+        return;
+      }
+
+      if (aliasIndex !== null) {
+        const extracted = extractLocationsFromColumn(rows, aliasIndex, true);
+        const selectedHeader = headerCandidates.find((h) => h.index === aliasIndex);
+        applyExtractedLocations(extracted, {
+          totalRows: rows.length,
+          hasHeader: true,
+          columnLabel: selectedHeader?.raw || `Columna ${aliasIndex + 1}`,
+        });
+        return;
+      }
+
+      renderFilePreview(
+        '<p>No se detectó automáticamente una columna de localidad. Selecciónala manualmente abajo.</p>',
+        'warning',
+      );
+      setupColumnPicker(headerCandidates, rows, true);
+    } catch (err) {
+      renderFilePreview(`<p>No se pudo procesar el archivo: ${err.message || String(err)}</p>`, 'danger');
+    }
+  }
+
   function updateLocationsSummary() {
     const summary = document.getElementById('locations-summary');
     if (!summary) return;
@@ -386,8 +676,14 @@ function initSearchPage() {
     const count = parseLocationLines().length;
     const maxChars = parseInt(textarea?.getAttribute('maxlength') || '0', 10);
     const currentChars = textarea?.value.length || 0;
-    const charsInfo = maxChars > 0 ? ` · ${currentChars}/${maxChars} caracteres` : '';
-    summary.textContent = `${count} localidades válidas${charsInfo}`;
+    const charsInfo = locationsInputMode === 'text' && maxChars > 0
+      ? ` · ${currentChars}/${maxChars} caracteres`
+      : '';
+    let importedInfo = '';
+    if (importedLocationsMeta?.source === 'file') {
+      importedInfo = ' · fuente: archivo';
+    }
+    summary.textContent = `${count} localidades válidas${charsInfo}${importedInfo}`;
   }
 
   function updateCompaniesTotalSummary() {
@@ -404,12 +700,31 @@ function initSearchPage() {
 
   document.getElementById('locations-textarea')?.addEventListener('input', updateLocationsSummary);
   document.getElementById('locations-textarea')?.addEventListener('input', updateCompaniesTotalSummary);
+  document.getElementById('locations-textarea')?.addEventListener('input', () => {
+    importedLocationsMeta = null;
+  });
+  document.getElementById('locations-file-input')?.addEventListener('change', async (event) => {
+    const file = event.target?.files?.[0];
+    await handleLocationsFileImport(file);
+  });
+  document.getElementById('locations-file-clear')?.addEventListener('click', () => {
+    clearImportedFileState();
+    importedLocationsMeta = null;
+    applyLocationsInputMode('text', { clearOpposite: false });
+  });
+  document.getElementById('locations-source-text-btn')?.addEventListener('click', () => {
+    applyLocationsInputMode('text', { clearOpposite: true });
+  });
+  document.getElementById('locations-source-file-btn')?.addEventListener('click', () => {
+    applyLocationsInputMode('file', { clearOpposite: true });
+  });
   document.getElementById('companies-per-location')?.addEventListener('input', () => {
     updateCapacityNotice();
     updateCompaniesTotalSummary();
   });
   updateLocationsSummary();
   updateCompaniesTotalSummary();
+  applyLocationsInputMode('text', { clearOpposite: false });
 
   // -- Proxy capacity notice -------------------------------------------------
   let _capacityData = null;
@@ -703,10 +1018,10 @@ function initSearchPage() {
         const locTarget = job.emails_target_per_location || 0;
         const companies = Number(job.progress || 0);
         const emails = Number(job.emails_found || 0);
-        loaderCount.textContent = `${locIdx}/${locTotal} · ${locationLabel} · objetivo empresas ${locCompanies}/${locTarget} · ${companies} empresas · ${emails} emails`;
+        loaderCount.textContent = `${locIdx}/${locTotal} · ${locationLabel} · objetivo empresas ${locCompanies}/${locTarget} · ${companies} empresas · ${emails} emails opcionales`;
       } else {
         loaderCount.textContent = total > 0
-          ? `${progress} / ${total} empresas · ${emailsFound} emails`
+          ? `${progress} / ${total} empresas · ${emailsFound} emails opcionales`
           : 'Conectando con Google Maps...';
       }
     }
@@ -781,7 +1096,7 @@ function initSearchPage() {
     }
     if (jobSummaryCompanies) jobSummaryCompanies.textContent = `${companiesProcessed} empresas`;
     if (jobSummaryTargetCompanies) jobSummaryTargetCompanies.textContent = `${targetTotal} empresas`;
-    if (jobSummaryEmails) jobSummaryEmails.textContent = `${emailsFound} emails`;
+    if (jobSummaryEmails) jobSummaryEmails.textContent = `${emailsFound} emails opcionales`;
 
     if (jobSummaryLocations) {
       if (locationsSummary) {
@@ -893,13 +1208,13 @@ function initSearchPage() {
       }
       const companies = Number(job.progress || 0);
       const emails = Number(job.emails_found || 0);
-      progressSubtext.textContent = `${label} · empresas ${currentCompanies}/${target} · ${companies} empresas · ${emails} emails${perLocationEtaText}`;
+      progressSubtext.textContent = `${label} · empresas ${currentCompanies}/${target} · ${companies} empresas · ${emails} emails opcionales${perLocationEtaText}`;
     } else {
       const progress = Number(job.progress || 0);
       const total = Number(job.total || 0);
       const emails = Number(job.emails_found || 0);
       progressText.textContent = `${percent}% · ${progress}/${total} empresas`;
-      progressSubtext.textContent = `${emails} emails`;
+      progressSubtext.textContent = `${emails} emails opcionales`;
     }
 
     const stats = loadEtaStats();
@@ -1239,6 +1554,7 @@ function initSearchPage() {
         mode: 'multi_locality',
         category_query: category,
         locations,
+        companies_target_per_location: companiesTarget,
         emails_target_per_location: companiesTarget,
       };
     } else {

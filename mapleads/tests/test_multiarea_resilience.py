@@ -66,6 +66,46 @@ async def test_multiarea_marks_locations_failed_and_job_failed_when_all_fail(mon
     assert all(r["status"] == "failed" for r in rows)
 
 
+@pytest.mark.asyncio
+async def test_multiarea_finishes_by_companies_even_without_valid_emails(monkeypatch):
+    job_id = "job-multi-companies-target"
+    locations = ["Valencia, Valencia, España"]
+    await db.create_job(
+        job_id,
+        "fontaneros",
+        "1 localidades",
+        total=0,
+        mode="multi_locality",
+        total_locations=1,
+        emails_target_per_location=2,
+    )
+
+    async def _fake_search_unique_businesses(*_args, **_kwargs):
+        return [
+            {"place_id": "a", "business_name": "A", "website": "https://a.test"},
+            {"place_id": "b", "business_name": "B", "website": "https://b.test"},
+        ]
+
+    async def _fake_enrich(_business):
+        return None, "pending", "no_visible_email", None
+
+    monkeypatch.setattr("backend.api.routes._search_unique_businesses", _fake_search_unique_businesses)
+    monkeypatch.setattr("backend.api.routes._enrich_business_email", _fake_enrich)
+
+    req = SearchRequest(
+        mode="multi_locality",
+        category_query="fontaneros",
+        locations=locations,
+        companies_target_per_location=2,
+    )
+    await _run_multi_locality_job(job_id, req, locations)
+
+    job = await db.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "done"
+    assert job["progress"] == 2
+    assert job["emails_found"] == 0
+
 def test_normalize_locations_does_not_insert_extra_commas():
     raw = ["San Sebastián, Gipuzkoa, España", " San Sebastián ,  Gipuzkoa , España "]
     out = _normalize_locations(raw)
