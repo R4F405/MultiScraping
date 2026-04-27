@@ -232,14 +232,15 @@ async def databases(request: Request):
     ml_stats_task = safe_fetch(f"{MAPLEADS_URL}/api/stats", timeout=10.0)
     proxy_task = safe_fetch(f"{MAPLEADS_URL}/api/proxy/status", timeout=5.0)
     li_stats_task = safe_fetch(f"{LINKEDINLEADS_URL}/api/linkedin/stats", timeout=5.0)
+    ig_stats_task = safe_fetch(f"{INSTALEADS_URL}/api/instagram/stats", timeout=5.0)
 
-    (stats, _), (proxy_status, _), (li_data, _) = await asyncio.gather(
-        ml_stats_task, proxy_task, li_stats_task
+    (stats, _), (proxy_status, _), (li_data, _), (ig_data, _) = await asyncio.gather(
+        ml_stats_task, proxy_task, li_stats_task, ig_stats_task
     )
 
     stats = stats or {}
     proxy_status = proxy_status or {}
-    instagram_stats = 0
+    instagram_stats = ig_data.get("total_leads", 0) if isinstance(ig_data, dict) else 0
 
     linkedin_stats = {}
     if li_data and isinstance(li_data, dict):
@@ -257,7 +258,7 @@ async def databases(request: Request):
 @app.get("/instagram")
 async def instagram(request: Request, from_page: str | None = Query(default=None, alias="from")):
     _ = from_page
-    health, health_state = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/health", timeout=5.0)
+    health, health_state = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/health", timeout=45.0)
     health = health or {"status": "unknown"}
     state = health_state if health_state in ("timeout", "upstream_error") else "ok"
     recent_jobs, _ = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/jobs?limit=6", timeout=5.0)
@@ -382,6 +383,11 @@ async def api_export(job_id: str, request: Request):
 
 # ── Proxy routes: Instagram → localhost:8002 ──────────────────────────────────
 
+@app.get("/api/instagram/stats")
+async def ig_stats(request: Request):
+    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/stats", request)
+
+
 @app.get("/api/instagram/health")
 async def ig_health(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/health", request)
@@ -440,6 +446,11 @@ async def ig_session_get(request: Request):
 @app.delete("/api/instagram/session")
 async def ig_session_delete(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/session", request)
+
+
+@app.post("/api/instagram/session/import")
+async def ig_session_import(request: Request):
+    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/session/import", request)
 
 
 @app.get("/api/instagram/limits")

@@ -19,29 +19,35 @@ class RateLimiter:
         self.mode = mode
         self._backoff = Settings.IG_BACKOFF_INITIAL
         self._last_request_time: float = 0.0
+        self._lock = asyncio.Lock()
 
     async def check_and_wait(self):
-        """Call before every Instagram request. Blocks if needed."""
-        count = await db.get_daily_count(self.mode)
-        limit = (
-            Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
-            if self.mode == "unauth"
-            else Settings.IG_LIMIT_DAILY_AUTHENTICATED
-        )
-        if count >= limit:
-            raise DailyLimitReached(f"Daily limit reached ({count}/{limit}) for mode={self.mode}")
+        """Call before every Instagram request. Blocks if needed.
 
-        if self.mode == "unauth":
-            delay = random.uniform(Settings.IG_DELAY_UNAUTH_MIN, Settings.IG_DELAY_UNAUTH_MAX)
-        else:
-            delay = random.uniform(Settings.IG_DELAY_AUTH_MIN, Settings.IG_DELAY_AUTH_MAX)
+        The lock ensures concurrent callers are serialized so the inter-request
+        delay is respected even when multiple coroutines fire simultaneously.
+        """
+        async with self._lock:
+            count = await db.get_daily_count(self.mode)
+            limit = (
+                Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
+                if self.mode == "unauth"
+                else Settings.IG_LIMIT_DAILY_AUTHENTICATED
+            )
+            if count >= limit:
+                raise DailyLimitReached(f"Daily limit reached ({count}/{limit}) for mode={self.mode}")
 
-        elapsed = time.monotonic() - self._last_request_time
-        if elapsed < delay:
-            await asyncio.sleep(delay - elapsed)
+            if self.mode == "unauth":
+                delay = random.uniform(Settings.IG_DELAY_UNAUTH_MIN, Settings.IG_DELAY_UNAUTH_MAX)
+            else:
+                delay = random.uniform(Settings.IG_DELAY_AUTH_MIN, Settings.IG_DELAY_AUTH_MAX)
 
-        self._last_request_time = time.monotonic()
-        await db.increment_daily_count(self.mode)
+            elapsed = time.monotonic() - self._last_request_time
+            if elapsed < delay:
+                await asyncio.sleep(delay - elapsed)
+
+            self._last_request_time = time.monotonic()
+            await db.increment_daily_count(self.mode)
 
     async def on_rate_limited(self):
         """Call when receiving 429 or require_login response."""

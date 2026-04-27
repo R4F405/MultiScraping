@@ -9,12 +9,13 @@ async def test_dorking_skips_username_already_in_db():
     collected = []
 
     with (
-        patch("backend.scraper.ig_dorking._scrape_google_serp", new=AsyncMock(return_value=["existinguser"])),
+        patch("backend.scraper.ig_dorking._scrape_serp_all_pages", new=AsyncMock(return_value=["existinguser"])),
         patch("backend.scraper.ig_dorking.get_profile", new=AsyncMock(return_value={"email": "x@x.com", "username": "existinguser"})),
         patch("backend.scraper.ig_dorking.db.insert_ig_skipped", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.db.upsert_ig_lead", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.db.update_job_progress", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.Deduplicator") as MockDedup,
+        patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_dedup = MagicMock()
         mock_dedup.load_from_db = AsyncMock()
@@ -45,12 +46,13 @@ async def test_dorking_yields_only_profiles_with_email():
         return p
 
     with (
-        patch("backend.scraper.ig_dorking._scrape_google_serp", new=AsyncMock(return_value=["hasmail", "nomail"])),
+        patch("backend.scraper.ig_dorking._scrape_serp_all_pages", new=AsyncMock(side_effect=[["hasmail", "nomail"]] + [[] for _ in range(200)])),
         patch("backend.scraper.ig_dorking.get_profile", side_effect=fake_get_profile),
         patch("backend.scraper.ig_dorking.db.insert_ig_skipped", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.db.upsert_ig_lead", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.db.update_job_progress", new=AsyncMock()),
         patch("backend.scraper.ig_dorking.Deduplicator") as MockDedup,
+        patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_dedup = MagicMock()
         mock_dedup.load_from_db = AsyncMock()

@@ -15,11 +15,17 @@ from backend.api.schemas import (
     LeadOut,
     LimitsUpdate,
     LoginRequest,
+    SessionImportRequest,
     SearchRequest,
 )
 from backend.config.settings import Settings
 from backend.scraper.ig_health import run_health_check
-from backend.scraper.ig_session import clear_session, get_authenticated_client, session_info
+from backend.scraper.ig_session import (
+    clear_session,
+    get_authenticated_client,
+    import_session_by_sessionid,
+    session_info,
+)
 from backend.storage import database as db
 
 logger = logging.getLogger(__name__)
@@ -27,6 +33,45 @@ router = APIRouter(prefix="/api/instagram")
 
 # In-memory job registry: job_id → asyncio.Task
 _jobs: dict[str, asyncio.Task] = {}
+
+# Prevent concurrent dorking/followers jobs from flooding proxies and crashing
+_dorking_lock = asyncio.Lock()
+_followers_lock = asyncio.Lock()
+
+
+def _raise_login_http_error(msg: str) -> None:
+    lower = msg.lower()
+    if "challenge" in lower or "2fa" in lower:
+        raise HTTPException(status_code=409, detail=f"Instagram requires manual verification: {msg}")
+    if "blacklist" in lower or "change your ip" in lower or "ip address" in lower:
+        raise HTTPException(
+            status_code=429,
+            detail="Instagram blocked this IP for automated login. Try a different proxy/IP and retry.",
+        )
+    if "incorrect password" in lower or "bad password" in lower or "invalid credentials" in lower:
+        raise HTTPException(status_code=401, detail="Invalid Instagram credentials.")
+    if "please wait" in lower or "too many requests" in lower or "rate limit" in lower:
+        raise HTTPException(status_code=429, detail=f"Instagram is rate-limiting login: {msg}")
+    raise HTTPException(status_code=400, detail=msg)
+
+
+def _raise_session_import_http_error(msg: str) -> None:
+    lower = msg.lower()
+    if "redirect loop" in lower or "exceeded 30 redirects" in lower:
+        raise HTTPException(
+            status_code=400,
+            detail="Instagram devolvió demasiadas redirecciones. Revisa que pegas solo el valor de sessionid y que no esté caducado.",
+        )
+    if "expired" in lower or "invalid" in lower:
+        raise HTTPException(status_code=401, detail="Sessionid inválido o expirado.")
+    if "challenge" in lower or "2fa" in lower:
+        raise HTTPException(status_code=409, detail=f"Instagram requiere verificación manual: {msg}")
+    if "blacklist" in lower or "change your ip" in lower or "ip address" in lower:
+        raise HTTPException(
+            status_code=429,
+            detail="Instagram bloqueó esta IP para automatización. Prueba otra IP/proxy.",
+        )
+    raise HTTPException(status_code=400, detail=msg)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -41,13 +86,11 @@ async def health():
 @router.post("/login")
 async def login(body: LoginRequest):
     try:
-        get_authenticated_client(body.username, body.password)
+        get_authenticated_client(body.username, body.password, body.proxy_url)
         return {"status": "ok", "message": "Login successful"}
     except RuntimeError as e:
         msg = str(e)
-        if "challenge" in msg.lower() or "2fa" in msg.lower():
-            return {"status": "2fa_required", "message": msg}
-        raise HTTPException(status_code=400, detail=msg)
+        _raise_login_http_error(msg)
 
 
 @router.get("/session")
@@ -59,6 +102,19 @@ async def get_session():
 async def delete_session():
     clear_session()
     return {"status": "cleared"}
+
+
+@router.post("/session/import")
+async def import_session(body: SessionImportRequest):
+    try:
+        result = import_session_by_sessionid(body.username, body.sessionid, body.proxy_url)
+        return {
+            "status": "ok",
+            "message": "Sesión importada correctamente",
+            "username": result.get("username") or body.username,
+        }
+    except RuntimeError as e:
+        _raise_session_import_http_error(str(e))
 
 
 # ── Limits ────────────────────────────────────────────────────────────────────
@@ -168,13 +224,11 @@ async def list_accounts():
 @router.post("/accounts")
 async def add_account(body: LoginRequest):
     try:
-        get_authenticated_client(body.username, body.password)
+        get_authenticated_client(body.username, body.password, body.proxy_url)
         return {"status": "ok", "username": body.username}
     except RuntimeError as e:
         msg = str(e)
-        if "challenge" in msg.lower() or "2fa" in msg.lower():
-            return {"status": "2fa_required", "message": msg}
-        raise HTTPException(status_code=400, detail=msg)
+        _raise_login_http_error(msg)
 
 
 @router.delete("/accounts/{username}")
@@ -189,16 +243,17 @@ async def remove_account(username: str):
 
 async def _run_dorking_job(niche: str, location: str, max_results: int, job_id: str):
     from backend.scraper.ig_dorking import search_and_extract
-    try:
-        async for _ in search_and_extract(niche, location, max_results, job_id):
-            pass
-        job = await db.get_job(job_id)
-        emails_found = job["emails_found"] if job else 0
-        status = "completed" if emails_found >= max_results else "completed_partial"
-        await db.finish_job(job_id, status)
-    except Exception as e:
-        logger.error("Dorking job %s failed: %s", job_id, e)
-        await db.finish_job(job_id, "failed")
+    async with _dorking_lock:
+        try:
+            async for _ in search_and_extract(niche, location, max_results, job_id):
+                pass
+            job = await db.get_job(job_id)
+            emails_found = job["emails_found"] if job else 0
+            status = "completed" if emails_found >= max_results else "completed_partial"
+            await db.finish_job(job_id, status)
+        except Exception as e:
+            logger.error("Dorking job %s failed: %s", job_id, e)
+            await db.finish_job(job_id, "failed")
 
 
 @router.post("/search/dorking", response_model=JobResponse)
@@ -216,16 +271,17 @@ async def start_dorking(body: DorkingRequest, background_tasks: BackgroundTasks)
 
 async def _run_followers_job(target_username: str, max_followers: int, job_id: str):
     from backend.scraper.ig_followers import get_followers_emails
-    try:
-        async for _ in get_followers_emails(target_username, max_followers, job_id):
-            pass
-        job = await db.get_job(job_id)
-        emails_found = job["emails_found"] if job else 0
-        status = "completed" if emails_found >= max_followers else "completed_partial"
-        await db.finish_job(job_id, status)
-    except Exception as e:
-        logger.error("Followers job %s failed: %s", job_id, e)
-        await db.finish_job(job_id, "failed")
+    async with _followers_lock:
+        try:
+            async for _ in get_followers_emails(target_username, max_followers, job_id):
+                pass
+            job = await db.get_job(job_id)
+            emails_found = job["emails_found"] if job else 0
+            status = "completed" if emails_found >= max_followers else "completed_partial"
+            await db.finish_job(job_id, status)
+        except Exception as e:
+            logger.error("Followers job %s failed: %s", job_id, e)
+            await db.finish_job(job_id, "failed")
 
 
 @router.post("/search/followers", response_model=JobResponse)
@@ -242,6 +298,12 @@ async def start_followers(body: FollowersRequest, background_tasks: BackgroundTa
 
 
 # ── Leads ─────────────────────────────────────────────────────────────────────
+
+@router.get("/stats")
+async def get_stats():
+    total = await db.get_leads_count()
+    return {"total_leads": total}
+
 
 @router.get("/leads")
 async def get_leads(limit: int = 200, offset: int = 0, job_id: str | None = None):

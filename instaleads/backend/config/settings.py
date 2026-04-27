@@ -9,8 +9,15 @@ class Settings:
     IG_USERNAME: str = os.getenv("IG_USERNAME", "")
     IG_SESSION_KEY: str = os.getenv("IG_SESSION_KEY", "")
 
+    # Proxies — lista de URLs http://user:pass@host:port/ separadas por coma
+    IG_PROXY_LIST: list[str] = [
+        p.strip() for p in os.getenv("IG_PROXY_LIST", "").split(",") if p.strip()
+    ]
+    IG_PROXY_ERROR_COOLDOWN: int = int(os.getenv("IG_PROXY_ERROR_COOLDOWN", "300"))
+
     # Rate limiting — unauthenticated (Modo A)
-    IG_LIMIT_DAILY_UNAUTHENTICATED: int = int(os.getenv("IG_LIMIT_DAILY_UNAUTHENTICATED", "150"))
+    # Con proxies activos el límite sube automáticamente (10 IPs × 50 req = 500)
+    IG_LIMIT_DAILY_UNAUTHENTICATED: int = int(os.getenv("IG_LIMIT_DAILY_UNAUTHENTICATED", "99999"))
     IG_DELAY_UNAUTH_MIN: float = float(os.getenv("IG_DELAY_UNAUTH_MIN", "4.0"))
     IG_DELAY_UNAUTH_MAX: float = float(os.getenv("IG_DELAY_UNAUTH_MAX", "9.0"))
 
@@ -30,7 +37,7 @@ class Settings:
     IG_CONCURRENCY: int = int(os.getenv("IG_CONCURRENCY", "3"))
     IG_MAX_RETRIES: int = int(os.getenv("IG_MAX_RETRIES", "3"))
     IG_HEALTH_CHECK_INTERVAL: int = int(os.getenv("IG_HEALTH_CHECK_INTERVAL", "3600"))
-    IG_HEALTH_TEST_ACCOUNT: str = os.getenv("IG_HEALTH_TEST_ACCOUNT", "instagram")
+    IG_HEALTH_TEST_ACCOUNT: str = os.getenv("IG_HEALTH_TEST_ACCOUNT", "natgeo")
 
     # DB
     DB_PATH: str = os.path.join(os.path.dirname(__file__), "..", "..", "data", "instaleads.db")

@@ -57,17 +57,18 @@ async def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS ig_scrape_jobs (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id       TEXT UNIQUE,
-                mode         TEXT,
-                target       TEXT,
-                max_results  INTEGER,
-                status       TEXT DEFAULT 'running',
-                progress     INTEGER DEFAULT 0,
-                total        INTEGER DEFAULT 0,
-                emails_found INTEGER DEFAULT 0,
-                started_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-                finished_at  DATETIME
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id           TEXT UNIQUE,
+                mode             TEXT,
+                target           TEXT,
+                max_results      INTEGER,
+                status           TEXT DEFAULT 'running',
+                progress         INTEGER DEFAULT 0,
+                total            INTEGER DEFAULT 0,
+                emails_found     INTEGER DEFAULT 0,
+                profiles_checked INTEGER DEFAULT 0,
+                started_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+                finished_at      DATETIME
             );
 
             CREATE TABLE IF NOT EXISTS ig_daily_stats (
@@ -87,7 +88,12 @@ async def init_db():
                 checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        await db.commit()
+        # Safe migration for existing databases
+        try:
+            await db.execute("ALTER TABLE ig_scrape_jobs ADD COLUMN profiles_checked INTEGER DEFAULT 0")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
     logger.info("Database initialized at %s", _db_path())
 
 
@@ -103,6 +109,29 @@ async def get_all_scraped_usernames() -> set[str]:
         return usernames
 
 
+async def get_leads_usernames() -> set[str]:
+    """Usernames that already have an email — always hard-skip."""
+    async with get_db() as db:
+        usernames: set[str] = set()
+        async with db.execute("SELECT username FROM ig_leads WHERE username IS NOT NULL") as cur:
+            async for row in cur:
+                usernames.add(row["username"])
+        return usernames
+
+
+async def get_recent_skipped_usernames(cutoff_iso: str) -> set[str]:
+    """Usernames skipped (no email / private) within the cutoff window."""
+    async with get_db() as db:
+        usernames: set[str] = set()
+        async with db.execute(
+            "SELECT username FROM ig_skipped WHERE username IS NOT NULL AND checked_at >= ?",
+            (cutoff_iso,),
+        ) as cur:
+            async for row in cur:
+                usernames.add(row["username"])
+        return usernames
+
+
 async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_value: str):
     async with get_db() as db:
         await db.execute("""
@@ -111,9 +140,8 @@ async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_va
                  phone, website, bio, follower_count, is_business, source_type, source_value)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(instagram_id) DO UPDATE SET
-                job_id       = excluded.job_id,
-                email        = excluded.email,
-                email_source = excluded.email_source,
+                email        = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email ELSE ig_leads.email END,
+                email_source = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email_source ELSE ig_leads.email_source END,
                 scraped_at   = CURRENT_TIMESTAMP
         """, (
             job_id,
@@ -151,11 +179,11 @@ async def upsert_job(job_id: str, mode: str, target: str, max_results: int):
         await db.commit()
 
 
-async def update_job_progress(job_id: str, progress: int, emails_found: int):
+async def update_job_progress(job_id: str, progress: int, emails_found: int, profiles_checked: int = 0):
     async with get_db() as db:
         await db.execute("""
-            UPDATE ig_scrape_jobs SET progress = ?, emails_found = ? WHERE job_id = ?
-        """, (progress, emails_found, job_id))
+            UPDATE ig_scrape_jobs SET progress = ?, emails_found = ?, profiles_checked = ? WHERE job_id = ?
+        """, (progress, emails_found, profiles_checked, job_id))
         await db.commit()
 
 
@@ -230,6 +258,13 @@ async def increment_daily_count(mode: str):
             ON CONFLICT(date, mode) DO UPDATE SET request_count = request_count + 1
         """, (today, mode))
         await db.commit()
+
+
+async def get_leads_count() -> int:
+    async with get_db() as db:
+        async with db.execute("SELECT COUNT(*) FROM ig_leads") as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
 
 
 async def get_all_leads(limit: int = 500, offset: int = 0) -> list[dict]:

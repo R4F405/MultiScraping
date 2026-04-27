@@ -8,7 +8,10 @@ from backend.config.settings import Settings
 @pytest.mark.asyncio
 async def test_daily_limit_raises_when_reached():
     limiter = RateLimiter(mode="unauth")
-    with patch("backend.scraper.ig_rate_limiter.db.get_daily_count", new=AsyncMock(return_value=999)):
+    with patch(
+        "backend.scraper.ig_rate_limiter.db.get_daily_count",
+        new=AsyncMock(return_value=Settings.IG_LIMIT_DAILY_UNAUTHENTICATED),
+    ):
         with pytest.raises(DailyLimitReached):
             await limiter.check_and_wait()
 

@@ -8,6 +8,12 @@ logger = logging.getLogger(__name__)
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
+# Domains that appear in bios/business fields but are never real contact emails
+_JUNK_EMAIL_DOMAINS = {
+    "linktr.ee", "beacons.ai", "solo.to", "bio.site",
+    "example.com", "sampleemail.com", "noreply.com",
+}
+
 PROFILE_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
 
@@ -54,14 +60,20 @@ async def get_profile(username: str) -> dict | None:
     }
 
 
+def _is_junk_email(email: str) -> bool:
+    domain = email.split("@")[-1].lower()
+    return domain in _JUNK_EMAIL_DOMAINS
+
+
 def _extract_email(user: dict) -> tuple[str | None, str | None]:
-    if user.get("business_email"):
-        return user["business_email"], "business_field"
+    biz_email = user.get("business_email") or ""
+    if biz_email and not _is_junk_email(biz_email):
+        return biz_email, "business_field"
 
     bio = user.get("biography") or ""
-    matches = EMAIL_REGEX.findall(bio)
-    if matches:
-        return matches[0], "bio_regex"
+    for match in EMAIL_REGEX.findall(bio):
+        if not _is_junk_email(match):
+            return match, "bio_regex"
 
     return None, None
 

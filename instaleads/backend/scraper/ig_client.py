@@ -1,13 +1,15 @@
+import asyncio
+import functools
 import logging
 
 import curl_cffi.requests as curl_requests
 
 from backend.config.settings import Settings
+from backend.scraper.ig_proxy_manager import ig_proxy_manager
 from backend.scraper.ig_rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
-# Single source of truth for the Instagram internal app ID
 IG_APP_ID = Settings.IG_APP_ID
 
 BASE_HEADERS = {
@@ -26,22 +28,46 @@ BASE_HEADERS = {
 
 _rate_limiter = RateLimiter(mode="unauth")
 
+if Settings.IG_PROXY_LIST:
+    ig_proxy_manager.init(Settings.IG_PROXY_LIST)
+
 
 async def ig_get(url: str, max_retries: int = Settings.IG_MAX_RETRIES) -> dict:
-    """Authenticated-free GET to Instagram. Handles rate limiting and retries."""
+    """Unauthenticated GET to Instagram with proxy rotation, rate limiting and retries."""
+    loop = asyncio.get_running_loop()
+
     for attempt in range(max_retries):
+        proxy = ig_proxy_manager.get_next()
+        proxies = {"https": proxy, "http": proxy} if proxy else None
+
         try:
             await _rate_limiter.check_and_wait()
 
-            response = curl_requests.get(
+            # Run blocking curl call in thread pool — keeps asyncio event loop free
+            fn = functools.partial(
+                curl_requests.get,
                 url,
                 headers=BASE_HEADERS,
+                proxies=proxies,
                 impersonate="chrome131",
                 timeout=15,
             )
+            response = await loop.run_in_executor(None, fn)
+
+            if response.status_code == 401:
+                logger.warning(
+                    "HTTP 401 on attempt %d via %s",
+                    attempt + 1,
+                    proxy[:35] if proxy else "direct",
+                )
+                if proxy:
+                    ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
+                continue
 
             if response.status_code == 429:
-                logger.warning("429 received on attempt %d — backing off", attempt + 1)
+                logger.warning("429 on attempt %d — backing off", attempt + 1)
+                if proxy:
+                    ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
                 await _rate_limiter.on_rate_limited()
                 continue
 
@@ -52,14 +78,20 @@ async def ig_get(url: str, max_retries: int = Settings.IG_MAX_RETRIES) -> dict:
             data = response.json()
 
             if data.get("require_login") or data.get("status") == "fail":
-                logger.warning("require_login/fail response on attempt %d", attempt + 1)
+                logger.warning("require_login/fail on attempt %d", attempt + 1)
+                if proxy:
+                    ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
                 await _rate_limiter.on_rate_limited()
                 continue
 
             _rate_limiter.reset_backoff()
+            if proxy:
+                ig_proxy_manager.report_success(proxy)
             return data
 
         except Exception as e:
             logger.error("ig_get attempt %d failed: %s", attempt + 1, e)
+            if proxy:
+                ig_proxy_manager.report_error(proxy)
 
     return {"error": "max_retries_exceeded"}

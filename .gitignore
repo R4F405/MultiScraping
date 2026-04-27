@@ -42,3 +42,6 @@ Thumbs.db
 !WINDOWS_EXECUTABLE.md
 
 /linkedinleads/sessions
+
+# Claude Code
+.claude/

@@ -7,9 +7,9 @@ from backend.scraper.ig_deduplicator import Deduplicator
 @pytest.mark.asyncio
 async def test_load_from_db_populates_seen():
     dedup = Deduplicator()
-    with patch(
-        "backend.scraper.ig_deduplicator.db.get_all_scraped_usernames",
-        new=AsyncMock(return_value={"alice", "bob"}),
+    with (
+        patch("backend.scraper.ig_deduplicator.db.get_leads_usernames", new=AsyncMock(return_value={"alice", "bob"})),
+        patch("backend.scraper.ig_deduplicator.db.get_recent_skipped_usernames", new=AsyncMock(return_value=set())),
     ):
         await dedup.load_from_db()
     assert dedup.should_skip("alice")
@@ -20,9 +20,9 @@ async def test_load_from_db_populates_seen():
 @pytest.mark.asyncio
 async def test_should_skip_returns_false_for_new_username():
     dedup = Deduplicator()
-    with patch(
-        "backend.scraper.ig_deduplicator.db.get_all_scraped_usernames",
-        new=AsyncMock(return_value=set()),
+    with (
+        patch("backend.scraper.ig_deduplicator.db.get_leads_usernames", new=AsyncMock(return_value=set())),
+        patch("backend.scraper.ig_deduplicator.db.get_recent_skipped_usernames", new=AsyncMock(return_value=set())),
     ):
         await dedup.load_from_db()
     assert not dedup.should_skip("newuser")
@@ -45,9 +45,9 @@ def test_skipped_count():
 @pytest.mark.asyncio
 async def test_load_from_db_merges_leads_and_skipped():
     dedup = Deduplicator()
-    with patch(
-        "backend.scraper.ig_deduplicator.db.get_all_scraped_usernames",
-        new=AsyncMock(return_value={"from_leads", "from_skipped"}),
+    with (
+        patch("backend.scraper.ig_deduplicator.db.get_leads_usernames", new=AsyncMock(return_value={"from_leads"})),
+        patch("backend.scraper.ig_deduplicator.db.get_recent_skipped_usernames", new=AsyncMock(return_value={"from_skipped"})),
     ):
         await dedup.load_from_db()
     assert dedup.should_skip("from_leads")

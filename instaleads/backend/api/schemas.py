@@ -4,6 +4,13 @@ from pydantic import BaseModel, Field
 class LoginRequest(BaseModel):
     username: str
     password: str
+    proxy_url: str | None = None
+
+
+class SessionImportRequest(BaseModel):
+    username: str
+    sessionid: str
+    proxy_url: str | None = None
 
 
 class SearchRequest(BaseModel):

@@ -27,7 +27,17 @@ app.include_router(router)
 @app.on_event("startup")
 async def startup():
     await init_db()
-    logging.getLogger(__name__).info("InstaLeads started")
+    from backend.storage import database as db
+    orphaned = await db.get_all_jobs(limit=100)
+    count = 0
+    for job in orphaned:
+        if job.get("status") == "running":
+            await db.finish_job(job["job_id"], "failed")
+            count += 1
+    logger = logging.getLogger(__name__)
+    if count:
+        logger.warning("Marked %d orphaned running jobs as failed on startup", count)
+    logger.info("InstaLeads started")
 
 
 @app.get("/")
