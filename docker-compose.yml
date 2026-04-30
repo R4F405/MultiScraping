@@ -1,0 +1,75 @@
+services:
+
+  mapleads:
+    build: ./mapleads
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/mapleads.db
+    volumes:
+      - mapleads_data:/app/data
+    networks:
+      - internal
+
+  instaleads:
+    build: ./instaleads
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/instaleads.db
+    volumes:
+      - instaleads_data:/app/data
+    networks:
+      - internal
+
+  linkedinleads:
+    build: ./linkedinleads
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/contacts.db
+    volumes:
+      - linkedin_sessions:/app/sessions
+      - linkedin_data:/app/data
+      - linkedin_logs:/app/logs
+      - linkedin_output:/app/output
+    networks:
+      - internal
+
+  scraperleadweb:
+    build: ./scraperLead-web
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - mapleads
+      - instaleads
+      - linkedinleads
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_certs:/etc/nginx/certs
+    depends_on:
+      - scraperleadweb
+    networks:
+      - internal
+
+volumes:
+  mapleads_data:
+  instaleads_data:
+  linkedin_sessions:
+  linkedin_data:
+  linkedin_logs:
+  linkedin_output:
+  nginx_certs:
+
+networks:
+  internal:
+    driver: bridge

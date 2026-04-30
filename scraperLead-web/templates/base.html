@@ -108,6 +108,25 @@
       </a>
     </nav>
 
+    <!-- User / Logout -->
+    {% set current_user = get_user(request) %}
+    {% if current_user %}
+    <div class="mx-3 mb-2 p-2.5 rounded-lg bg-white/5 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 shrink-0">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span class="text-[11px] text-slate-400 truncate">{{ current_user }}</span>
+      </div>
+      <a href="/auth/logout" title="Cerrar sesión"
+         class="text-slate-600 hover:text-red-400 transition no-underline shrink-0">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </a>
+    </div>
+    {% endif %}
+
     <!-- Proxy widget -->
     {% set proxy = proxy_status | default({}) %}
     {% set ps_available = proxy.get('available_now', 0) if proxy else 0 %}

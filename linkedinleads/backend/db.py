@@ -7,9 +7,10 @@
 
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Generator, List, Optional
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -70,8 +71,19 @@ CREATE TABLE IF NOT EXISTS contacts (
     last_scraped_at  TEXT    NOT NULL,
     UNIQUE (username, profile_id)
 );
-CREATE INDEX IF NOT EXISTS idx_contacts_username ON contacts (username);
+CREATE INDEX IF NOT EXISTS idx_contacts_username   ON contacts (username);
+CREATE INDEX IF NOT EXISTS idx_contacts_name       ON contacts (name);
+CREATE INDEX IF NOT EXISTS idx_contacts_company    ON contacts (company);
+CREATE INDEX IF NOT EXISTS idx_contacts_u_scraped  ON contacts (username, last_scraped_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contacts_u_name     ON contacts (username, name);
+CREATE INDEX IF NOT EXISTS idx_contacts_u_company  ON contacts (username, company);
 """
+
+# Índices parciales para filtros de email/phone (creados por separado en ensure_tables)
+_PARTIAL_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_contacts_emails ON contacts (emails) WHERE emails IS NOT NULL AND emails != ''",
+    "CREATE INDEX IF NOT EXISTS idx_contacts_phones ON contacts (phones) WHERE phones IS NOT NULL AND phones != ''",
+]
 
 # Registro de cuentas LinkedIn activas en el sistema.
 # status: active | paused | removed
@@ -99,9 +111,9 @@ CREATE TABLE IF NOT EXISTS trigger_limits (
 """
 
 # Migraciones suaves (se aplican en ensure_tables y fallan silenciosamente si ya existen)
-_ACCOUNTS_MIGRATION_PROXY     = "ALTER TABLE accounts ADD COLUMN proxy TEXT;"
-_ACCOUNTS_MIGRATION_EMAIL     = "ALTER TABLE accounts ADD COLUMN email TEXT;"
-_ACCOUNTS_MIGRATION_ENCPWD    = "ALTER TABLE accounts ADD COLUMN encrypted_password TEXT;"
+_ACCOUNTS_MIGRATION_PROXY  = "ALTER TABLE accounts ADD COLUMN proxy TEXT;"
+_ACCOUNTS_MIGRATION_EMAIL  = "ALTER TABLE accounts ADD COLUMN email TEXT;"
+_ACCOUNTS_MIGRATION_ENCPWD = "ALTER TABLE accounts ADD COLUMN encrypted_password TEXT;"
 
 
 # ── Helpers internos ───────────────────────────────────────────────────────────
@@ -117,10 +129,30 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+@contextmanager
+def _db() -> Generator[sqlite3.Connection, None, None]:
+    """Context manager que garantiza cierre de conexión incluso en excepciones."""
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ── Inicialización ─────────────────────────────────────────────────────────────
 
+_tables_initialized_for: Optional[str] = None
+
+
 def ensure_tables() -> None:
-    """Crea el directorio data/ y todas las tablas si no existen."""
+    """Crea el directorio data/ y todas las tablas si no existen. Idempotente por DB_PATH."""
+    global _tables_initialized_for
+    if _tables_initialized_for == DB_PATH:
+        return
     db_path = Path(DB_PATH)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -129,6 +161,13 @@ def ensure_tables() -> None:
     conn.executescript(CONTACTS_SCHEMA)
     conn.executescript(ACCOUNTS_SCHEMA)
     conn.executescript(TRIGGER_SCHEMA)
+    # Índices parciales (WHERE clause — no soportados por executescript en todas las versiones)
+    for idx_sql in _PARTIAL_INDEXES:
+        try:
+            conn.execute(idx_sql)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
     # Migraciones suaves: se ignoran si la columna ya existe
     for migration in (
         _ACCOUNTS_MIGRATION_PROXY,
@@ -141,6 +180,7 @@ def ensure_tables() -> None:
         except sqlite3.OperationalError:
             pass
     conn.close()
+    _tables_initialized_for = DB_PATH
 
 
 # Alias de compatibilidad con el código anterior (viewer_app usa ensure_runs_table)
@@ -160,15 +200,13 @@ def insert_run(
 ) -> None:
     """Registra una ejecución del scraper."""
     ensure_tables()
-    conn = _connect()
-    conn.execute(
-        """INSERT INTO runs
-           (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO runs
+               (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated),
+        )
 
 
 # ── Tabla contact_queue ────────────────────────────────────────────────────────
@@ -181,17 +219,15 @@ def queue_slugs(username: str, slugs: List[str]) -> int:
     """
     ensure_tables()
     now = _now_iso()
-    conn = _connect()
     inserted = 0
-    for slug in slugs:
-        cur = conn.execute(
-            """INSERT OR IGNORE INTO contact_queue (username, slug, status, queued_at)
-               VALUES (?, ?, 'pending', ?)""",
-            (username, slug, now),
-        )
-        inserted += cur.rowcount
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        for slug in slugs:
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO contact_queue (username, slug, status, queued_at)
+                   VALUES (?, ?, 'pending', ?)""",
+                (username, slug, now),
+            )
+            inserted += cur.rowcount
     return inserted
 
 
@@ -203,18 +239,16 @@ def requeue_pending(username: str, slugs: List[str]) -> int:
     """
     ensure_tables()
     now = _now_iso()
-    conn = _connect()
     updated = 0
-    for slug in slugs:
-        cur = conn.execute(
-            """UPDATE contact_queue
-               SET status = 'pending', queued_at = ?, processed_at = NULL, error_msg = NULL
-               WHERE username = ? AND slug = ?""",
-            (now, username, slug),
-        )
-        updated += cur.rowcount
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        for slug in slugs:
+            cur = conn.execute(
+                """UPDATE contact_queue
+                   SET status = 'pending', queued_at = ?, processed_at = NULL, error_msg = NULL
+                   WHERE username = ? AND slug = ?""",
+                (now, username, slug),
+            )
+            updated += cur.rowcount
     return updated
 
 
@@ -224,42 +258,50 @@ def get_pending_slugs(username: str, limit: int = 20) -> List[str]:
     ordenados por queued_at (los más antiguos primero → FIFO).
     """
     ensure_tables()
-    conn = _connect()
-    rows = conn.execute(
-        """SELECT slug FROM contact_queue
-           WHERE username = ? AND status = 'pending'
-           ORDER BY queued_at ASC
-           LIMIT ?""",
-        (username, limit),
-    ).fetchall()
-    conn.close()
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT slug FROM contact_queue
+               WHERE username = ? AND status = 'pending'
+               ORDER BY queued_at ASC
+               LIMIT ?""",
+            (username, limit),
+        ).fetchall()
     return [r["slug"] for r in rows]
+
+
+def requeue_errors(username: str) -> int:
+    """Resetea los slugs con status='error' a 'pending' para que se reintenten."""
+    ensure_tables()
+    with _db() as conn:
+        cur = conn.execute(
+            """UPDATE contact_queue
+               SET status = 'pending', processed_at = NULL, error_msg = NULL
+               WHERE username = ? AND status = 'error'""",
+            (username,),
+        )
+    return cur.rowcount
 
 
 def mark_queue_done(username: str, slug: str) -> None:
     """Marca un slug como procesado correctamente."""
-    conn = _connect()
-    conn.execute(
-        """UPDATE contact_queue
-           SET status = 'done', processed_at = ?
-           WHERE username = ? AND slug = ?""",
-        (_now_iso(), username, slug),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        conn.execute(
+            """UPDATE contact_queue
+               SET status = 'done', processed_at = ?
+               WHERE username = ? AND slug = ?""",
+            (_now_iso(), username, slug),
+        )
 
 
 def mark_queue_error(username: str, slug: str, error_msg: str = "") -> None:
     """Marca un slug como fallido para poder revisarlo o reintentarlo."""
-    conn = _connect()
-    conn.execute(
-        """UPDATE contact_queue
-           SET status = 'error', processed_at = ?, error_msg = ?
-           WHERE username = ? AND slug = ?""",
-        (_now_iso(), error_msg[:500], username, slug),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        conn.execute(
+            """UPDATE contact_queue
+               SET status = 'error', processed_at = ?, error_msg = ?
+               WHERE username = ? AND slug = ?""",
+            (_now_iso(), error_msg[:500], username, slug),
+        )
 
 
 def get_queue_stats(username: str) -> Dict[str, int]:
@@ -268,16 +310,15 @@ def get_queue_stats(username: str) -> Dict[str, int]:
     Ejemplo: {"pending": 120, "done": 45, "error": 2, "total": 167}
     """
     ensure_tables()
-    conn = _connect()
-    rows = conn.execute(
-        """SELECT status, COUNT(*) as n
-           FROM contact_queue
-           WHERE username = ?
-           GROUP BY status""",
-        (username,),
-    ).fetchall()
-    conn.close()
-    stats = {"pending": 0, "done": 0, "error": 0}
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT status, COUNT(*) as n
+               FROM contact_queue
+               WHERE username = ?
+               GROUP BY status""",
+            (username,),
+        ).fetchall()
+    stats: Dict[str, int] = {"pending": 0, "done": 0, "error": 0}
     for r in rows:
         stats[r["status"]] = r["n"]
     stats["total"] = sum(stats.values())
@@ -296,12 +337,6 @@ def upsert_contact(username: str, data: Dict) -> str:
     ensure_tables()
     now = _now_iso()
     profile_id = data.get("profile_id", "")
-    conn = _connect()
-
-    existing = conn.execute(
-        "SELECT id, first_scraped_at FROM contacts WHERE username = ? AND profile_id = ?",
-        (username, profile_id),
-    ).fetchone()
 
     def _bool(v) -> Optional[int]:
         if v is None:
@@ -328,42 +363,44 @@ def upsert_contact(username: str, data: Dict) -> str:
         str(data.get("connections")) if data.get("connections") is not None else None,
     )
 
-    if existing is None:
-        conn.execute(
-            """INSERT INTO contacts
-               (username, profile_id, name, first_name, last_name, position, company,
-                location, emails, phones, profile_link, profile_photo,
-                premium, creator, open_to_work, followers, connections,
-                first_scraped_at, last_scraped_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            params + (now, now),
-        )
-        result = "inserted"
-    else:
-        conn.execute(
-            """UPDATE contacts SET
-               name=?, first_name=?, last_name=?, position=?, company=?,
-               location=?, emails=?, phones=?, profile_link=?, profile_photo=?,
-               premium=?, creator=?, open_to_work=?, followers=?, connections=?,
-               last_scraped_at=?
-               WHERE username=? AND profile_id=?""",
-            (
-                data.get("name"), data.get("first_name"), data.get("last_name"),
-                data.get("position"), data.get("company"), data.get("location"),
-                data.get("emails"), data.get("phones"),
-                data.get("profile_link"), data.get("profile_photo"),
-                _bool(data.get("premium")), _bool(data.get("creator")),
-                _bool(data.get("open_to_work")),
-                str(data.get("followers")) if data.get("followers") is not None else None,
-                str(data.get("connections")) if data.get("connections") is not None else None,
-                now, username, profile_id,
-            ),
-        )
-        result = "updated"
+    with _db() as conn:
+        existing = conn.execute(
+            "SELECT id, first_scraped_at FROM contacts WHERE username = ? AND profile_id = ?",
+            (username, profile_id),
+        ).fetchone()
 
-    conn.commit()
-    conn.close()
-    return result
+        if existing is None:
+            conn.execute(
+                """INSERT INTO contacts
+                   (username, profile_id, name, first_name, last_name, position, company,
+                    location, emails, phones, profile_link, profile_photo,
+                    premium, creator, open_to_work, followers, connections,
+                    first_scraped_at, last_scraped_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                params + (now, now),
+            )
+            return "inserted"
+        else:
+            conn.execute(
+                """UPDATE contacts SET
+                   name=?, first_name=?, last_name=?, position=?, company=?,
+                   location=?, emails=?, phones=?, profile_link=?, profile_photo=?,
+                   premium=?, creator=?, open_to_work=?, followers=?, connections=?,
+                   last_scraped_at=?
+                   WHERE username=? AND profile_id=?""",
+                (
+                    data.get("name"), data.get("first_name"), data.get("last_name"),
+                    data.get("position"), data.get("company"), data.get("location"),
+                    data.get("emails"), data.get("phones"),
+                    data.get("profile_link"), data.get("profile_photo"),
+                    _bool(data.get("premium")), _bool(data.get("creator")),
+                    _bool(data.get("open_to_work")),
+                    str(data.get("followers")) if data.get("followers") is not None else None,
+                    str(data.get("connections")) if data.get("connections") is not None else None,
+                    now, username, profile_id,
+                ),
+            )
+            return "updated"
 
 
 def get_daily_count(username: str) -> int:
@@ -373,26 +410,24 @@ def get_daily_count(username: str) -> int:
     """
     ensure_tables()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    conn = _connect()
-    row = conn.execute(
-        """SELECT COUNT(*) as n FROM contact_queue
-           WHERE username = ? AND status = 'done'
-           AND processed_at LIKE ?""",
-        (username, f"{today}%"),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) as n FROM contact_queue
+               WHERE username = ? AND status = 'done'
+               AND processed_at LIKE ?""",
+            (username, f"{today}%"),
+        ).fetchone()
     return row["n"] if row else 0
 
 
 def contact_exists(username: str, profile_id: str) -> bool:
     """True si el contacto ya está en la tabla contacts."""
     ensure_tables()
-    conn = _connect()
-    row = conn.execute(
-        "SELECT 1 FROM contacts WHERE username = ? AND profile_id = ?",
-        (username, profile_id),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM contacts WHERE username = ? AND profile_id = ?",
+            (username, profile_id),
+        ).fetchone()
     return row is not None
 
 
@@ -402,14 +437,13 @@ def contact_has_core_fields(username: str, profile_id: str) -> bool:
     en runs recientes.
     """
     ensure_tables()
-    conn = _connect()
-    row = conn.execute(
-        """SELECT name, position, company, location
-           FROM contacts
-           WHERE username = ? AND profile_id = ?""",
-        (username, profile_id),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            """SELECT name, position, company, location
+               FROM contacts
+               WHERE username = ? AND profile_id = ?""",
+            (username, profile_id),
+        ).fetchone()
     if row is None:
         return False
 
@@ -424,18 +458,86 @@ def contact_has_core_fields(username: str, profile_id: str) -> bool:
     return filled >= 2
 
 
+def contact_has_contact_details(username: str, profile_id: str) -> bool:
+    """
+    True si el contacto ya tiene algún dato de contacto (email o phone) poblado.
+    Se usa para decidir si el skip inteligente puede evitar refrescar.
+    """
+    ensure_tables()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT emails, phones FROM contacts WHERE username = ? AND profile_id = ?",
+            (username, profile_id),
+        ).fetchone()
+    if row is None:
+        return False
+
+    def _has(v) -> bool:
+        return isinstance(v, str) and bool(v.strip())
+
+    return _has(row["emails"]) or _has(row["phones"])
+
+
+def contact_has_suspicious_geo_fields(username: str, profile_id: str) -> bool:
+    """
+    Detecta casos en los que location/company se “contaminan” con el nombre
+    (p. ej. location == name). En esos casos conviene refrescar en ENRICH.
+    """
+    ensure_tables()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT name, position, company, location FROM contacts WHERE username = ? AND profile_id = ?",
+            (username, profile_id),
+        ).fetchone()
+    if row is None:
+        return False
+
+    def _repair_mojibake(s: str) -> str:
+        if any(ch in s for ch in ("Ã", "Â")):
+            try:
+                return s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            except Exception:
+                return s
+        return s
+
+    def _norm(s: Optional[str]) -> str:
+        if not isinstance(s, str):
+            return ""
+        s = _repair_mojibake(s)
+        return " ".join(s.strip().lower().split())
+
+    name_norm = _norm(row["name"])
+    loc_norm = _norm(row["location"])
+    comp_norm = _norm(row["company"])
+    pos_norm = _norm(row["position"])
+
+    # location == name exacto (evitamos substring: "Ander" en "Santander" daría falso positivo)
+    if name_norm and loc_norm and loc_norm == name_norm:
+        return True
+
+    # company == name exacto
+    if name_norm and comp_norm and comp_norm == name_norm:
+        return True
+
+    # Si position==name y además location==position, casi seguro es ruido.
+    if name_norm and pos_norm and (pos_norm == name_norm):
+        if loc_norm and loc_norm == pos_norm:
+            return True
+
+    return False
+
+
 def days_since_last_scrape(username: str, profile_id: str) -> Optional[float]:
     """
     Días transcurridos desde el último scraping de este contacto.
     Devuelve None si el contacto no existe todavía en la tabla contacts.
     """
     ensure_tables()
-    conn = _connect()
-    row = conn.execute(
-        "SELECT last_scraped_at FROM contacts WHERE username = ? AND profile_id = ?",
-        (username, profile_id),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT last_scraped_at FROM contacts WHERE username = ? AND profile_id = ?",
+            (username, profile_id),
+        ).fetchone()
     if row is None:
         return None
     try:
@@ -516,12 +618,11 @@ def count_contacts_filtered(
     Útil para calcular el número de páginas en la paginación.
     """
     ensure_tables()
-    conn = _connect()
     where, params = _contacts_where(username, search, filter_mode, run_from, run_to)
-    row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM contacts WHERE {where}", params
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM contacts WHERE {where}", params
+        ).fetchone()
     return int(row["n"]) if row else 0
 
 
@@ -555,13 +656,12 @@ def get_contacts_paginated(
     offset = (max(1, page) - 1) * limit
 
     ensure_tables()
-    conn = _connect()
     where, params = _contacts_where(username, search, filter_mode, run_from, run_to)
-    rows = conn.execute(
-        f"SELECT * FROM contacts WHERE {where} ORDER BY {col} {order} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    ).fetchall()
-    conn.close()
+    with _db() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM contacts WHERE {where} ORDER BY {col} {order} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -573,12 +673,11 @@ def get_account_proxy(username: str) -> Optional[str]:
     Formato esperado: 'host:port' o 'user:pass@host:port'
     """
     ensure_tables()
-    conn = _connect()
-    row = conn.execute(
-        "SELECT proxy FROM accounts WHERE username = ? AND status = 'active'",
-        (username,),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT proxy FROM accounts WHERE username = ? AND status = 'active'",
+            (username,),
+        ).fetchone()
     if row is None:
         return None
     return row["proxy"] or None
@@ -599,29 +698,26 @@ def register_account(
     """
     ensure_tables()
     now = _now_iso()
-    conn = _connect()
-    existing = conn.execute(
-        "SELECT id FROM accounts WHERE username = ?", (username,)
-    ).fetchone()
-    if existing is None:
-        conn.execute(
-            """INSERT INTO accounts
-               (username, display_name, email, session_file, proxy, added_at, status)
-               VALUES (?, ?, ?, ?, ?, ?, 'active')""",
-            (username, display_name or username, email or None, session_file, proxy or None, now),
-        )
-        result = "inserted"
-    else:
-        conn.execute(
-            """UPDATE accounts
-               SET session_file = ?, display_name = ?, email = ?, proxy = ?, status = 'active'
-               WHERE username = ?""",
-            (session_file, display_name or username, email or None, proxy or None, username),
-        )
-        result = "updated"
-    conn.commit()
-    conn.close()
-    return result
+    with _db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM accounts WHERE username = ?", (username,)
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                """INSERT INTO accounts
+                   (username, display_name, email, session_file, proxy, added_at, status)
+                   VALUES (?, ?, ?, ?, ?, ?, 'active')""",
+                (username, display_name or username, email or None, session_file, proxy or None, now),
+            )
+            return "inserted"
+        else:
+            conn.execute(
+                """UPDATE accounts
+                   SET session_file = ?, display_name = ?, email = ?, proxy = ?, status = 'active'
+                   WHERE username = ?""",
+                (session_file, display_name or username, email or None, proxy or None, username),
+            )
+            return "updated"
 
 
 def get_contacts(username: str, limit: Optional[int] = None) -> List[Dict]:
@@ -629,12 +725,11 @@ def get_contacts(username: str, limit: Optional[int] = None) -> List[Dict]:
     Devuelve los contactos enriquecidos de una cuenta, ordenados por último scraping.
     """
     ensure_tables()
-    conn = _connect()
     q = "SELECT * FROM contacts WHERE username = ? ORDER BY last_scraped_at DESC"
     if limit:
         q += f" LIMIT {int(limit)}"
-    rows = conn.execute(q, (username,)).fetchall()
-    conn.close()
+    with _db() as conn:
+        rows = conn.execute(q, (username,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -644,13 +739,11 @@ def update_account_proxy(username: str, proxy: str) -> bool:
     Devuelve True si la cuenta existía, False si no.
     """
     ensure_tables()
-    conn = _connect()
-    cur = conn.execute(
-        "UPDATE accounts SET proxy = ? WHERE username = ?",
-        (proxy or None, username),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        cur = conn.execute(
+            "UPDATE accounts SET proxy = ? WHERE username = ?",
+            (proxy or None, username),
+        )
     return cur.rowcount > 0
 
 
@@ -660,26 +753,63 @@ def list_accounts(include_inactive: bool = False) -> List[Dict]:
     Si include_inactive=False (defecto), solo devuelve las activas.
     """
     ensure_tables()
-    conn = _connect()
-    if include_inactive:
-        rows = conn.execute("SELECT * FROM accounts ORDER BY added_at DESC").fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM accounts WHERE status = 'active' ORDER BY added_at DESC"
-        ).fetchall()
-    conn.close()
+    with _db() as conn:
+        if include_inactive:
+            rows = conn.execute("SELECT * FROM accounts ORDER BY added_at DESC").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM accounts WHERE status = 'active' ORDER BY added_at DESC"
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_accounts_with_stats(include_inactive: bool = False) -> List[Dict]:
+    """
+    Devuelve todas las cuentas activas con sus stats de cola y contactos en una sola query
+    (evita el N+1 de llamar _account_stats() por cuenta).
+    """
+    ensure_tables()
+    where_status = "" if include_inactive else "WHERE a.status = 'active'"
+    sql = f"""
+        SELECT
+            a.*,
+            COALESCE(q_pending.n, 0)  AS queue_pending,
+            COALESCE(q_done.n, 0)     AS queue_done,
+            COALESCE(q_error.n, 0)    AS queue_error,
+            COALESCE(q_pending.n, 0) + COALESCE(q_done.n, 0) + COALESCE(q_error.n, 0)
+                                      AS queue_total,
+            COALESCE(ct.n, 0)         AS contacts_total
+        FROM accounts a
+        LEFT JOIN (
+            SELECT username, COUNT(*) AS n FROM contact_queue
+            WHERE status = 'pending' GROUP BY username
+        ) q_pending ON a.username = q_pending.username
+        LEFT JOIN (
+            SELECT username, COUNT(*) AS n FROM contact_queue
+            WHERE status = 'done' GROUP BY username
+        ) q_done ON a.username = q_done.username
+        LEFT JOIN (
+            SELECT username, COUNT(*) AS n FROM contact_queue
+            WHERE status = 'error' GROUP BY username
+        ) q_error ON a.username = q_error.username
+        LEFT JOIN (
+            SELECT username, COUNT(*) AS n FROM contacts GROUP BY username
+        ) ct ON a.username = ct.username
+        {where_status}
+        ORDER BY a.added_at DESC
+    """
+    with _db() as conn:
+        rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
 
 
 def update_account_last_run(username: str) -> None:
     """Actualiza last_run_at de la cuenta al momento actual."""
-    conn = _connect()
-    conn.execute(
-        "UPDATE accounts SET last_run_at = ? WHERE username = ?",
-        (_now_iso(), username),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        conn.execute(
+            "UPDATE accounts SET last_run_at = ? WHERE username = ?",
+            (_now_iso(), username),
+        )
 
 
 def deactivate_account(username: str) -> bool:
@@ -688,12 +818,10 @@ def deactivate_account(username: str) -> bool:
     Devuelve True si existía, False si no.
     """
     ensure_tables()
-    conn = _connect()
-    cur = conn.execute(
-        "UPDATE accounts SET status = 'removed' WHERE username = ?", (username,)
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        cur = conn.execute(
+            "UPDATE accounts SET status = 'removed' WHERE username = ?", (username,)
+        )
     return cur.rowcount > 0
 
 
@@ -704,12 +832,11 @@ def get_last_trigger_epoch(key: str) -> float:
     Devuelve epoch seconds del último trigger para `key`, o 0.0 si no existe.
     """
     ensure_tables()
-    conn = _connect()
-    row = conn.execute(
-        "SELECT last_trigger FROM trigger_limits WHERE key = ?",
-        (key,),
-    ).fetchone()
-    conn.close()
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT last_trigger FROM trigger_limits WHERE key = ?",
+            (key,),
+        ).fetchone()
     if not row:
         return 0.0
     try:
@@ -723,18 +850,16 @@ def set_last_trigger_epoch(key: str, ts: float) -> None:
     Guarda/actualiza el último trigger para `key` en epoch seconds.
     """
     ensure_tables()
-    conn = _connect()
-    conn.execute(
-        """INSERT INTO trigger_limits (key, last_trigger, updated_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET
-             last_trigger = excluded.last_trigger,
-             updated_at = excluded.updated_at
-        """,
-        (key, float(ts), _now_iso()),
-    )
-    conn.commit()
-    conn.close()
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO trigger_limits (key, last_trigger, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 last_trigger = excluded.last_trigger,
+                 updated_at = excluded.updated_at
+            """,
+            (key, float(ts), _now_iso()),
+        )
 
 
 # ── Credenciales cifradas ──────────────────────────────────────────────────────
@@ -767,13 +892,11 @@ def save_account_credentials(username: str, password: str) -> bool:
         cipher = _get_cipher()
         encrypted = cipher.encrypt(password.encode()).decode()
         ensure_tables()
-        conn = _connect()
-        cur = conn.execute(
-            "UPDATE accounts SET encrypted_password = ? WHERE username = ?",
-            (encrypted, username),
-        )
-        conn.commit()
-        conn.close()
+        with _db() as conn:
+            cur = conn.execute(
+                "UPDATE accounts SET encrypted_password = ? WHERE username = ?",
+                (encrypted, username),
+            )
         return cur.rowcount > 0
     except (ValueError, Exception):
         return False
@@ -787,12 +910,11 @@ def get_account_credentials(username: str) -> Optional[Dict]:
     """
     try:
         ensure_tables()
-        conn = _connect()
-        row = conn.execute(
-            "SELECT email, encrypted_password FROM accounts WHERE username = ?",
-            (username,),
-        ).fetchone()
-        conn.close()
+        with _db() as conn:
+            row = conn.execute(
+                "SELECT email, encrypted_password FROM accounts WHERE username = ?",
+                (username,),
+            ).fetchone()
         if not row or not row["encrypted_password"] or not row["email"]:
             return None
         cipher = _get_cipher()
@@ -806,12 +928,11 @@ def has_saved_credentials(username: str) -> bool:
     """True si la cuenta tiene contraseña cifrada guardada Y tiene email configurado."""
     try:
         ensure_tables()
-        conn = _connect()
-        row = conn.execute(
-            "SELECT email, encrypted_password FROM accounts WHERE username = ?",
-            (username,),
-        ).fetchone()
-        conn.close()
+        with _db() as conn:
+            row = conn.execute(
+                "SELECT email, encrypted_password FROM accounts WHERE username = ?",
+                (username,),
+            ).fetchone()
         return bool(row and row["email"] and row["encrypted_password"])
     except Exception:
         return False

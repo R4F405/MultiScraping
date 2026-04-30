@@ -165,6 +165,71 @@ Arranca cada proceso en su terminal:
    - activar venv
    - `python main.py`
 
+## Despliegue con Docker
+
+Opción recomendada para VPS o cualquier servidor Linux. No requiere instalar Python ni venvs.
+
+### 1. Crear el archivo de entorno
+
+```bash
+cp docker-env.example .env
+```
+
+Edita `.env` y rellena obligatoriamente estos valores:
+
+| Variable | Qué es | Cómo generarla |
+|---|---|---|
+| `SESSION_SECRET` | Clave que firma las cookies de sesión | `openssl rand -hex 32` |
+| `AUTH_USERS` | Usuarios y contraseñas del panel web | Formato: `admin:password,user2:pass2` (texto plano) o con hash bcrypt |
+| `MAPLEADS_API_URL` | URL interna de mapleads | Dejar `http://mapleads:8001` (Docker lo resuelve) |
+| `INSTALEADS_API_URL` | URL interna de instaleads | Dejar `http://instaleads:8002` |
+| `LINKEDINLEADS_API_URL` | URL interna de linkedinleads | Dejar `http://linkedinleads:8003` |
+
+El resto de variables son opcionales (proxies, Telegram, etc.). El `.env` **nunca se sube a GitHub** — está en el `.gitignore`.
+
+### 2. Construir y arrancar
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+El panel queda disponible en `http://localhost` (puerto 80 via Nginx).
+
+### 3. Ver logs
+
+```bash
+docker compose logs -f
+docker compose logs scraperleadweb   # solo el frontend
+```
+
+### 4. Parar / reiniciar
+
+```bash
+docker compose down        # para (los datos en volúmenes persisten)
+docker compose restart     # reinicia sin reconstruir
+docker compose up -d --build  # reconstruye y arranca
+```
+
+### Despliegue en VPS con dominio y HTTPS
+
+Una vez en el servidor:
+
+1. Obtener certificado SSL con Let's Encrypt:
+   ```bash
+   certbot certonly --standalone -d tudominio.com
+   ```
+2. Copiar los certificados:
+   ```bash
+   cp /etc/letsencrypt/live/tudominio.com/fullchain.pem nginx/certs/
+   cp /etc/letsencrypt/live/tudominio.com/privkey.pem   nginx/certs/
+   ```
+3. Descomentar el bloque HTTPS en `nginx/nginx.conf` y poner el dominio real.
+4. Cambiar `HTTPS_ONLY=true` en `.env`.
+5. `docker compose up -d --build`
+
+---
+
 ## Qué es, cómo funciona y para qué sirve
 
 - **Qué es:** una plataforma con 3 backends (`mapleads`, `instaleads`, `linkedinleads`) y 1 frontend (`scraperLead-web`).
@@ -210,15 +275,14 @@ Importante: no subas claves reales a GitHub. Usa valores propios. Los nombres si
 
 Plantilla: `env.example` (nombre distinto a `.env.example`). Variables usadas por `instaleads/backend/config/settings.py`:
 
-- `PORT`: puerto del backend (por defecto `8002`).
-- `DB_PATH`, `SESSION_FILE`, `LOG_LEVEL`.
-- Límites de campaña: `MAX_UNAUTH_DAILY`, `MAX_AUTH_DAILY`, `MAX_AUTH_HOURLY`, `MAX_CONCURRENT_UNAUTH`, `MAX_CONCURRENT_AUTH`, `DELAY_UNAUTH_*`, `DELAY_AUTH_*`, `RETRY_*`.
-- Discovery: `DISCOVERY_PROVIDER`, `DISCOVERY_MIN_COVERAGE_RATIO`, `DISCOVERY_LOGIN_ESCALATION_RATIO`.
-- Enrichment: `ENRICHMENT_HTTP_TIMEOUT_SEC`, `ENRICHMENT_FOLLOW_CONTACT_PAGES`, `ENRICHMENT_MAX_SUBPAGES`.
-- Proxy: `IG_PROXY_URL`, `PROXY_LIST`, `PROXY_OPEN_THRESHOLD`, `PROXY_HALF_OPEN_THRESHOLD`, `PROXY_COOLDOWN_SECONDS`.
-- Otros: `INSTAGRAM_MAINTENANCE_MESSAGE`, `LIVE_SMOKE_ENABLED`.
+- Proxies: `IG_PROXY_LIST`, `IG_PROXY_ERROR_COOLDOWN`.
+- Límites y delays dorking: `IG_LIMIT_DAILY_UNAUTHENTICATED`, `IG_DELAY_UNAUTH_MIN`, `IG_DELAY_UNAUTH_MAX`.
+- Backoff: `IG_BACKOFF_INITIAL`, `IG_BACKOFF_MULTIPLIER`, `IG_BACKOFF_MAX`.
+- Configuración general: `IG_APP_ID`, `IG_CONCURRENCY`, `IG_MAX_RETRIES`, `IG_HEALTH_CHECK_INTERVAL`, `IG_HEALTH_TEST_ACCOUNT`.
+- Base de datos: `DB_PATH`.
+- Compatibilidad del extractor web: `email_scraper_use_playwright`, `email_scraper_force_direct`.
 
-El endpoint `GET /api/instagram/health` devuelve estado del servicio y métricas de discovery.
+El endpoint `GET /api/instagram/health` devuelve estado del servicio en modo dorking (sin login).
 
 ### `linkedinleads/.env`
 

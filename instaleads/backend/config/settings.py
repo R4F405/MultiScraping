@@ -5,10 +5,6 @@ load_dotenv()
 
 
 class Settings:
-    # Session
-    IG_USERNAME: str = os.getenv("IG_USERNAME", "")
-    IG_SESSION_KEY: str = os.getenv("IG_SESSION_KEY", "")
-
     # Proxies — lista de URLs http://user:pass@host:port/ separadas por coma
     IG_PROXY_LIST: list[str] = [
         p.strip() for p in os.getenv("IG_PROXY_LIST", "").split(",") if p.strip()
@@ -20,12 +16,6 @@ class Settings:
     IG_LIMIT_DAILY_UNAUTHENTICATED: int = int(os.getenv("IG_LIMIT_DAILY_UNAUTHENTICATED", "99999"))
     IG_DELAY_UNAUTH_MIN: float = float(os.getenv("IG_DELAY_UNAUTH_MIN", "4.0"))
     IG_DELAY_UNAUTH_MAX: float = float(os.getenv("IG_DELAY_UNAUTH_MAX", "9.0"))
-
-    # Rate limiting — authenticated (Modo B)
-    IG_LIMIT_DAILY_AUTHENTICATED: int = int(os.getenv("IG_LIMIT_DAILY_AUTHENTICATED", "80"))
-    IG_LIMIT_HOURLY_AUTHENTICATED: int = int(os.getenv("IG_LIMIT_HOURLY_AUTHENTICATED", "20"))
-    IG_DELAY_AUTH_MIN: float = float(os.getenv("IG_DELAY_AUTH_MIN", "4.0"))
-    IG_DELAY_AUTH_MAX: float = float(os.getenv("IG_DELAY_AUTH_MAX", "10.0"))
 
     # Backoff
     IG_BACKOFF_INITIAL: int = int(os.getenv("IG_BACKOFF_INITIAL", "60"))

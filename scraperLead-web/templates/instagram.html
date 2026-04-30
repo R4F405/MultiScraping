@@ -56,22 +56,14 @@
         <span id="ig-health-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
         <span id="ig-health-text" class="text-xs font-medium text-slate-600">Comprobando…</span>
       </div>
-      <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1.5">
-        <span id="ig-session-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
-        <span id="ig-session-text" class="text-xs font-medium text-slate-600">—</span>
-      </div>
     </div>
   </div>
 
   <!-- ── Status row ──────────────────────────────────────────────────── -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
     <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Conector</p>
       <p id="ig-health-details" class="text-xs text-slate-600 leading-snug">—</p>
-    </div>
-    <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
-      <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Sesión</p>
-      <p id="ig-session-details" class="text-xs text-slate-600 leading-snug">—</p>
     </div>
     <div class="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Uso diario</p>
@@ -80,13 +72,6 @@
           <span class="text-[11px] text-slate-400">Dorking</span>
           <span id="ig-usage-unauth" class="text-xs font-semibold text-slate-700 tabular-nums">—</span>
         </div>
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-[11px] text-slate-400">Seguidores</span>
-          <span id="ig-usage-auth" class="text-xs font-semibold text-slate-700 tabular-nums">—</span>
-        </div>
-        <p class="text-[11px] text-slate-400 pt-1.5 border-t border-slate-100">
-          <span id="ig-usage-hourly">—</span>
-        </p>
       </div>
     </div>
   </div>
@@ -100,10 +85,6 @@
     <button class="ig-main-tab flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition text-slate-500 hover:text-slate-700"
             data-view="leads">
       Leads
-    </button>
-    <button class="ig-main-tab flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition text-slate-500 hover:text-slate-700"
-            data-view="config">
-      Configuración
     </button>
   </div>
 
@@ -124,10 +105,6 @@
         <button id="ig-tab-dorking"
                 class="px-4 py-2 rounded-lg text-sm font-medium transition bg-white text-slate-800 shadow-sm">
           Modo A — Dorking
-        </button>
-        <button id="ig-tab-followers"
-                class="px-4 py-2 rounded-lg text-sm font-medium transition text-slate-500 hover:text-slate-700">
-          Modo B — Seguidores
         </button>
       </div>
 
@@ -179,81 +156,6 @@
         </div>
       </div>
 
-      <!-- Panel B: Followers -->
-      <div id="ig-panel-followers" class="hidden">
-
-        <!-- No-session warning (shown when no account is active) -->
-        <div id="ig-no-session-banner" class="hidden mb-5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-          <svg class="shrink-0 mt-0.5" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <div>
-            <p class="text-xs font-semibold text-amber-900 mb-0.5">Sin cuenta activa</p>
-            <p class="text-xs text-amber-800">Necesitas añadir una cuenta de Instagram en
-              <button type="button" id="ig-go-to-config-btn" class="underline font-medium hover:text-amber-900">Configuración</button>
-              para usar el Modo B.</p>
-          </div>
-        </div>
-
-        <!-- Session indicator (shown when account is active) -->
-        <div id="ig-session-indicator" class="hidden mb-4 flex items-center justify-between">
-          <p class="text-xs text-slate-500">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 mr-1.5 align-middle"></span>
-            <span id="ig-session-label">Sesión activa</span>
-            — analiza seguidores de cuentas públicas y extrae emails de sus perfiles
-          </p>
-          <button id="ig-logout-btn" type="button" class="text-xs text-slate-400 hover:text-red-500 transition">Cerrar sesión</button>
-        </div>
-
-        <!-- Scraping form (always rendered; buttons disabled when no session) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">Cuenta objetivo</label>
-            <div class="flex gap-2">
-              <input id="ig-target" type="text" placeholder="@cuenta_publica"
-                     class="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-              <button id="ig-check-profile-btn" type="button"
-                      class="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50 whitespace-nowrap">
-                Comprobar
-              </button>
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">Objetivo de emails</label>
-            <input id="ig-followers-email-goal" type="number" value="20" min="1" max="80"
-                   class="w-32 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-            <span class="text-xs text-slate-400 ml-2">máx. 80/día</span>
-          </div>
-        </div>
-        <div id="ig-profile-preview" class="hidden mb-4 bg-slate-50 rounded-xl border border-slate-200 p-4 flex items-center gap-3">
-          <img id="ig-profile-avatar" src="" alt="" class="w-10 h-10 rounded-full object-cover bg-slate-200 shrink-0">
-          <div>
-            <p id="ig-profile-username" class="text-sm font-semibold text-slate-800"></p>
-            <p id="ig-profile-meta" class="text-xs text-slate-500"></p>
-          </div>
-        </div>
-        <div class="flex items-center gap-3">
-          <button id="ig-followers-start-btn" disabled type="button"
-                  class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  style="background:linear-gradient(90deg,#833AB4,#E1306C)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Extraer seguidores
-          </button>
-          <button id="ig-followers-export-btn" disabled type="button"
-                  class="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Exportar CSV
-          </button>
-        </div>
-        <div id="ig-followers-progress" class="hidden mt-5 p-4 bg-slate-50 rounded-xl border border-slate-100">
-          <div class="flex items-center justify-between mb-2">
-            <p id="ig-followers-progress-text" class="text-xs font-semibold text-slate-600">Extrayendo…</p>
-            <p id="ig-followers-emails-text" class="text-xs text-slate-400">0 emails</p>
-          </div>
-          <div class="w-full bg-slate-200 rounded-full h-2">
-            <div id="ig-followers-bar" class="h-2 rounded-full transition-all duration-500"
-                 style="width:0%;background:linear-gradient(90deg,#833AB4,#E1306C)"></div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Job status alerts — shown in context after progress bars -->
@@ -366,113 +268,6 @@
   </div><!-- /ig-view-leads -->
 
 
-  <!-- ══════════════════════════════════════════════════════════════════
-       VIEW: CONFIGURACIÓN
-  ══════════════════════════════════════════════════════════════════ -->
-  <div id="ig-view-config" class="ig-view">
-
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-      <div class="flex items-center justify-between mb-5">
-        <div>
-          <h2 class="text-sm font-semibold text-slate-700">Pool de cuentas — Modo B</h2>
-          <p class="text-xs text-slate-400 mt-0.5">Cuentas autenticadas para extraer seguidores</p>
-        </div>
-        <button id="ig-pool-toggle-btn" type="button"
-                class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition">
-          Añadir cuenta
-        </button>
-      </div>
-
-      <div id="ig-pool-alert-banner" class="hidden mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2 text-xs"></div>
-
-      <!-- Add form (toggle) -->
-      <div id="ig-pool-add-form" class="hidden mb-5 bg-slate-50 rounded-xl border border-slate-200 p-4">
-        <p class="text-xs font-semibold text-slate-600 mb-3">Nueva cuenta</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Usuario</label>
-            <input id="ig-pool-username" type="text" placeholder="username (sin @)"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Contraseña</label>
-            <input id="ig-pool-password" type="password" placeholder="••••••••"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-slate-500 mb-1">Proxy (opcional)</label>
-            <input id="ig-pool-proxy" type="text" placeholder="user:pass@host:port"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <button id="ig-pool-add-btn"
-                  class="px-4 py-2 rounded-xl text-white text-xs font-semibold transition disabled:opacity-50"
-                  style="background:#833AB4">
-            Iniciar sesión
-          </button>
-          <button id="ig-pool-cancel-btn"
-                  class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition">
-            Cancelar
-          </button>
-        </div>
-        <p id="ig-pool-add-status" class="text-xs text-slate-500 mt-2"></p>
-      </div>
-
-      <!-- Import manual session -->
-      <div class="mb-5 bg-slate-50 rounded-xl border border-slate-200 p-4">
-        <p class="text-xs font-semibold text-slate-600 mb-3">Importar sesión manual (sin login automático)</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Usuario</label>
-            <input id="ig-import-username" type="text" placeholder="username (sin @)"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Proxy (opcional)</label>
-            <input id="ig-import-proxy" type="text" placeholder="user:pass@host:port"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-slate-500 mb-1">sessionid de Instagram</label>
-            <input id="ig-import-sessionid" type="password" placeholder="Pega aquí tu cookie sessionid"
-                   class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#833AB4]/30">
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <button id="ig-import-session-btn"
-                  class="px-4 py-2 rounded-xl text-white text-xs font-semibold transition disabled:opacity-50"
-                  style="background:#6D28D9">
-            Importar sesión
-          </button>
-        </div>
-        <p id="ig-import-session-status" class="text-xs text-slate-500 mt-2"></p>
-        <p class="text-[11px] text-slate-400 mt-2">
-          Pasos manuales: abre Instagram en tu navegador, copia la cookie <code>sessionid</code> desde DevTools
-          (Application/Storage → Cookies → instagram.com), pégala aquí y pulsa “Importar sesión”.
-        </p>
-      </div>
-
-      <!-- Pool table -->
-      <div id="ig-pool-table">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="bg-slate-50 text-left">
-              <th class="px-3 py-2.5 text-xs font-semibold text-slate-500 rounded-l-xl">Usuario</th>
-              <th class="px-3 py-2.5 text-xs font-semibold text-slate-500">Estado</th>
-              <th class="px-3 py-2.5 rounded-r-xl"></th>
-            </tr>
-          </thead>
-          <tbody id="ig-pool-tbody"></tbody>
-        </table>
-        <p id="ig-pool-empty" class="text-center text-slate-400 py-8 text-sm">
-          Sin cuentas en el pool. Añade una para habilitar el Modo B.
-        </p>
-      </div>
-    </div>
-
-  </div><!-- /ig-view-config -->
-
 </div><!-- /#instagram-form-page -->
 {% endblock %}
 
@@ -556,10 +351,6 @@
           <svg class="shrink-0 mt-0.5 text-green-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           Si un job se queda corto, <strong>espera 3 días</strong> y vuelve a lanzarlo: el pool de candidatos se renueva.
         </li>
-        <li class="flex gap-2">
-          <svg class="shrink-0 mt-0.5 text-green-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          El <strong>Modo B (Seguidores)</strong> complementa bien: analiza los seguidores de un competidor grande en el nicho.
-        </li>
       </ul>
     </div>
 
@@ -567,13 +358,12 @@
 </div>
 
 <script type="module">
-  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=21';
+  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=22';
 
   // ── Main view switcher (Scraper / Leads / Configuración) ──────────────────
   const views = {
     scraper: document.getElementById('ig-view-scraper'),
     leads:   document.getElementById('ig-view-leads'),
-    config:  document.getElementById('ig-view-config'),
   };
   const tabs = document.querySelectorAll('.ig-main-tab');
 
@@ -589,6 +379,10 @@
 
   tabs.forEach(t => t.addEventListener('click', () => switchMain(t.dataset.view)));
   window.switchMainView = switchMain;
+
+  // Auto-switch to Leads tab when arriving from ?view=leads (e.g. from Bases de datos)
+  const _viewParam = new URLSearchParams(window.location.search).get('view');
+  if (_viewParam === 'leads') switchMain('leads');
 
   // Make sub-nav buttons always show Leads view when clicked
   document.getElementById('ig-btn-todos')?.addEventListener('click',   () => switchMain('leads'), true);
@@ -609,7 +403,7 @@
     if (!jobDetailHeader) return;
     jobDetailHeader.classList.remove('hidden');
     const target = (job.target || '').replace('|', ' · ');
-    const mode = job.mode === 'dorking' ? 'Dorking' : 'Seguidores';
+    const mode = 'Dorking';
     jobDetailTitle.textContent = `${target || '—'}`;
     const d = job.started_at ? new Date(job.started_at).toLocaleString('es-ES') : '';
     jobDetailMeta.textContent = `${mode} · ${statusLabel(job.status)} · ${job.emails_found ?? 0} emails · ${d}`;

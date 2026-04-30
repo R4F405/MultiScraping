@@ -7,34 +7,25 @@ export function initInstagramForm() {
   page.dataset.igFormInit = '1';
 
   // ── State ─────────────────────────────────────────────────────────────
-  let activeMode = 'dorking'; // 'dorking' | 'followers'
   let dorkingJobId = null;
-  let followersJobId = null;
   let dorkingPollInterval = null;
-  let followersPollInterval = null;
   let allLeads = [];
   let filteredLeads = [];
   let activeFilters = { hasEmail: false, businessOnly: false };
-  let profileVerified = false;
   let igView = 'todos';
   let displayedJobId = null;
   let jobsLoaded = false;
-  let sessionActive = false;
   let maintenanceMode = false;
   // Start blocked — enabled only after /api/instagram/limits confirms it's safe
   let limitsState = {
     can_start_dorking: false,
-    can_start_followers: false,
     unauth_daily_reached: true,
-    auth_daily_reached: true,
-    auth_hourly_reached: false,
     used_today_unauth: 0,
   };
   let limitsLoaded = false;
 
   // Fallback display limits — overridden by actual values from /api/instagram/limits
   const MAX_UNAUTH_DAILY = 500;
-  const MAX_AUTH_DAILY = 80;
 
   const urlJobId = (() => {
     try {
@@ -54,18 +45,10 @@ export function initInstagramForm() {
   const healthDot = document.getElementById('ig-health-dot');
   const healthText = document.getElementById('ig-health-text');
   const healthDetails = document.getElementById('ig-health-details');
-  const sessionDot = document.getElementById('ig-session-dot');
-  const sessionText = document.getElementById('ig-session-text');
-  const sessionDetails = document.getElementById('ig-session-details');
   const usageUnauth = document.getElementById('ig-usage-unauth');
-  const usageAuth = document.getElementById('ig-usage-auth');
-  const usageHourly = document.getElementById('ig-usage-hourly');
 
   // Tabs
   const tabDorking = document.getElementById('ig-tab-dorking');
-  const tabFollowers = document.getElementById('ig-tab-followers');
-  const panelDorking = document.getElementById('ig-panel-dorking');
-  const panelFollowers = document.getElementById('ig-panel-followers');
 
   // Help modal
   const helpBtn = document.getElementById('ig-help-btn');
@@ -87,22 +70,6 @@ export function initInstagramForm() {
   const dorkingBar = document.getElementById('ig-dorking-bar');
   const dorkingProgressText = document.getElementById('ig-dorking-progress-text');
   const dorkingEmailsText = document.getElementById('ig-dorking-emails-text');
-
-  // Mode B — followers
-  const logoutBtn = document.getElementById('ig-logout-btn');
-  const targetInput = document.getElementById('ig-target');
-  const followersEmailGoal = document.getElementById('ig-followers-email-goal');
-  const checkProfileBtn = document.getElementById('ig-check-profile-btn');
-  const followersStartBtn = document.getElementById('ig-followers-start-btn');
-  const followersExportBtn = document.getElementById('ig-followers-export-btn');
-  const followersProgress = document.getElementById('ig-followers-progress');
-  const followersBar = document.getElementById('ig-followers-bar');
-  const followersProgressText = document.getElementById('ig-followers-progress-text');
-  const followersEmailsText = document.getElementById('ig-followers-emails-text');
-  const profilePreview = document.getElementById('ig-profile-preview');
-  const profileAvatar = document.getElementById('ig-profile-avatar');
-  const profileUsername = document.getElementById('ig-profile-username');
-  const profileMeta = document.getElementById('ig-profile-meta');
 
   // Results
   const btnTodos = document.getElementById('ig-btn-todos');
@@ -184,24 +151,9 @@ export function initInstagramForm() {
     return Number.isNaN(n) ? fallback : Math.max(min, Math.min(max, n));
   };
 
-  // ── Tabs ──────────────────────────────────────────────────────────────
-  const setActiveTab = (mode) => {
-    activeMode = mode;
-    const isDorking = mode === 'dorking';
-
-    tabDorking.className = `px-4 py-2 rounded-lg text-sm font-medium transition ${
-      isDorking ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-    }`;
-    tabFollowers.className = `px-4 py-2 rounded-lg text-sm font-medium transition ${
-      !isDorking ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-    }`;
-
-    panelDorking.classList.toggle('hidden', !isDorking);
-    panelFollowers.classList.toggle('hidden', isDorking);
-  };
-
-  tabDorking.addEventListener('click', () => setActiveTab('dorking'));
-  tabFollowers.addEventListener('click', () => setActiveTab('followers'));
+  if (tabDorking) {
+    tabDorking.className = 'px-4 py-2 rounded-lg text-sm font-medium transition bg-white text-slate-800 shadow-sm';
+  }
 
   // ── Health ────────────────────────────────────────────────────────────
   const updateHealthUi = (health) => {
@@ -218,48 +170,9 @@ export function initInstagramForm() {
     applyMaintenanceMode(Boolean(health?.maintenance_mode || status === 'broken'), health?.message || health?.last_error);
   };
 
-  // ── Session ───────────────────────────────────────────────────────────
-  const noSessionBanner = document.getElementById('ig-no-session-banner');
-  const sessionIndicator = document.getElementById('ig-session-indicator');
-  const sessionLabel = document.getElementById('ig-session-label');
-
-  const updateSessionUi = (session) => {
-    sessionActive = Boolean(session?.logged_in);
-
-    if (sessionActive) {
-      const user = session.username ? `@${session.username}` : '';
-      const age = session.session_age_hours != null ? ` · hace ${session.session_age_hours}h` : '';
-      if (sessionDot) sessionDot.className = 'w-2.5 h-2.5 rounded-full bg-purple-500 shrink-0';
-      if (sessionText) sessionText.textContent = 'Sesión activa';
-      if (sessionDetails) sessionDetails.textContent = `${user}${age}`;
-      if (sessionLabel) sessionLabel.textContent = user || 'Sesión activa';
-      noSessionBanner?.classList.add('hidden');
-      sessionIndicator?.classList.remove('hidden');
-    } else {
-      if (sessionDot) sessionDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0';
-      if (sessionText) sessionText.textContent = 'Sin sesión';
-      if (sessionDetails) sessionDetails.textContent = 'Necesaria para Modo B';
-      noSessionBanner?.classList.remove('hidden');
-      sessionIndicator?.classList.add('hidden');
-    }
-
-    updateActionButtons();
-  };
-
-  const loadSession = async () => {
-    try {
-      const res = await fetch('/api/instagram/session');
-      if (!res.ok) { updateSessionUi(null); return; }
-      const data = await res.json();
-      updateSessionUi(data);
-    } catch (_) { updateSessionUi(null); }
-  };
-
   const updateActionButtons = () => {
     const dorkingBlocked = maintenanceMode || !limitsLoaded || !limitsState.can_start_dorking;
     if (dorkingStartBtn) dorkingStartBtn.disabled = dorkingBlocked;
-    if (!followersStartBtn) return;
-    followersStartBtn.disabled = maintenanceMode || !limitsLoaded || !sessionActive || !profileVerified || !limitsState.can_start_followers;
   };
 
   const applyMaintenanceMode = (enabled, message) => {
@@ -268,10 +181,6 @@ export function initInstagramForm() {
     if (maintenanceMode && message) {
       showAlert(message, 'warn');
     }
-    if (checkProfileBtn) checkProfileBtn.disabled = maintenanceMode;
-    // Avoid touching variables declared later (prevents early init crash).
-    const poolAddBtnEl = document.getElementById('ig-pool-add-btn');
-    if (poolAddBtnEl) poolAddBtnEl.disabled = maintenanceMode;
     updateActionButtons();
   };
 
@@ -282,15 +191,10 @@ export function initInstagramForm() {
       if (!res.ok) return;
       const data = await res.json();
       if (usageUnauth) usageUnauth.textContent = `${data.used_today_unauth ?? '—'}/${data.daily_unauth ?? MAX_UNAUTH_DAILY}`;
-      if (usageAuth) usageAuth.textContent = `${data.used_today_auth ?? '—'}/${data.daily_auth ?? MAX_AUTH_DAILY}`;
-      if (usageHourly) usageHourly.textContent = `Esta hora: ${data.used_this_hour_auth ?? '—'}/${data.hourly_auth ?? 35}`;
 
       limitsState = {
         can_start_dorking: Boolean(data.can_start_dorking),
-        can_start_followers: Boolean(data.can_start_followers),
         unauth_daily_reached: Boolean(data.unauth_daily_reached),
-        auth_daily_reached: Boolean(data.auth_daily_reached),
-        auth_hourly_reached: Boolean(data.auth_hourly_reached),
         used_today_unauth: Number(data.used_today_unauth ?? 0),
       };
       limitsLoaded = true;
@@ -299,100 +203,13 @@ export function initInstagramForm() {
 
       const blocks = [];
       if (limitsState.unauth_daily_reached) blocks.push('Modo A bloqueado por límite diario');
-      if (limitsState.auth_hourly_reached) blocks.push('Modo B bloqueado por límite por hora');
-      if (limitsState.auth_daily_reached) blocks.push('Modo B bloqueado por límite diario');
       if (blocks.length) {
-        const hasDailyBlock = limitsState.unauth_daily_reached || limitsState.auth_daily_reached;
-        showLimitAlert(`${blocks.join(' · ')}. `, 'warn', hasDailyBlock);
+        showLimitAlert(`${blocks.join(' · ')}. `, 'warn', limitsState.unauth_daily_reached);
       } else {
         hideLimitAlert();
       }
     } catch (_) {}
   };
-
-  // ── Logout ────────────────────────────────────────────────────────────
-  logoutBtn?.addEventListener('click', async () => {
-    try {
-      await fetch('/api/instagram/session', { method: 'DELETE' });
-    } catch (_) {}
-    updateSessionUi(null);
-  });
-
-  // "Ir a Configuración" link inside the no-session banner
-  document.getElementById('ig-go-to-config-btn')?.addEventListener('click', () => {
-    window.switchMainView?.('config');
-  });
-
-  // ── Profile preview (Mode B) ──────────────────────────────────────────
-  const hideProfilePreview = () => {
-    profilePreview?.classList.add('hidden');
-    if (profileAvatar) profileAvatar.src = '';
-    if (profileUsername) profileUsername.textContent = '';
-    if (profileMeta) profileMeta.textContent = '';
-    profileVerified = false;
-  };
-
-  const showProfilePreview = (profile) => {
-    const uname = safeText(profile?.username, '').trim();
-    if (!uname) { hideProfilePreview(); return; }
-    profilePreview?.classList.remove('hidden');
-    if (profileUsername) profileUsername.textContent = `@${uname}`;
-    const followers = Number.isFinite(Number(profile?.follower_count))
-      ? Number(profile.follower_count).toLocaleString('es-ES') : '0';
-    const biz = profile?.is_business_account ? 'Business' : 'Personal';
-    const priv = profile?.is_private ? 'Privada' : 'Pública';
-    if (profileMeta) profileMeta.textContent = `${followers} seguidores · ${biz} · ${priv}`;
-    if (profileAvatar) {
-      const rawAvatarUrl = String(profile?.profile_pic_url || '').trim();
-      profileAvatar.src = rawAvatarUrl
-        ? `/api/instagram/avatar?url=${encodeURIComponent(rawAvatarUrl)}`
-        : 'about:blank';
-    }
-  };
-
-  const updateFollowersStartBtn = () => updateActionButtons();
-
-  checkProfileBtn?.addEventListener('click', async () => {
-    if (maintenanceMode) {
-      showAlert('Instagram está en mantenimiento temporal.', 'warn');
-      return;
-    }
-    hideAlert();
-    const target = String(targetInput?.value || '').trim().replace(/^@/, '');
-    if (!target) { showAlert('Introduce el username a comprobar.'); return; }
-
-    checkProfileBtn.disabled = true;
-    checkProfileBtn.textContent = 'Comprobando...';
-    hideProfilePreview();
-
-    try {
-      const res = await fetch(`/api/instagram/profile/${encodeURIComponent(target)}`);
-      if (!res.ok) {
-        profileVerified = false;
-        showAlert(res.status === 404
-          ? 'Perfil no encontrado o privado.'
-          : 'No se pudo comprobar el perfil ahora mismo.', 'warn');
-      } else {
-        const profile = await res.json();
-        showProfilePreview(profile);
-        profileVerified = true;
-        hideAlert();
-      }
-    } catch (_) {
-      profileVerified = false;
-      showAlert('Error de conexión al comprobar el perfil.');
-    } finally {
-      checkProfileBtn.disabled = false;
-      checkProfileBtn.textContent = 'Comprobar perfil';
-      updateFollowersStartBtn();
-    }
-  });
-
-  targetInput?.addEventListener('input', () => {
-    profileVerified = false;
-    hideProfilePreview();
-    updateFollowersStartBtn();
-  });
 
   // ── Progress helpers ──────────────────────────────────────────────────
   const updateProgress = (job, barEl, progressTextEl, emailsTextEl, progressWrapEl) => {
@@ -423,7 +240,7 @@ export function initInstagramForm() {
   // ── Polling ───────────────────────────────────────────────────────────
   const stopPoll = (intervalRef) => { if (intervalRef) clearInterval(intervalRef); };
 
-  const makePollFn = (jobIdGetter, barEl, progressTextEl, emailsTextEl, progressWrapEl, exportBtnEl, modeLabel) => {
+  const makePollFn = (jobIdGetter, barEl, progressTextEl, emailsTextEl, progressWrapEl, exportBtnEl) => {
     return async () => {
       const jobId = jobIdGetter();
       if (!jobId) return;
@@ -434,8 +251,8 @@ export function initInstagramForm() {
         updateProgress(job, barEl, progressTextEl, emailsTextEl, progressWrapEl);
 
         if (job.status === 'completed') {
-          if (modeLabel === 'dorking') { stopPoll(dorkingPollInterval); dorkingPollInterval = null; }
-          else { stopPoll(followersPollInterval); followersPollInterval = null; }
+          stopPoll(dorkingPollInterval);
+          dorkingPollInterval = null;
           hideProgress(progressWrapEl, barEl);
           if (exportBtnEl) exportBtnEl.disabled = false;
           await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
@@ -446,8 +263,8 @@ export function initInstagramForm() {
           showAlert('Extracción completada.', 'ok');
           await loadUsage();
         } else if (job.status === 'completed_partial') {
-          if (modeLabel === 'dorking') { stopPoll(dorkingPollInterval); dorkingPollInterval = null; }
-          else { stopPoll(followersPollInterval); followersPollInterval = null; }
+          stopPoll(dorkingPollInterval);
+          dorkingPollInterval = null;
           hideProgress(progressWrapEl, barEl);
           if (exportBtnEl) exportBtnEl.disabled = false;
           await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
@@ -480,22 +297,20 @@ export function initInstagramForm() {
           }
           showAlert(`Pausado por límite horario; reanudación automática ${retryLabel}.`, 'warn');
         } else if (job.status === 'rate_limited') {
-          if (modeLabel === 'dorking') { stopPoll(dorkingPollInterval); dorkingPollInterval = null; }
-          else { stopPoll(followersPollInterval); followersPollInterval = null; }
+          stopPoll(dorkingPollInterval);
+          dorkingPollInterval = null;
           const emails = Math.max(0, Number(job?.emails_found ?? 0));
           const progress = Math.max(0, Number(job?.progress ?? 0));
           const total = Math.max(0, Number(job?.total ?? 0));
-          const reason = safeText(job?.status_detail) || (modeLabel === 'followers'
-            ? 'límite horario o diario del modo con sesión'
-            : 'límite diario del modo sin sesión');
+          const reason = safeText(job?.status_detail) || 'límite diario del modo sin sesión';
           showAlert(
             `Extracción detenida por ${reason}. Se han guardado ${emails} emails (${progress}/${total || '?'} perfiles procesados).`,
             'warn',
           );
           await loadUsage();
         } else if (job.status === 'failed') {
-          if (modeLabel === 'dorking') { stopPoll(dorkingPollInterval); dorkingPollInterval = null; }
-          else { stopPoll(followersPollInterval); followersPollInterval = null; }
+          stopPoll(dorkingPollInterval);
+          dorkingPollInterval = null;
           showAlert(`Extracción fallida: ${safeText(job?.failure_reason) || 'revisa los logs.'}`, 'error');
         }
       } catch (_) {}
@@ -549,7 +364,7 @@ export function initInstagramForm() {
       dorkingJobId = data.job_id;
       updateProgress({ progress: 0, total: emailGoal, emails_found: 0 }, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress);
       dorkingPollInterval = window.setInterval(
-        makePollFn(() => dorkingJobId, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress, dorkingExportBtn, 'dorking'),
+        makePollFn(() => dorkingJobId, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress, dorkingExportBtn),
         2000,
       );
     } catch (err) {
@@ -562,61 +377,6 @@ export function initInstagramForm() {
   });
 
   dorkingExportBtn?.addEventListener('click', () => exportLeads(dorkingJobId));
-
-  // ── Mode B — followers ────────────────────────────────────────────────
-  followersStartBtn?.addEventListener('click', async () => {
-    if (maintenanceMode) {
-      showAlert('Instagram está en mantenimiento temporal.', 'warn');
-      return;
-    }
-    hideAlert();
-    const target = String(targetInput?.value || '').trim().replace(/^@/, '');
-    if (!target) { showAlert('Introduce el username objetivo.'); return; }
-    if (!profileVerified) { showAlert('Primero pulsa "Comprobar perfil".', 'warn'); return; }
-    if (!sessionActive) { showAlert('Necesitas sesión activa para Modo B.', 'warn'); return; }
-    if (!limitsState.can_start_followers) {
-      showAlert('No puedes iniciar Modo B: se alcanzó un límite de uso (hora o día).', 'warn');
-      return;
-    }
-
-    followersStartBtn.disabled = true;
-    followersStartBtn.textContent = 'Iniciando...';
-    if (followersExportBtn) followersExportBtn.disabled = true;
-    hideProgress(followersProgress, followersBar);
-    allLeads = []; applyFilters();
-    if (followersPollInterval) { clearInterval(followersPollInterval); followersPollInterval = null; }
-
-    try {
-      const emailGoal = clamp(followersEmailGoal?.value, 1, 500, 20);
-      const res = await fetch('/api/instagram/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'followers', target, email_goal: emailGoal }),
-      });
-      if (!res.ok) {
-        let msg = `Error ${res.status}`;
-        try {
-          const err = await res.json();
-          msg = err?.detail || msg;
-        } catch (_) {}
-        throw new Error(msg);
-      }
-      const data = await res.json();
-      followersJobId = data.job_id;
-      updateProgress({ progress: 0, total: emailGoal, emails_found: 0 }, followersBar, followersProgressText, followersEmailsText, followersProgress);
-      followersPollInterval = window.setInterval(
-        makePollFn(() => followersJobId, followersBar, followersProgressText, followersEmailsText, followersProgress, followersExportBtn, 'followers'),
-        2000,
-      );
-    } catch (err) {
-      showAlert(`No se pudo iniciar la extracción: ${err.message}`);
-    } finally {
-      followersStartBtn.textContent = 'Extraer seguidores';
-      updateFollowersStartBtn();
-    }
-  });
-
-  followersExportBtn?.addEventListener('click', () => exportLeads(followersJobId));
 
   // ── Export ────────────────────────────────────────────────────────────
   const exportLeads = (jobId) => {
@@ -822,8 +582,8 @@ export function initInstagramForm() {
         if (s === 'completed_partial') return 'Parcial';
         return 'Completado';
       };
-      const modeColor = (m) => m === 'dorking' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600';
-      const modeLabel = (m) => m === 'dorking' ? 'Dorking' : 'Followers';
+      const modeColor = () => 'bg-orange-100 text-orange-600';
+      const modeLabel = () => 'Dorking';
 
       for (const job of arr) {
         const jobId = job?.job_id;
@@ -921,13 +681,11 @@ export function initInstagramForm() {
 
   updateHealthUi(initialHealth);
   hideLimitAlert();
-  setActiveTab('dorking');
   setIgViewUi(igView);
 
   // Load state in parallel
   (async () => {
     await Promise.allSettled([
-      loadSession(),
       loadUsage(),
       (async () => {
         try {
@@ -952,18 +710,9 @@ export function initInstagramForm() {
     const mode = runningJob.mode;
     if (mode === 'dorking') {
       dorkingJobId = runningJob.job_id;
-      setActiveTab('dorking');
       dorkingProgress?.classList.remove('hidden');
       dorkingPollInterval = window.setInterval(
-        makePollFn(() => dorkingJobId, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress, dorkingExportBtn, 'dorking'),
-        2000,
-      );
-    } else if (mode === 'followers') {
-      followersJobId = runningJob.job_id;
-      setActiveTab('followers');
-      followersProgress?.classList.remove('hidden');
-      followersPollInterval = window.setInterval(
-        makePollFn(() => followersJobId, followersBar, followersProgressText, followersEmailsText, followersProgress, followersExportBtn, 'followers'),
+        makePollFn(() => dorkingJobId, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress, dorkingExportBtn),
         2000,
       );
     }
@@ -1011,263 +760,6 @@ export function initInstagramForm() {
   _retryDelays.forEach((delay) => {
     window.setTimeout(async () => { if (!limitsLoaded) await loadUsage(); }, delay);
   });
-
-  // ── Account pool management ────────────────────────────────────────────────
-  try {
-    const poolToggleBtn = document.getElementById('ig-pool-toggle-btn');
-    const poolAddForm = document.getElementById('ig-pool-add-form');
-    const poolAddBtn = document.getElementById('ig-pool-add-btn');
-    const poolCancelBtn = document.getElementById('ig-pool-cancel-btn');
-    const poolUsernameInput = document.getElementById('ig-pool-username');
-    const poolPasswordInput = document.getElementById('ig-pool-password');
-    const poolProxyInput = document.getElementById('ig-pool-proxy');
-    const poolAddStatus = document.getElementById('ig-pool-add-status');
-    const poolTable = document.getElementById('ig-pool-table');
-    const poolTbody = document.getElementById('ig-pool-tbody');
-    const poolEmpty = document.getElementById('ig-pool-empty');
-
-    // Banner de alerta para cuentas que necesitan login manual
-    const poolAlertBanner = document.getElementById('ig-pool-alert-banner');
-    const importUsernameInput = document.getElementById('ig-import-username');
-    const importSessionidInput = document.getElementById('ig-import-sessionid');
-    const importProxyInput = document.getElementById('ig-import-proxy');
-    const importSessionBtn = document.getElementById('ig-import-session-btn');
-    const importSessionStatus = document.getElementById('ig-import-session-status');
-
-    function renderPoolAccounts(accounts) {
-      if (!poolTbody) return;
-      poolTbody.innerHTML = '';
-
-      // Show/hide banner if any account needs manual login
-      const manualAccounts = (accounts || []).filter((a) => a.needs_manual_login);
-      if (poolAlertBanner) {
-        if (manualAccounts.length > 0) {
-          const names = manualAccounts.map((a) => `@${a.username}`).join(', ');
-          poolAlertBanner.textContent = `⚠ Login manual requerido en: ${names}. Abre la app de Instagram, completa la verificación y pulsa "Reconectar".`;
-          poolAlertBanner.classList.remove('hidden');
-        } else {
-          poolAlertBanner.classList.add('hidden');
-        }
-      }
-
-      if (!accounts || accounts.length === 0) {
-        poolTable?.classList.add('hidden');
-        poolEmpty?.classList.remove('hidden');
-        return;
-      }
-      poolTable?.classList.remove('hidden');
-      poolEmpty?.classList.add('hidden');
-
-      for (const acc of accounts) {
-        const tr = document.createElement('tr');
-        tr.className = 'border-b border-slate-50 hover:bg-slate-50 transition';
-
-        const needsManual = Boolean(acc.needs_manual_login);
-        const statusColor = needsManual
-          ? 'text-amber-600'
-          : acc.status === 'active' ? 'text-green-600'
-          : acc.status === 'cooldown' ? 'text-amber-600'
-          : 'text-slate-400';
-        const statusLabel = needsManual ? 'Login manual' : acc.status === 'active' ? 'Activa' : acc.status === 'cooldown' ? 'Cooldown' : 'Desactivada';
-        const primaryBadge = acc.is_primary
-          ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-semibold">Principal</span>`
-          : '';
-        const reloginBtn = needsManual
-          ? `<button class="ig-pool-relogin-btn text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded-lg transition mr-2" data-username="${acc.username}" title="${acc.manual_login_reason || ''}">Reconectar</button>`
-          : '';
-
-        tr.innerHTML = `
-          <td class="px-3 py-2 font-medium text-slate-800">@${acc.username}${primaryBadge}</td>
-          <td class="px-3 py-2 text-xs font-semibold ${statusColor}">${statusLabel}</td>
-          <td class="px-3 py-2 text-slate-500">${acc.requests_this_hour ?? 0}/35</td>
-          <td class="px-3 py-2 text-slate-400 text-xs truncate max-w-[140px]">${acc.proxy_url || '—'}</td>
-          <td class="px-3 py-2 text-right whitespace-nowrap">
-            ${reloginBtn}
-            <button class="ig-pool-remove-btn text-xs text-red-500 hover:text-red-700 transition" data-username="${acc.username}">Eliminar</button>
-          </td>
-        `;
-        poolTbody.appendChild(tr);
-      }
-
-      poolTbody.querySelectorAll('.ig-pool-remove-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const username = btn.dataset.username;
-          if (!confirm(`¿Eliminar la cuenta @${username} del pool?`)) return;
-          try {
-            await fetch(`/api/instagram/accounts/${encodeURIComponent(username)}`, { method: 'DELETE' });
-            await loadPoolAccounts();
-            await loadSession();
-          } catch (err) {
-            console.error('Error removing account:', err);
-          }
-        });
-      });
-
-      poolTbody.querySelectorAll('.ig-pool-relogin-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const username = btn.dataset.username;
-          btn.disabled = true;
-          btn.textContent = 'Reconectando…';
-          try {
-            const res = await fetch(`/api/instagram/accounts/relogin/${encodeURIComponent(username)}`, {
-              method: 'POST',
-            });
-            const data = await res.json();
-            if (data.status === 'ok') {
-              await loadPoolAccounts();
-              await loadSession();
-            } else if (data.status === 'challenge' || data.status === 'phone' || data.status === '2fa') {
-              btn.disabled = false;
-              btn.textContent = 'Reconectar';
-              if (poolAlertBanner) {
-                poolAlertBanner.textContent = `⚠ @${username} sigue requiriendo verificación manual: ${data.message}`;
-                poolAlertBanner.classList.remove('hidden');
-              }
-            } else {
-              btn.disabled = false;
-              btn.textContent = 'Reconectar';
-            }
-          } catch (_) {
-            btn.disabled = false;
-            btn.textContent = 'Reconectar';
-          }
-        });
-      });
-    }
-
-    async function loadPoolAccounts() {
-      try {
-        const res = await fetch('/api/instagram/accounts');
-        if (!res.ok) return;
-        const accounts = await res.json();
-        renderPoolAccounts(accounts);
-      } catch (_) {}
-    }
-
-    poolToggleBtn?.addEventListener('click', () => {
-      const hidden = poolAddForm?.classList.contains('hidden');
-      if (hidden) {
-        poolAddForm?.classList.remove('hidden');
-        poolToggleBtn.textContent = 'Cancelar';
-      } else {
-        poolAddForm?.classList.add('hidden');
-        poolToggleBtn.textContent = 'Añadir cuenta';
-      }
-    });
-
-    poolCancelBtn?.addEventListener('click', () => {
-      poolAddForm?.classList.add('hidden');
-      poolToggleBtn.textContent = 'Añadir cuenta';
-      if (poolAddStatus) poolAddStatus.textContent = '';
-    });
-
-    poolAddBtn?.addEventListener('click', async () => {
-      if (maintenanceMode) {
-        if (poolAddStatus) poolAddStatus.textContent = 'Instagram está en mantenimiento temporal.';
-        return;
-      }
-      const username = poolUsernameInput?.value?.trim();
-      const password = poolPasswordInput?.value;
-      const proxyUrl = poolProxyInput?.value?.trim() || null;
-
-      if (!username || !password) {
-        if (poolAddStatus) poolAddStatus.textContent = 'Usuario y contraseña requeridos.';
-        return;
-      }
-
-      poolAddBtn.disabled = true;
-      if (poolAddStatus) poolAddStatus.textContent = 'Iniciando sesión…';
-
-      try {
-        const res = await fetch('/api/instagram/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, proxy_url: proxyUrl }),
-        });
-        let data = {};
-        try {
-          data = await res.json();
-        } catch (_) {
-          data = {};
-        }
-        if (!res.ok) {
-          const msg = data.message || data.detail || 'Error al añadir la cuenta.';
-          if (poolAddStatus) poolAddStatus.textContent = msg;
-          return;
-        }
-        if (poolAddStatus) poolAddStatus.textContent = `✓ Cuenta @${username} añadida.`;
-        if (poolUsernameInput) poolUsernameInput.value = '';
-        if (poolPasswordInput) poolPasswordInput.value = '';
-        if (poolProxyInput) poolProxyInput.value = '';
-        await loadPoolAccounts();
-        await loadSession();
-        setTimeout(() => {
-          poolAddForm?.classList.add('hidden');
-          poolToggleBtn.textContent = 'Añadir cuenta';
-          if (poolAddStatus) poolAddStatus.textContent = '';
-        }, 1500);
-      } catch (err) {
-        if (poolAddStatus) poolAddStatus.textContent = 'Error de conexión.';
-      } finally {
-        poolAddBtn.disabled = false;
-      }
-    });
-
-    importSessionBtn?.addEventListener('click', async () => {
-      if (maintenanceMode) {
-        if (importSessionStatus) importSessionStatus.textContent = 'Instagram está en mantenimiento temporal.';
-        return;
-      }
-
-      const username = importUsernameInput?.value?.trim();
-      const sessionid = importSessionidInput?.value?.trim();
-      const proxyUrl = importProxyInput?.value?.trim() || null;
-
-      if (!username || !sessionid) {
-        if (importSessionStatus) importSessionStatus.textContent = 'Usuario y sessionid son obligatorios.';
-        return;
-      }
-
-      importSessionBtn.disabled = true;
-      if (importSessionStatus) importSessionStatus.textContent = 'Importando sesión…';
-
-      try {
-        const res = await fetch('/api/instagram/session/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, sessionid, proxy_url: proxyUrl }),
-        });
-        let data = {};
-        try {
-          data = await res.json();
-        } catch (_) {
-          data = {};
-        }
-        if (!res.ok) {
-          const msg = data.message || data.detail || 'No se pudo importar la sesión.';
-          if (importSessionStatus) importSessionStatus.textContent = msg;
-          return;
-        }
-
-        const importedUser = data.username || username;
-        if (importSessionStatus) importSessionStatus.textContent = `✓ Sesión importada para @${importedUser}.`;
-        if (importSessionidInput) importSessionidInput.value = '';
-        await loadPoolAccounts();
-        await loadSession();
-      } catch (_) {
-        if (importSessionStatus) importSessionStatus.textContent = 'Error de conexión al importar sesión.';
-      } finally {
-        importSessionBtn.disabled = false;
-      }
-    });
-
-    // Load pool accounts on init and refresh every 30s
-    loadPoolAccounts().catch(() => {});
-    window.setInterval(loadPoolAccounts, 30000);
-  } catch (err) {
-    console.error('Instagram pool init failed:', err);
-    showAlert('No se pudo inicializar la sección de cuentas de Instagram. Recarga la página o revisa la configuración del backend.', 'warn');
-  }
 
   // Refresh jobs list periodically so new completed jobs appear in Scrapeos history
   window.setInterval(() => {

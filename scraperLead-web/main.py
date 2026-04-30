@@ -1,14 +1,16 @@
 import asyncio
 import os
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote
 
 import httpx
+from auth import get_current_user, is_ip_allowed, parse_ip_whitelist, parse_users, verify_password
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi import FastAPI, Form, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 load_dotenv()
 
@@ -20,6 +22,12 @@ MAPLEADS_URL = os.getenv("MAPLEADS_API_URL", "http://localhost:8001").rstrip("/"
 INSTALEADS_URL = os.getenv("INSTALEADS_API_URL", "http://localhost:8002").rstrip("/")
 LINKEDINLEADS_URL = os.getenv("LINKEDINLEADS_API_URL", "http://localhost:8003").rstrip("/")
 MAPLEADS_API_KEY = os.getenv("MAPLEADS_API_KEY", "").strip()
+
+USERS: dict[str, str] = parse_users(os.getenv("AUTH_USERS", ""))
+IP_WHITELIST: list = parse_ip_whitelist(os.getenv("IP_WHITELIST", ""))
+SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-in-production")
+SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "28800"))
+HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -65,6 +73,70 @@ templates.env.filters["format_number"] = format_number
 templates.env.filters["format_date"] = format_date
 templates.env.filters["format_duration"] = format_duration
 templates.env.globals["format_duration"] = format_duration
+templates.env.globals["get_user"] = lambda req: req.session.get("user") if hasattr(req, "session") else None
+
+
+# ── Auth middleware ───────────────────────────────────────────────────────────
+
+_PUBLIC_PATHS = ("/auth/login", "/auth/logout", "/static")
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if any(path.startswith(p) for p in _PUBLIC_PATHS):
+        return await call_next(request)
+
+    ip = request.client.host
+    if not is_ip_allowed(ip, IP_WHITELIST):
+        return JSONResponse({"detail": "Acceso denegado desde esta IP"}, status_code=403)
+
+    user = request.session.get("user")
+    if not user:
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "No autenticado"}, status_code=401)
+        next_url = request.url.path
+        if request.url.query:
+            next_url += "?" + str(request.url.query)
+        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
+
+    return await call_next(request)
+
+
+# SessionMiddleware must be added AFTER @app.middleware("http") so it runs first (outermost).
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION_MAX_AGE, https_only=HTTPS_ONLY)
+
+
+# ── Auth routes ───────────────────────────────────────────────────────────────
+
+@app.get("/auth/login")
+async def auth_login_get(request: Request, next: str = Query(default="/")):
+    if get_current_user(request):
+        return RedirectResponse("/", status_code=302)
+    error = request.session.pop("login_error", None)
+    return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
+
+
+@app.post("/auth/login")
+async def auth_login_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(default="/"),
+):
+    hashed = USERS.get(username.strip())
+    if hashed and verify_password(password, hashed):
+        request.session["user"] = username.strip()
+        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/"
+        return RedirectResponse(redirect_to, status_code=303)
+    request.session["login_error"] = "Usuario o contraseña incorrectos"
+    return RedirectResponse(f"/auth/login?next={quote(next, safe='')}", status_code=303)
+
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/auth/login", status_code=302)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -403,11 +475,6 @@ async def ig_diagnose(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/diagnose", request)
 
 
-@app.get("/api/instagram/profile/{username}")
-async def ig_profile(username: str, request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/profile/{username}", request)
-
-
 @app.post("/api/instagram/search")
 async def ig_search(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/search", request)
@@ -433,49 +500,9 @@ async def ig_export(job_id: str, request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/export/{job_id}", request)
 
 
-@app.post("/api/instagram/login")
-async def ig_login(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/login", request)
-
-
-@app.get("/api/instagram/session")
-async def ig_session_get(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/session", request)
-
-
-@app.delete("/api/instagram/session")
-async def ig_session_delete(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/session", request)
-
-
-@app.post("/api/instagram/session/import")
-async def ig_session_import(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/session/import", request)
-
-
 @app.get("/api/instagram/limits")
 async def ig_limits(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/limits", request)
-
-
-@app.get("/api/instagram/accounts")
-async def ig_accounts_list(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/accounts", request)
-
-
-@app.post("/api/instagram/accounts")
-async def ig_accounts_add(request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/accounts", request)
-
-
-@app.delete("/api/instagram/accounts/{username}")
-async def ig_accounts_remove(username: str, request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/accounts/{username}", request)
-
-
-@app.post("/api/instagram/accounts/relogin/{username}")
-async def ig_accounts_relogin(username: str, request: Request):
-    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/accounts/relogin/{username}", request)
 
 
 
@@ -565,44 +592,6 @@ async def li_accounts_delete(username: str, request: Request):
 @app.get("/api/linkedin/accounts/{username}/stats")
 async def li_account_stats(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}/stats", request)
-
-
-@app.get("/api/instagram/avatar")
-async def ig_avatar(url: str):
-    """
-    Proxy avatar images from Instagram CDN to avoid hotlink/referrer blocks.
-    """
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"}:
-            return JSONResponse({"message": "Invalid avatar URL"}, status_code=400)
-        host = (parsed.hostname or "").lower()
-        if not host.endswith("fbcdn.net"):
-            return JSONResponse({"message": "Avatar host not allowed"}, status_code=400)
-    except Exception:
-        return JSONResponse({"message": "Invalid avatar URL"}, status_code=400)
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Referer": "https://www.instagram.com/",
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            r = await client.get(url, headers=headers, timeout=15.0)
-        except Exception:
-            return JSONResponse({"message": "Could not fetch avatar"}, status_code=502)
-
-    if r.status_code != 200:
-        return JSONResponse({"message": "Avatar unavailable"}, status_code=502)
-
-    media_type = r.headers.get("content-type", "image/jpeg")
-    return Response(content=r.content, media_type=media_type)
 
 
 if __name__ == "__main__":

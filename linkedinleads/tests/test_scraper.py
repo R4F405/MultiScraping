@@ -19,17 +19,20 @@ from scraper import (
     _build_connection_dict,
     _parse_person_from_json_ld,
     _extract_person_from_any_script,
+    _extract_person_from_dom,
     _extract_contact_info_from_overlay,
     _extract_extra_from_dom,
     _collect_connection_slugs,
     _enrich_connection_from_profile,
     _is_valid_phone,
+    _clean_topcard_text,
     _is_interactive,
     _is_logged_in,
     collect_all_slugs,
     scrape_connections,
     scrape_connections_selenium,
     scrape_profile_and_connections,
+    CONTACT_OVERLAY_WAIT_SELECTOR,
 )
 from tests.conftest import COLUMNAS_CSV_CONEXIONES
 
@@ -192,6 +195,88 @@ def test_parse_person_json_ld_foto_como_string():
 def test_parse_person_json_ld_no_person():
     assert _parse_person_from_json_ld({"@type": "WebPage"}) is None
     assert _parse_person_from_json_ld({}) is None
+
+
+def test_parse_person_json_ld_fallbacks_modernos():
+    data = {
+        "@type": "Person",
+        "name": "Lucia Torres",
+        "jobTitle": "Head of Growth",
+        "location": "Barcelona, Spain",
+        "worksFor": {"legalName": "Acme Corp"},
+    }
+    result = _parse_person_from_json_ld(data)
+    assert result["position"] == "Head of Growth"
+    assert result["company"] == "Acme Corp"
+    assert result["location"] == "Barcelona, Spain"
+
+
+def test_extract_person_from_dom_selectores_modernos():
+    driver = MagicMock()
+    name_el = MagicMock()
+    name_el.inner_text.return_value = "Ana Lopez"
+    pos_el = MagicMock()
+    pos_el.inner_text.return_value = "Senior Product Manager"
+    loc_el = MagicMock()
+    loc_el.inner_text.return_value = "Madrid, Comunidad de Madrid"
+    company_el = MagicMock()
+    company_el.inner_text.return_value = "Acme Labs"
+
+    def fake_query_selector_all(selector):
+        if "a > h1" in selector or "text-heading-xlarge" in selector:
+            return [name_el]
+        if selector == "section[data-view-name='profile-card'] .t-14.t-normal":
+            return [pos_el]
+        if selector == "section[data-view-name='profile-card'] .text-body-small.t-black--light":
+            return [loc_el]
+        if selector == "section[data-view-name='profile-card'] a[href*='/company/'] span":
+            return [company_el]
+        return []
+
+    driver.query_selector_all.side_effect = fake_query_selector_all
+    driver.evaluate.return_value = None
+    result = _extract_person_from_dom(driver)
+    assert result["name"] == "Ana Lopez"
+    assert result["position"] == "Senior Product Manager"
+    assert result["location"] == "Madrid, Comunidad de Madrid"
+    assert result["company"] == "Acme Labs"
+
+
+def test_extract_person_from_dom_fallback_position_from_message():
+    driver = MagicMock()
+    name_el = MagicMock()
+    name_el.inner_text.return_value = "Ana Lopez"
+
+    def fake_query_selector_all(selector):
+        if "a > h1" in selector or "text-heading-xlarge" in selector:
+            return [name_el]
+        # Ensure legacy selectors don't set position/location/company
+        return []
+
+    driver.query_selector_all.side_effect = fake_query_selector_all
+    # evaluate calls order (when no selectors match):
+    # 1) headline_js, 2) location_js, 3) location_guess, 4) fallback position_from_message
+    driver.evaluate.side_effect = [None, None, None, "Senior Product Manager"]
+    driver.query_selector.return_value = None
+    result = _extract_person_from_dom(driver)
+    assert result["position"] == "Senior Product Manager"
+
+
+def test_clean_topcard_text_elimina_ruido():
+    raw = "Jose González Moragues\n\n· 1er\n\n--\n\nValencia y alrededores\n\n·\n\nInformación de contacto"
+    assert _clean_topcard_text(raw, "Jose González Moragues") == "Valencia y alrededores"
+
+
+def test_clean_topcard_text_elimina_nombre_exacto():
+    # Solo se filtra igualdad exacta (normalizada). Una línea que es exactamente
+    # el nombre del perfil se descarta como ruido de top-card.
+    assert _clean_topcard_text("Jorge Sabater Galindo", "Jorge Sabater Galindo") is None
+
+def test_clean_topcard_text_no_filtra_cargo_que_menciona_nombre():
+    # Una línea como "Cargo — Jorge Sabater" NO debe filtrarse solo por contener el nombre;
+    # no queremos perder datos reales de cargo/empresa que lo mencionan.
+    result = _clean_topcard_text("Senior Developer at Jorge's Startup", "Jorge Sabater Galindo")
+    assert result is not None
 
 
 # ── _extract_person_from_any_script ───────────────────────────────────────────
@@ -469,6 +554,7 @@ def test_extract_contact_info_email_via_mailto():
 
     assert result["emails"] == "test@example.com"
     assert result["phones"] is None
+    assert CONTACT_OVERLAY_WAIT_SELECTOR
 
 
 def test_extract_contact_info_sin_datos():
@@ -507,8 +593,7 @@ def test_extract_contact_info_multiples_emails():
         result = _extract_contact_info_from_overlay(mock_driver, "multi-email")
 
     assert "a@example.com" in result["emails"]
-    assert "b@example.com" in result["emails"]
-    assert "; " in result["emails"]
+    assert "b@example.com" not in result["emails"]
 
 
 # ── _is_valid_phone ───────────────────────────────────────────────────────────
@@ -663,7 +748,10 @@ def test_enrich_connection_from_profile_datos_completos():
     assert result["connections"] == "500+"
     assert result["premium"] is True
     assert result["is_connection"] is True
-    assert list(result.keys()) == COLUMNAS_CSV_CONEXIONES
+    assert result["_meta_profile_source"] in ("requests", "browser")
+    assert result["_meta_contact_source"] in ("voyager", "overlay")
+    for col in COLUMNAS_CSV_CONEXIONES:
+        assert col in result
 
 
 def test_enrich_connection_from_profile_sin_json_ld():
@@ -684,7 +772,30 @@ def test_enrich_connection_from_profile_sin_json_ld():
     assert result["profile_id"] == "sin-datos"
     assert result["name"] == "Sin Datos"
     assert result["profile_link"] == "https://www.linkedin.com/in/sin-datos/"
-    assert list(result.keys()) == COLUMNAS_CSV_CONEXIONES
+    for col in COLUMNAS_CSV_CONEXIONES:
+        assert col in result
+
+
+def test_enrich_connection_from_profile_sin_driver_usa_requests_only():
+    fake_session = MagicMock()
+    fake_row = {
+        "name": "Marta Ruiz",
+        "first_name": "Marta",
+        "last_name": "Ruiz",
+        "position": "Head of Sales",
+        "company": "Acme",
+        "location": "Valencia",
+        "profile_photo": None,
+    }
+    with patch("scraper._load_profile_row_via_requests", return_value=(fake_row, True)):
+        with patch("scraper._fetch_contact_info", return_value=({"emails": None, "phones": None}, "voyager")):
+            result = _enrich_connection_from_profile(None, "marta-ruiz", session=fake_session)
+
+    assert result["name"] == "Marta Ruiz"
+    assert result["position"] == "Head of Sales"
+    assert result["company"] == "Acme"
+    assert result["location"] == "Valencia"
+    assert result["_meta_profile_source"] == "requests"
 
 
 # ── collect_all_slugs ─────────────────────────────────────────────────────────

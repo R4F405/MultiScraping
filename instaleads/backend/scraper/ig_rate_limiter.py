@@ -15,7 +15,7 @@ class DailyLimitReached(Exception):
 
 class RateLimiter:
     def __init__(self, mode: str):
-        """mode: 'unauth' | 'auth'"""
+        """mode: currently supports 'unauth'."""
         self.mode = mode
         self._backoff = Settings.IG_BACKOFF_INITIAL
         self._last_request_time: float = 0.0
@@ -28,19 +28,14 @@ class RateLimiter:
         delay is respected even when multiple coroutines fire simultaneously.
         """
         async with self._lock:
+            if self.mode != "unauth":
+                raise ValueError(f"Unsupported rate limiter mode: {self.mode}")
             count = await db.get_daily_count(self.mode)
-            limit = (
-                Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
-                if self.mode == "unauth"
-                else Settings.IG_LIMIT_DAILY_AUTHENTICATED
-            )
+            limit = Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
             if count >= limit:
                 raise DailyLimitReached(f"Daily limit reached ({count}/{limit}) for mode={self.mode}")
 
-            if self.mode == "unauth":
-                delay = random.uniform(Settings.IG_DELAY_UNAUTH_MIN, Settings.IG_DELAY_UNAUTH_MAX)
-            else:
-                delay = random.uniform(Settings.IG_DELAY_AUTH_MIN, Settings.IG_DELAY_AUTH_MAX)
+            delay = random.uniform(Settings.IG_DELAY_UNAUTH_MIN, Settings.IG_DELAY_UNAUTH_MAX)
 
             elapsed = time.monotonic() - self._last_request_time
             if elapsed < delay:

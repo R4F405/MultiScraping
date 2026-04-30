@@ -1,21 +1,9 @@
 from pydantic import BaseModel, Field
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-    proxy_url: str | None = None
-
-
-class SessionImportRequest(BaseModel):
-    username: str
-    sessionid: str
-    proxy_url: str | None = None
-
-
 class SearchRequest(BaseModel):
-    mode: str  # 'dorking' | 'followers'
-    target: str  # 'niche|location' for dorking, '@username' for followers
+    mode: str  # 'dorking'
+    target: str  # 'niche|location' for dorking
     email_goal: int = Field(default=20, ge=1, le=500)
 
 
@@ -25,15 +13,8 @@ class DorkingRequest(BaseModel):
     max_results: int = Field(default=50, ge=1, le=500)
 
 
-class FollowersRequest(BaseModel):
-    target_username: str
-    max_followers: int = Field(default=50, ge=1, le=80)
-
-
 class LimitsUpdate(BaseModel):
     daily_unauth: int | None = None
-    daily_auth: int | None = None
-    hourly_auth: int | None = None
 
 
 class JobResponse(BaseModel):

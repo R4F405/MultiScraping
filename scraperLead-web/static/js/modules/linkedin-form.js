@@ -41,11 +41,12 @@ export function initLinkedInForm() {
   const progressLabel   = $('li-progress-label');
   const progressDetail  = $('li-progress-detail');
   const summaryAccount  = $('li-summary-account');
-  const summaryPending  = $('li-summary-pending');
-  const summaryDone     = $('li-summary-done');
-  const summaryErrors   = $('li-summary-errors');
-  const summaryTotal    = $('li-summary-total');
-  const summaryLastRun  = $('li-summary-last-run');
+  const summaryPending    = $('li-summary-pending');
+  const summaryDone       = $('li-summary-done');
+  const summaryErrors     = $('li-summary-errors');
+  const summaryTotal      = $('li-summary-total');
+  const summaryLastRun    = $('li-summary-last-run');
+  const summaryUpdatedAt  = $('li-summary-updated-at');
 
   const addEmail    = $('li-add-email');
   const addPassword = $('li-add-password');
@@ -98,6 +99,21 @@ export function initLinkedInForm() {
     return accounts.find(a => a.username === accountSelect.value) || null;
   }
 
+  // Timestamp de última carga de accounts
+  let _lastAccountsLoadTs = null;
+  let _updatedAtTimer = null;
+
+  function _startUpdatedAtTick() {
+    if (_updatedAtTimer) clearInterval(_updatedAtTimer);
+    _updatedAtTimer = setInterval(() => {
+      if (!summaryUpdatedAt || _lastAccountsLoadTs === null) return;
+      const secs = Math.round((Date.now() - _lastAccountsLoadTs) / 1000);
+      summaryUpdatedAt.textContent = secs < 5
+        ? 'Actualizado ahora'
+        : `Actualizado hace ${secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m`}`;
+    }, 5000);
+  }
+
   function renderAccountSummaryFromAccount(acc) {
     if (!acc) {
       summaryAccount.textContent = 'Sin cuenta seleccionada';
@@ -106,6 +122,7 @@ export function initLinkedInForm() {
       summaryErrors.textContent = '—';
       summaryTotal.textContent = '—';
       summaryLastRun.textContent = 'Selecciona una cuenta para ver estado de cola y último resumen.';
+      if (summaryUpdatedAt) summaryUpdatedAt.textContent = '';
       return;
     }
 
@@ -114,6 +131,9 @@ export function initLinkedInForm() {
     summaryDone.textContent = Number(acc.queue_done ?? 0).toLocaleString('es-ES');
     summaryErrors.textContent = Number(acc.queue_error ?? 0).toLocaleString('es-ES');
     summaryTotal.textContent = Number(acc.queue_total ?? 0).toLocaleString('es-ES');
+    if (summaryUpdatedAt && _lastAccountsLoadTs !== null) {
+      summaryUpdatedAt.textContent = 'Actualizado ahora';
+    }
   }
 
   function renderRunSummaryFromStatus(s) {
@@ -167,7 +187,7 @@ export function initLinkedInForm() {
     enrichCard.style.opacity = '';
 
     // ── Con cuenta: bloquear enrich si nunca indexada ────────────────────
-    const neverIndexed = acc && acc.queue_total === 0;
+    const neverIndexed = acc && acc.queue_total === 0 && (acc.contacts_total ?? 0) === 0;
 
     if (neverIndexed) {
       if (selected === 'enrich') {
@@ -187,6 +207,7 @@ export function initLinkedInForm() {
       enrichCard.title = '';
       enrichCard.querySelector('.li-lock-badge')?.remove();
     }
+
 
     const currentSelected = document.querySelector('input[name="li-mode"]:checked')?.value;
     indexCard.classList.toggle('border-[#0077B5]', currentSelected === 'index');
@@ -256,6 +277,8 @@ export function initLinkedInForm() {
       const r = await fetch('/api/linkedin/accounts');
       if (!r.ok) throw new Error();
       accounts = await r.json();
+      _lastAccountsLoadTs = Date.now();
+      _startUpdatedAtTick();
     } catch {
       accounts = [];
     }
@@ -267,10 +290,13 @@ export function initLinkedInForm() {
     accounts.forEach(acc => {
       const label = acc.display_name || acc.username;
       accountSelect.insertAdjacentHTML('beforeend',
-        `<option value="${acc.username}" ${acc.username === current ? 'selected' : ''}>${label}</option>`);
+        `<option value="${acc.username}">${label}</option>`);
       filterAccount.insertAdjacentHTML('beforeend',
         `<option value="${acc.username}">${label}</option>`);
     });
+    // Restore previous selection explicitly — Safari's dirty-value-flag prevents
+    // the 'selected' attribute from taking effect when set via insertAdjacentHTML.
+    accountSelect.value = current;
 
     accountsCount.textContent = accounts.length;
     updateModeCards(); // re-evaluar bloqueo con los datos frescos
@@ -348,7 +374,7 @@ export function initLinkedInForm() {
       if (!r.ok) {
         showAddAlert(data.detail || 'Error al iniciar sesión.');
       } else {
-        addStatus.textContent = '✅ Login iniciado en background. Puede tardar 1-2 minutos.';
+        addStatus.innerHTML = '✅ Login iniciado en background. Puede tardar 1-2 minutos.<br><span style="color:#b45309">📱 Revisa tu móvil o correo — LinkedIn puede pedir verificación para confirmar el inicio de sesión.</span>';
         addStatus.classList.remove('hidden');
         addEmail.value = addPassword.value = addName.value = addProxy.value = '';
         setTimeout(() => { loadAccounts(); checkHealth(); }, 5000);
@@ -370,13 +396,29 @@ export function initLinkedInForm() {
   }
 
   // ── Trigger search ────────────────────────────────────────────────────
+  let _sessionWarningShown = false;
+
   startBtn.addEventListener('click', async () => {
     hideAlert();
+    // Limpiar cooldown badge si lo hubiera del modo seleccionado
+    if (_cooldownTimer) { clearInterval(_cooldownTimer); _cooldownTimer = null; }
+    document.querySelectorAll('.li-cooldown-badge').forEach(b => b.remove());
+
     const account = accountSelect.value;
     const mode = document.querySelector('input[name="li-mode"]:checked')?.value || 'index';
     const maxContacts = Math.min(parseInt(maxContactsInput.value) || 20, maxContactsCap);
 
     if (!account) return; // bloqueado por updateModeCards, no debería llegar aquí
+
+    // ── Aviso de sesión expirada (no bloquea, solo informa una vez) ──────
+    const acc = getSelectedAccount();
+    if (!_sessionWarningShown && acc && acc.session_ok === false) {
+      _sessionWarningShown = true;
+      showAlert('⚠️ La sesión de esta cuenta puede estar expirada o inválida. El job podría fallar. Pulsa de nuevo para continuar de todas formas.');
+      startBtn.disabled = false;
+      return;
+    }
+    _sessionWarningShown = false;
 
     startBtn.disabled = true;
     runningBadge.classList.add('hidden');
@@ -402,8 +444,10 @@ export function initLinkedInForm() {
           return;
         }
         runningBadge.classList.add('hidden');
-        showAlert(data.detail || 'Error al iniciar la extracción.');
+        progressCard.classList.add('hidden');
+        showAlert(humanizeError(data.detail || 'Error al iniciar la extracción.'));
         startBtn.disabled = false;
+        if (r.status === 429) startCooldownBadge(mode, data.detail);
         return;
       }
       runningBadge.classList.remove('hidden');
@@ -423,6 +467,75 @@ export function initLinkedInForm() {
   }
   function hideAlert() {
     alertBox.classList.add('hidden');
+  }
+
+  // ── Proactive cooldown badge (mostrado sin pulsar, al cargar cuentas) ─
+  function _renderProactiveCooldownBadge(card, remainingSecs, mode) {
+    card.querySelector('.li-proactive-cooldown')?.remove();
+    if (!remainingSecs || remainingSecs <= 0) return;
+    card.style.position = 'relative';
+    const m = Math.floor(remainingSecs / 60);
+    const s = remainingSecs % 60;
+    const label = m > 0 ? `${m}m ${s}s` : `${s}s`;
+    card.insertAdjacentHTML('beforeend',
+      `<span class="li-proactive-cooldown absolute bottom-2 right-2 text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full" title="Anti-ban: próximo ${mode} disponible en ${label}">⏱ ${label}</span>`);
+  }
+
+  // ── Error hints accionables ───────────────────────────────────────────
+  function humanizeError(detail) {
+    if (!detail) return 'Error desconocido.';
+    if (/session.*expir|no.*session|sesión.*expir/i.test(detail))
+      return `${detail} → Ve a "Cuentas" y vuelve a iniciar sesión.`;
+    if (/demasiado pronto/i.test(detail))
+      return detail;
+    if (/presupuesto diario|daily.*budget|max.*contacts.*day/i.test(detail))
+      return `${detail} → Espera a mañana o aumenta MAX_CONTACTS_PER_DAY en el .env.`;
+    if (/fuera de franja|outside.*window/i.test(detail))
+      return `${detail} → El scraping solo opera en la franja horaria configurada.`;
+    if (/no.*pending|cola.*vac/i.test(detail))
+      return `${detail} → Ejecuta primero el modo Index para cargar conexiones en cola.`;
+    if (/ya hay.*scrape|job.*curso|409/i.test(detail))
+      return `${detail} → Espera a que termine el job actual o recarga la página.`;
+    return detail;
+  }
+
+  // ── Cooldown badge (post-429) ─────────────────────────────────────────
+  let _cooldownTimer = null;
+
+  function startCooldownBadge(mode, detail) {
+    const match = detail && detail.match(/Espera (\d+) min/);
+    const waitMin = match ? parseInt(match[1]) : null;
+    if (!waitMin) return;
+
+    const card = mode === 'enrich' ? $('li-mode-enrich-card') : $('li-mode-index-card');
+    if (!card) return;
+    card.style.position = 'relative';
+
+    const existing = card.querySelector('.li-cooldown-badge');
+    if (existing) existing.remove();
+
+    let remaining = waitMin * 60;
+    const badge = document.createElement('span');
+    badge.className = 'li-cooldown-badge absolute top-2 right-2 text-[10px] font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full';
+    badge.title = 'Anti-ban: intervalo mínimo entre ejecuciones';
+    card.appendChild(badge);
+
+    function tick() {
+      if (remaining <= 0) {
+        badge.remove();
+        startBtn.disabled = false;
+        return;
+      }
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      badge.textContent = `⏱ ${m}:${String(s).padStart(2, '0')} restante`;
+      remaining--;
+    }
+
+    tick();
+    if (_cooldownTimer) clearInterval(_cooldownTimer);
+    _cooldownTimer = setInterval(tick, 1000);
+    startBtn.disabled = true;
   }
 
   // ── Status polling ────────────────────────────────────────────────────
@@ -452,7 +565,7 @@ export function initLinkedInForm() {
         startBtn.disabled = false;
         if (s.error) {
           progressLabel.textContent = 'Error durante la ejecución';
-          progressDetail.textContent = s.detail || s.error;
+          progressDetail.textContent = humanizeError(s.detail || s.error);
           progressBar.style.width = '0%';
           progressPct.textContent = '—';
         } else {
@@ -461,10 +574,9 @@ export function initLinkedInForm() {
           progressPct.textContent = `${Math.round(percent || 100)}%`;
           progressDetail.textContent = s.detail || '';
         }
-        // Refresh jobs and contacts if on those tabs
+        // Refresh accounts (updates queue stats + re-evaluates enrich lock) then render
+        await loadAccounts();
         loadHistory();
-        const selected = getSelectedAccount();
-        renderAccountSummaryFromAccount(selected);
         renderRunSummaryFromStatus(s);
       } else {
         progressLabel.textContent = s.label || (s.mode === 'index'

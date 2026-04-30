@@ -19,11 +19,12 @@ import logging
 import sqlite3
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import (
@@ -43,7 +44,21 @@ router = APIRouter(prefix="/api/linkedin")
 
 # ── Estado del job en curso (thread-safe) ─────────────────────────────────────
 
+@dataclass
+class JobState:
+    running: bool = False
+    mode: Optional[str] = None
+    account: Optional[str] = None
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    progress: dict[str, Any] = field(default_factory=dict)
+
+
 _job_lock = threading.Lock()
+_job_state = JobState()
+
+# Compatibilidad con tests/consumidores antiguos.
 _job_running = False
 _job_mode: Optional[str] = None
 _job_account: Optional[str] = None
@@ -51,6 +66,9 @@ _job_error: Optional[str] = None
 _job_started_at: Optional[str] = None
 _job_finished_at: Optional[str] = None
 _job_progress: dict[str, Any] = {}
+
+_login_status_lock = threading.Lock()
+_login_status: dict[str, dict[str, Any]] = {}
 
 # Control de cadencia: evita spam de ejecuciones
 _MIN_ENRICH_INTERVAL = 20 * 60   # 20 min entre enrich del mismo usuario
@@ -79,6 +97,17 @@ def _safe_percent(current: int, total: int) -> float:
     return round(max(0.0, min(100.0, (current / total) * 100.0)), 1)
 
 
+def _sync_legacy_job_globals() -> None:
+    global _job_running, _job_mode, _job_account, _job_error, _job_started_at, _job_finished_at, _job_progress
+    _job_running = _job_state.running
+    _job_mode = _job_state.mode
+    _job_account = _job_state.account
+    _job_error = _job_state.error
+    _job_started_at = _job_state.started_at
+    _job_finished_at = _job_state.finished_at
+    _job_progress = dict(_job_state.progress or {})
+
+
 def _update_job_progress(
     *,
     phase: Optional[str] = None,
@@ -95,9 +124,8 @@ def _update_job_progress(
     queue_error: Optional[int] = None,
     eta_seconds: Optional[int] = None,
 ) -> None:
-    global _job_progress
     with _job_lock:
-        p = dict(_job_progress or {})
+        p = dict(_job_state.progress or {})
         if phase is not None:
             p["phase"] = phase
         if label is not None:
@@ -129,7 +157,35 @@ def _update_job_progress(
         tot = int(p.get("total", 0))
         if tot > 0:
             p["percent"] = _safe_percent(cur, tot)
-        _job_progress = p
+        _job_state.progress = p
+        _sync_legacy_job_globals()
+
+
+def _set_login_status(account_key: str, status: str, message: str, **extra: Any) -> None:
+    with _login_status_lock:
+        _login_status[account_key] = {
+            "account": account_key,
+            "status": status,
+            "message": message,
+            "updated_at": _utc_now_iso(),
+            **extra,
+        }
+
+
+def _adopt_legacy_job_globals_if_needed() -> None:
+    """Compatibilidad: algunos tests tocan variables legacy directamente."""
+    if (
+        _job_running != _job_state.running
+        or _job_mode != _job_state.mode
+        or _job_account != _job_state.account
+    ):
+        _job_state.running = _job_running
+        _job_state.mode = _job_mode
+        _job_state.account = _job_account
+        _job_state.error = _job_error
+        _job_state.started_at = _job_started_at
+        _job_state.finished_at = _job_finished_at
+        _job_state.progress = dict(_job_progress or {})
 
 
 def _session_status(username: str) -> dict:
@@ -152,6 +208,21 @@ def _session_status(username: str) -> dict:
         }
     except Exception:
         return {"session_exists": True, "session_age_days": None, "session_ok": None}
+
+
+def _cooldown_remaining(account: str) -> dict:
+    """Segundos restantes de cooldown para index y enrich de una cuenta (0 = disponible)."""
+    try:
+        from backend.db import get_last_trigger_epoch
+        now = time.time()
+        index_last = get_last_trigger_epoch(f"{account}:index")
+        enrich_last = get_last_trigger_epoch(f"{account}:enrich")
+        return {
+            "index_cooldown_remaining": max(0, int(_MIN_INDEX_INTERVAL - (now - index_last))),
+            "enrich_cooldown_remaining": max(0, int(_MIN_ENRICH_INTERVAL - (now - enrich_last))),
+        }
+    except Exception:
+        return {"index_cooldown_remaining": 0, "enrich_cooldown_remaining": 0}
 
 
 def _account_stats(username: str) -> dict:
@@ -238,19 +309,19 @@ async def stats() -> Any:
 @router.get("/accounts")
 async def list_accounts() -> Any:
     try:
-        from backend.db import list_accounts as db_list_accounts
-        accounts = db_list_accounts(include_inactive=False)
+        from backend.db import get_all_accounts_with_stats
+        accounts = get_all_accounts_with_stats(include_inactive=False)
         result = []
         for acc in accounts:
-            stats = _account_stats(acc["username"])
             session_info = _session_status(acc["username"])
+            cooldown = _cooldown_remaining(acc["username"])
             proxy_raw = acc.get("proxy") or ""
             proxy_masked = proxy_raw.split("@")[-1] if "@" in proxy_raw else proxy_raw or None
             result.append({
                 **acc,
                 "proxy": proxy_masked,
-                **stats,
                 **session_info,
+                **cooldown,
             })
         return result
     except Exception as exc:
@@ -258,8 +329,16 @@ async def list_accounts() -> Any:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/accounts/login-status")
+async def login_status(account: Optional[str] = Query(default=None)) -> Any:
+    with _login_status_lock:
+        if account:
+            return _login_status.get(account, {"account": account, "status": "unknown"})
+        return list(_login_status.values())
+
+
 @router.post("/accounts")
-async def add_account(body: AccountAddRequest, bg: BackgroundTasks) -> Any:
+async def add_account(body: AccountAddRequest) -> Any:
     """
     Registra una nueva cuenta e inicia sesión en LinkedIn en background.
     La contraseña NO se almacena en la BD en claro; se cifra con Fernet.
@@ -283,8 +362,11 @@ async def add_account(body: AccountAddRequest, bg: BackgroundTasks) -> Any:
             detail="Formato de proxy inválido. Usa: user:pass@host:port o host:port",
         )
 
-    bg.add_task(_do_add_account, username, email, password, display_name, proxy)
-    return {"status": "login_started", "message": "Login iniciado en background."}
+    account_key = username or email.split("@")[0].replace(".", "-")
+    _set_login_status(account_key, "started", "Login iniciado en background.")
+    t = threading.Thread(target=_do_add_account, args=(username, email, password, display_name, proxy), daemon=True)
+    t.start()
+    return {"status": "login_started", "message": "Login iniciado en background.", "account": account_key}
 
 
 def _do_add_account(
@@ -296,20 +378,20 @@ def _do_add_account(
 ) -> None:
     """Ejecuta el login de LinkedIn en un hilo separado."""
     import sys
-    import os
 
     # Aseguramos que el backend/ esté en path para que scraper.py y db.py se importen bien
     backend_dir = str(Path(__file__).resolve().parent.parent)
     if backend_dir not in sys.path:
         sys.path.insert(0, backend_dir)
 
+    temp_slug = username or email.split("@")[0].replace(".", "-")
+    _set_login_status(temp_slug, "running", "Intentando autenticación en LinkedIn...")
     try:
-        from backend.scraper import login_with_credentials, session_file_for, get_current_username
-        from backend.db import register_account, ensure_tables
+        from backend.scraper import login_with_credentials
+        from backend.db import register_account, ensure_tables, save_account_credentials
 
         ensure_tables()
 
-        temp_slug = username or email.split("@")[0].replace(".", "-")
         session_file = str(SESSIONS_DIR / f"{temp_slug}.pkl")
 
         result = login_with_credentials(
@@ -322,6 +404,7 @@ def _do_add_account(
 
         if result.get("status") != "ok":
             logger.error("add_account login failed: %s", result.get("message"))
+            _set_login_status(temp_slug, "failed", result.get("message") or "Login fallido")
             print(f"[add_account] ❌ Login fallido: {result.get('message')} (status={result.get('status')})")
             return
 
@@ -356,12 +439,27 @@ def _do_add_account(
             session_file=session_file,
             proxy=proxy or "",
         )
+        if not save_account_credentials(real_username, password):
+            logger.warning("add_account: no se pudieron guardar credenciales cifradas para '%s'", real_username)
         logger.info("add_account: cuenta '%s' registrada correctamente", real_username)
+        _set_login_status(
+            real_username,
+            "success",
+            "Cuenta registrada y sesión guardada.",
+            session_file=session_file,
+        )
         print(f"[add_account] ✅ Cuenta '{real_username}' registrada en DB correctamente")
 
     except Exception as exc:
         print(f"[add_account] ❌ ERROR en background: {exc}")
+        _set_login_status(temp_slug, "failed", str(exc))
         logger.exception("add_account background error: %s", exc)
+    finally:
+        try:
+            from backend.scraper import _cleanup_pw
+            _cleanup_pw()
+        except Exception:
+            pass
 
 
 @router.delete("/accounts/{username}")
@@ -384,11 +482,10 @@ async def account_stats(username: str) -> Any:
 # ── Search / trigger ──────────────────────────────────────────────────────────
 
 @router.post("/search")
-async def trigger_search(req: SearchRequest, bg: BackgroundTasks) -> Any:
-    global _job_running, _job_mode, _job_account, _job_error, _job_started_at, _job_finished_at, _job_progress
-
+async def trigger_search(req: SearchRequest) -> Any:
     with _job_lock:
-        if _job_running:
+        _adopt_legacy_job_globals_if_needed()
+        if _job_state.running:
             raise HTTPException(
                 status_code=409,
                 detail="Ya hay un scrape en curso. Espera a que termine.",
@@ -407,13 +504,13 @@ async def trigger_search(req: SearchRequest, bg: BackgroundTasks) -> Any:
                 detail=f"Demasiado pronto. Espera {wait_min} min antes del próximo {req.mode}.",
             )
 
-        _job_running = True
-        _job_mode = req.mode
-        _job_account = req.account
-        _job_error = None
-        _job_started_at = _utc_now_iso()
-        _job_finished_at = None
-        _job_progress = {
+        _job_state.running = True
+        _job_state.mode = req.mode
+        _job_state.account = req.account
+        _job_state.error = None
+        _job_state.started_at = _utc_now_iso()
+        _job_state.finished_at = None
+        _job_state.progress = {
             "phase": "queued",
             "label": "En cola",
             "detail": f"Preparando job {req.mode} para @{req.account}",
@@ -428,16 +525,17 @@ async def trigger_search(req: SearchRequest, bg: BackgroundTasks) -> Any:
             "queue_done": 0,
             "queue_error": 0,
             "eta_seconds": None,
+            "strategy_errors": {"requests": 0, "voyager": 0, "overlay": 0},
         }
+        _sync_legacy_job_globals()
         set_last_trigger_epoch(key, time.time())
 
-    bg.add_task(_run_job, req.mode, req.account, req.max_contacts)
+    t = threading.Thread(target=_run_job, args=(req.mode, req.account, req.max_contacts), daemon=True)
+    t.start()
     return {"status": "started", "mode": req.mode, "account": req.account}
 
 
 def _run_job(mode: str, account: str, max_contacts: int) -> None:
-    global _job_running, _job_error, _job_finished_at
-
     import sys
     backend_dir = str(Path(__file__).resolve().parent.parent)
     if backend_dir not in sys.path:
@@ -464,6 +562,12 @@ def _run_job(mode: str, account: str, max_contacts: int) -> None:
                 queue_error=payload.get("queue_error"),
                 eta_seconds=payload.get("eta_seconds"),
             )
+            if payload.get("strategy_errors") is not None:
+                with _job_lock:
+                    p = dict(_job_state.progress or {})
+                    p["strategy_errors"] = payload.get("strategy_errors")
+                    _job_state.progress = p
+                    _sync_legacy_job_globals()
 
         if mode == "index":
             run_index(interactive=False, account=account, progress_callback=progress_cb)
@@ -477,25 +581,36 @@ def _run_job(mode: str, account: str, max_contacts: int) -> None:
     except Exception as exc:
         logger.exception("_run_job error [%s/%s]: %s", mode, account, exc)
         with _job_lock:
-            _job_error = str(exc)
-            _job_progress["phase"] = "error"
-            _job_progress["label"] = "Error en ejecución"
-            _job_progress["detail"] = str(exc)
+            _job_state.error = str(exc)
+            _job_state.progress["phase"] = "error"
+            _job_state.progress["label"] = "Error en ejecución"
+            _job_state.progress["detail"] = str(exc)
+            _sync_legacy_job_globals()
     finally:
+        # Reset Playwright singleton so the next job thread gets a fresh instance.
+        # The sync_playwright instance is tied to the thread that created it; once
+        # this daemon thread exits the instance is unusable ("cannot switch to a
+        # different thread (which happens to have exited)").
+        try:
+            from backend.scraper import _cleanup_pw
+            _cleanup_pw()
+        except Exception:
+            pass
         with _job_lock:
-            _job_running = False
-            _job_finished_at = _utc_now_iso()
-            if _job_error:
-                _job_progress["phase"] = "error"
-                _job_progress["label"] = "Error en ejecución"
+            _job_state.running = False
+            _job_state.finished_at = _utc_now_iso()
+            if _job_state.error:
+                _job_state.progress["phase"] = "error"
+                _job_state.progress["label"] = "Error en ejecución"
             else:
-                _job_progress["phase"] = "done"
-                _job_progress["label"] = "Completado"
-                if int(_job_progress.get("total", 0)) > 0:
-                    _job_progress["current"] = int(_job_progress.get("total", 0))
-                    _job_progress["percent"] = 100.0
+                _job_state.progress["phase"] = "done"
+                _job_state.progress["label"] = "Completado"
+                if int(_job_state.progress.get("total", 0)) > 0:
+                    _job_state.progress["current"] = int(_job_state.progress.get("total", 0))
+                    _job_state.progress["percent"] = 100.0
                 elif mode == "index":
-                    _job_progress["percent"] = 100.0
+                    _job_state.progress["percent"] = 100.0
+            _sync_legacy_job_globals()
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -503,22 +618,23 @@ def _run_job(mode: str, account: str, max_contacts: int) -> None:
 @router.get("/status", response_model=JobStatusResponse)
 async def job_status() -> Any:
     with _job_lock:
+        _adopt_legacy_job_globals_if_needed()
         elapsed = None
-        if _job_started_at:
+        if _job_state.started_at:
             try:
-                started_dt = datetime.fromisoformat(_job_started_at.replace("Z", "+00:00"))
+                started_dt = datetime.fromisoformat(_job_state.started_at.replace("Z", "+00:00"))
                 elapsed = max(0, int((datetime.now(timezone.utc) - started_dt).total_seconds()))
             except Exception:
                 elapsed = None
         payload = {
-            "running": _job_running,
-            "mode": _job_mode,
-            "account": _job_account,
-            "error": _job_error,
-            "started_at": _job_started_at,
-            "finished_at": _job_finished_at,
+            "running": _job_state.running,
+            "mode": _job_state.mode,
+            "account": _job_state.account,
+            "error": _job_state.error,
+            "started_at": _job_state.started_at,
+            "finished_at": _job_state.finished_at,
             "elapsed_seconds": elapsed,
-            **_job_progress,
+            **_job_state.progress,
         }
         # Evita mostrar 100% mientras el job todavía está marcado como running.
         if payload.get("running") and isinstance(payload.get("percent"), (int, float)):

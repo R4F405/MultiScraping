@@ -83,7 +83,6 @@ async def init_db():
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 status     TEXT,
                 unauth_ok  INTEGER,
-                auth_ok    INTEGER,
                 message    TEXT,
                 checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -215,18 +214,6 @@ async def get_daily_count(mode: str) -> int:
             return row["request_count"] if row else 0
 
 
-async def get_hourly_count(mode: str) -> int:
-    now = datetime.now()
-    hour_start = now.replace(minute=0, second=0, microsecond=0).isoformat()
-    async with get_db() as db:
-        async with db.execute(
-            "SELECT COUNT(*) as cnt FROM ig_leads WHERE source_type = ? AND scraped_at >= ?",
-            (mode, hour_start),
-        ) as cur:
-            row = await cur.fetchone()
-            return row["cnt"] if row else 0
-
-
 async def find_recent_job(mode: str, target: str, within_seconds: int = 15) -> dict | None:
     from datetime import timedelta
     cutoff = (datetime.now() - timedelta(seconds=within_seconds)).isoformat()
@@ -287,15 +274,14 @@ async def get_leads_by_job(job_id: str) -> list[dict]:
             return [dict(r) for r in rows]
 
 
-async def insert_health_log(status: str, unauth_ok: bool, auth_ok: bool | None, message: str):
+async def insert_health_log(status: str, unauth_ok: bool, message: str):
     async with get_db() as db:
         await db.execute("""
-            INSERT INTO ig_health_log (status, unauth_ok, auth_ok, message)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO ig_health_log (status, unauth_ok, message)
+            VALUES (?, ?, ?)
         """, (
             status,
             1 if unauth_ok else 0,
-            (1 if auth_ok else 0) if auth_ok is not None else None,
             message,
         ))
         await db.commit()

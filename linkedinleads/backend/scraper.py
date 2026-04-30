@@ -10,6 +10,7 @@ import pickle
 import random
 import re
 import sys
+import threading
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote
@@ -61,6 +62,12 @@ _CONNECTIONS_SEARCH_URL = "https://www.linkedin.com/search/results/people/?netwo
 INDEX_ENV_MAX_CONTACTS      = "INDEX_MAX_CONTACTS"
 INDEX_ENV_MAX_SCROLL_ROUNDS = "INDEX_MAX_SCROLL_ROUNDS"
 INDEX_ENV_USE_RECENTLY_ADDED = "INDEX_USE_RECENTLY_ADDED"
+
+CONTACT_OVERLAY_WAIT_SELECTOR = (
+    "section.contact-info, div.contact-info, "
+    "div.pv-contact-info, h3.pv-contact-info__header, "
+    "a[href^='mailto:'], [data-view-name='contact-info']"
+)
 
 
 # ── Sesión ─────────────────────────────────────────────────────────────────────
@@ -174,26 +181,40 @@ _STEALTH_SCRIPT = """
 """
 
 
-# ── Playwright singleton ───────────────────────────────────────────────────────
+# ── Playwright instance por hilo ──────────────────────────────────────────────
+#
+# Playwright "sync_playwright().start()" queda ligado al hilo que lo creó.
+# En este proyecto se lanzan jobs en hilos daemon desde la API, así que un
+# singleton global puede acabar roto con:
+#   "cannot switch to a different thread (which happens to have exited)"
+#
+# Solución: una instancia por hilo (identificador del thread).
 
-_pw_instance: Optional[Playwright] = None
+_pw_instances: dict[int, Playwright] = {}
+_pw_lock = threading.Lock()
 
 
 def _get_pw() -> Playwright:
-    global _pw_instance
-    if _pw_instance is None:
-        _pw_instance = sync_playwright().start()
-    return _pw_instance
+    tid = threading.get_ident()
+    with _pw_lock:
+        pw = _pw_instances.get(tid)
+        if pw is None:
+            pw = sync_playwright().start()
+            _pw_instances[tid] = pw
+        return pw
 
 
 def _cleanup_pw() -> None:
-    global _pw_instance
-    if _pw_instance:
+    """Para la instancia de Playwright del hilo actual (si existe)."""
+    tid = threading.get_ident()
+    with _pw_lock:
+        pw = _pw_instances.pop(tid, None)
+    if pw:
         try:
-            _pw_instance.stop()
+            pw.stop()
         except Exception:
+            # A veces stop() puede fallar si el proceso está en cierre.
             pass
-        _pw_instance = None
 
 
 atexit.register(_cleanup_pw)
@@ -203,6 +224,9 @@ def _new_page(headless: bool = True, proxy: Optional[str] = None) -> "Page":
     """
     Crea un nuevo browser Playwright + context + page.
     Parcha page.quit() para cerrar el browser al terminar.
+
+    Prioriza Chrome del sistema (más estable en macOS ARM64) sobre
+    Playwright Chromium descargado, que puede crashear en algunos entornos.
     """
     pw = _get_pw()
     launch_kwargs = _make_browser_launch_kwargs(headless=headless)
@@ -214,12 +238,42 @@ def _new_page(headless: bool = True, proxy: Optional[str] = None) -> "Page":
             context_kwargs["proxy"]["username"] = p["user"]
             context_kwargs["proxy"]["password"] = p["password"]
         _log.info("Proxy configurado: %s:%s", p["host"], p["port"])
-    browser = pw.chromium.launch(**launch_kwargs)
+
+    browser = None
+    chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+    if os.path.exists(chrome_path):
+        try:
+            chrome_kwargs = dict(launch_kwargs)
+            chrome_kwargs["executable_path"] = chrome_path
+            browser = pw.chromium.launch(**chrome_kwargs)
+            _log.info("Navegador lanzado: Chrome del sistema")
+        except Exception as e:
+            _log.warning("Chrome del sistema falló (%s), intentando Playwright Chromium", e)
+            browser = None
+
+    if browser is None:
+        try:
+            browser = pw.chromium.launch(**launch_kwargs)
+            _log.info("Navegador lanzado: Playwright Chromium")
+        except Exception as e:
+            _log.error("No se pudo lanzar ningún navegador: %s", e)
+            raise
+
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
     page.set_default_timeout(45000)
-    # Patch quit() para compatibilidad con linkedin_main.py que llama driver.quit()
-    page.quit = browser.close
+
+    def _quit(b=browser, c=context):
+        try:
+            c.close()
+        except Exception:
+            pass
+        try:
+            b.close()
+        except Exception:
+            pass
+    page.quit = _quit
     return page
 
 
@@ -800,12 +854,33 @@ def _parse_person_from_json_ld(parsed: dict) -> Optional[Dict]:
     else:
         location = None
 
-    works_for = person.get("worksFor")
+    works_for = person.get("worksFor") or person.get("memberOf") or person.get("alumniOf")
     company = None
     if isinstance(works_for, list) and works_for:
-        company = works_for[0].get("name") if isinstance(works_for[0], dict) else None
+        first = works_for[0]
+        if isinstance(first, dict):
+            company = first.get("name") or first.get("legalName")
+        elif isinstance(first, str):
+            company = first
     elif isinstance(works_for, dict):
-        company = works_for.get("name")
+        company = works_for.get("name") or works_for.get("legalName")
+    elif isinstance(works_for, str):
+        company = works_for
+
+    if not location:
+        loc_value = person.get("location")
+        if isinstance(loc_value, str) and loc_value.strip():
+            location = loc_value.strip()
+        elif isinstance(loc_value, dict):
+            location = _find_in_dict(loc_value, "name", "addressLocality", "addressRegion")
+
+    position = (
+        person.get("headline")
+        or person.get("jobTitle")
+        or person.get("description")
+        or _deep_find_value(person, "headline")
+        or _deep_find_value(person, "jobTitle")
+    )
 
     # Foto de perfil (LinkedIn la incluye en JSON-LD como campo "image")
     image = person.get("image")
@@ -819,7 +894,7 @@ def _parse_person_from_json_ld(parsed: dict) -> Optional[Dict]:
         "name": person.get("name"),
         "first_name": person.get("givenName"),
         "last_name": person.get("familyName"),
-        "position": person.get("headline"),
+        "position": position,
         "company": company,
         "location": location,
         "profile_photo": profile_photo,
@@ -895,6 +970,31 @@ def _extract_person_from_meta(html: str) -> Optional[Dict]:
             if len(parts) >= 3:
                 out["company"] = parts[2]
 
+        # og:description: LinkedIn uses it for the headline in authenticated sessions
+        # where og:title is just "Name | LinkedIn" without the headline.
+        # Format: "View Name's profile on LinkedIn… Name has N connections. Title at Company."
+        if not out.get("position"):
+            og_desc = soup.find("meta", attrs={"property": "og:description"})
+            if og_desc and og_desc.get("content"):
+                desc = og_desc["content"].strip()
+                # Try to extract "Title at Company" from the end of the description
+                # Pattern: "… See the complete profile on LinkedIn and discover Name's connections."
+                # Some formats end with "Title at Company." or just have headline in description.
+                for pattern in (
+                    r'[\.\s]([A-ZÁÉÍÓÚÜÑ][^\.\n]{3,80})\s*\.\s*$',
+                    r'([A-ZÁÉÍÓÚÜÑ][^\.\n]{3,80})\s*$',
+                ):
+                    m = re.search(pattern, desc)
+                    if m:
+                        candidate = m.group(1).strip()
+                        # Exclude generic LinkedIn boilerplate phrases
+                        if (len(candidate) > 5 and
+                                not any(w in candidate.lower() for w in
+                                        ("linkedin", "connections", "contactos",
+                                         "view", "see", "descubre", "perfil"))):
+                            out["position"] = candidate
+                            break
+
         og_image = soup.find("meta", attrs={"property": "og:image"})
         if og_image and og_image.get("content"):
             out["profile_photo"] = og_image["content"].strip() or None
@@ -968,64 +1068,345 @@ def _name_from_slug(slug: str) -> Optional[str]:
     return " ".join(p.capitalize() for p in parts[:4])
 
 
-def _extract_person_from_dom(driver) -> Optional[Dict]:
+def _clean_topcard_text(value: Optional[str], name_value: Optional[str] = None) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    def _repair_mojibake(s: str) -> str:
+        # Caso típico: bytes UTF-8 decodificados como latin1 => "RodrÃ\xadguez"
+        if any(ch in s for ch in ("Ã", "Â")):
+            try:
+                return s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            except Exception:
+                return s
+        return s
+
+    value = _repair_mojibake(value)
+    lines = [ln.strip(" ·\t") for ln in value.splitlines() if ln and ln.strip()]
+    if not lines:
+        return None
+    name_value = _repair_mojibake(name_value or "")
+    name_norm = name_value.strip().lower()
+    blocked = {"información de contacto", "contact info", "--", "1er", "2º", "2do"}
+    candidates: List[str] = []
+    for ln in lines:
+        ln = _repair_mojibake(ln)
+        low = ln.lower()
+        if not ln or low in blocked:
+            continue
+        # Filtrar líneas que sean exactamente el nombre del perfil (ruido de top-card).
+        # Solo igualdad exacta: no queremos descartar líneas que CONTIENEN el nombre
+        # como parte de un texto de cargo/empresa/ubicación real.
+        if name_norm and low == name_norm:
+            continue
+        if "·" in ln and len(ln) < 12:
+            continue
+        if low.startswith("http") or "linkedin.com" in low:
+            continue
+        candidates.append(ln)
+    if not candidates:
+        return None
+    # Prefer shorter, readable chunks over multiline blobs.
+    candidates.sort(key=lambda x: (len(x) > 90, len(x)))
+    chosen = candidates[0]
+    return chosen if len(chosen) <= 140 else None
+
+
+def _extract_person_from_dom(driver, known_name: Optional[str] = None) -> Optional[Dict]:
     """Extrae nombre, headline, ubicación y empresa desde el DOM de LinkedIn."""
     try:
         out = {
             "name": None, "first_name": None, "last_name": None,
             "position": None, "company": None, "location": None,
         }
+        # En 2025-2026 LinkedIn tiene múltiples h1 en la página (nav + perfil).
+        # "a > h1" identifica únicamente el h1 del nombre del perfil (dentro de un <a>).
         name_el = driver.query_selector_all(
-            "h1.text-heading-xlarge, h1.inline.t-24, main h1, section h1"
+            "a > h1, h1.text-heading-xlarge, h1[class*='text-heading-xlarge'], "
+            "h1.inline.t-24, main h1, section h1"
         )
         if name_el:
             out["name"] = (name_el[0].inner_text() or "").strip() or None
-        headline_el = driver.query_selector_all(
-            "div.text-body-medium.break-words, div.inline.t-14, "
-            "div.pv-text-details__left-panel div.text-body-medium, "
-            "main div[data-view-name='profile-card'] div.text-body-medium"
-        )
-        if headline_el:
-            out["position"] = (headline_el[0].inner_text() or "").strip() or None
-        for sel in (
-            "span.text-body-small.inline.t-black--light",
-            "div.text-body-small.inline.t-black--light",
-            "span.inline.t-black--light.break-words",
-        ):
-            loc_el = driver.query_selector_all(sel)
-            if loc_el:
-                txt = (loc_el[0].inner_text() or "").strip()
-                if txt and len(txt) < 200 and not txt.startswith("http"):
-                    out["location"] = txt
+        elif known_name:
+            # Si no encontramos el h1 (cambios de layout / carga parcial),
+            # usamos el nombre ya resuelto desde requests/meta como referencia.
+            out["name"] = known_name.strip() or None
+
+        name_lower = (out.get("name") or "").lower()
+
+        # ── Headline via JavaScript (structure-based, not class-based) ──────────
+        # LinkedIn changes class names frequently. Instead of matching classes, we
+        # walk the DOM siblings of h1 to find the first non-empty text after it.
+        # Also try known class selectors as a second pass.
+        if not out.get("position"):
+            try:
+                headline_js = driver.evaluate(
+                    """() => {
+                        const h1 = document.querySelector('a > h1, h1.text-heading-xlarge, main h1, section h1, h1');
+                        if (!h1) return null;
+                        const name = (h1.innerText || '').trim().toLowerCase();
+                        // Walk next siblings of h1
+                        let el = h1.nextElementSibling;
+                        for (let i = 0; i < 5 && el; i++, el = el.nextElementSibling) {
+                            const txt = (el.innerText || '').trim();
+                            if (txt && txt.length > 3 && txt.length < 300
+                                && txt.toLowerCase() !== name
+                                && !txt.startsWith('http')
+                                && !/^\\d{1,4}$/.test(txt)) {
+                                return txt;
+                            }
+                        }
+                        // Walk siblings of h1's parent
+                        const parent = h1.parentElement;
+                        if (parent) {
+                            let sib = parent.nextElementSibling;
+                            for (let i = 0; i < 5 && sib; i++, sib = sib.nextElementSibling) {
+                                const txt = (sib.innerText || '').trim();
+                                if (txt && txt.length > 3 && txt.length < 300
+                                    && txt.toLowerCase() !== name
+                                    && !txt.startsWith('http')
+                                    && !/^\\d{1,4}$/.test(txt)) {
+                                    return txt;
+                                }
+                            }
+                            // Also check parent's parent siblings
+                            const grandparent = parent.parentElement;
+                            if (grandparent) {
+                                let gsib = grandparent.nextElementSibling;
+                                for (let i = 0; i < 3 && gsib; i++, gsib = gsib.nextElementSibling) {
+                                    const txt = (gsib.innerText || '').trim();
+                                    if (txt && txt.length > 3 && txt.length < 300
+                                        && txt.toLowerCase() !== name
+                                        && !txt.startsWith('http')
+                                        && !/^\\d{1,4}$/.test(txt)) {
+                                        return txt;
+                                    }
+                                }
+                            }
+                        }
+                        return null;
+                    }"""
+                )
+                if headline_js and isinstance(headline_js, str):
+                    out["position"] = _clean_topcard_text(headline_js, out.get("name"))
+            except Exception:
+                pass
+
+        # Fallback: CSS class selectors (kept for redundancy)
+        if not out.get("position"):
+            for sel in (
+                "div.text-body-medium.break-words",
+                "div.pv-text-details__left-panel div.text-body-medium",
+                "main div[data-view-name='profile-card'] div.text-body-medium",
+                ".pv-text-details__left-panel .text-body-medium",
+                "div.inline.t-14.t-black.t-normal",
+                "section[data-view-name='profile-card'] .t-14.t-normal",
+                "section[data-view-name='profile-card'] .text-body-medium",
+                "main section h2 + div .t-14",
+                "div[data-view-name='top-card'] .t-14.t-normal",
+            ):
+                for el in (driver.query_selector_all(sel) or []):
+                    txt = (el.inner_text() or "").strip()
+                    if (txt and 5 < len(txt) < 300
+                            and not txt.startswith("http")
+                            and txt.lower() != name_lower):
+                        out["position"] = _clean_topcard_text(txt, out.get("name"))
+                        break
+                if out.get("position"):
                     break
-        # Intentar extraer empresa del top-card (LinkedIn nuevo diseño)
+
+        # ── Location via JavaScript (structural: follows headline element) ───────
+        if not out.get("location"):
+            try:
+                location_js = driver.evaluate(
+                    """() => {
+                        const h1 = document.querySelector('a > h1, h1.text-heading-xlarge, main h1, section h1, h1');
+                        if (!h1) return null;
+                        const name = (h1.innerText || '').trim().toLowerCase();
+                        // Collect text from small/light elements near the top card
+                        const candidates = Array.from(document.querySelectorAll(
+                            'span.text-body-small, span[class*="t-black--light"], ' +
+                            'span[class*="break-words"], div[class*="t-black--light"]'
+                        ));
+                        for (const el of candidates) {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.top > 500) break; // only look in top card area
+                            const txt = (el.innerText || '').trim();
+                            if (txt && txt.length > 3 && txt.length < 200
+                                && txt.toLowerCase() !== name
+                                && !txt.startsWith('http')
+                                && !/^\\d/.test(txt)
+                                && !/connections|seguidores|followers|contactos/i.test(txt)) {
+                                return txt;
+                            }
+                        }
+                        return null;
+                    }"""
+                )
+                if location_js and isinstance(location_js, str):
+                    out["location"] = _clean_topcard_text(location_js, out.get("name"))
+            except Exception:
+                pass
+
+        # Fallback CSS for location
+        if not out.get("location"):
+            for sel in (
+                "span.text-body-small.inline.t-black--light.break-words",
+                "span.text-body-small.inline.t-black--light",
+                "div.text-body-small.inline.t-black--light",
+                "span.inline.t-black--light.break-words",
+                "div.pv-top-card__non-self-member-distance-info span.t-black--light",
+                "section[data-view-name='profile-card'] .text-body-small.t-black--light",
+                "div[data-view-name='top-card'] .text-body-small",
+                "div.ph5 span.t-black--light",
+            ):
+                loc_el = driver.query_selector_all(sel)
+                if loc_el:
+                    txt = (loc_el[0].inner_text() or "").strip()
+                    if txt and len(txt) < 200 and not txt.startswith("http"):
+                        out["location"] = _clean_topcard_text(txt, out.get("name"))
+                        break
+        if not out.get("location"):
+            # Fallback estructural para layouts recientes: extrae primera línea de ubicación visible.
+            try:
+                location_guess = driver.evaluate(
+                    """() => {
+                        const h1 = document.querySelector('a > h1, h1.text-heading-xlarge, main h1, section h1, h1');
+                        const name = (h1 && h1.innerText) ? h1.innerText.trim().toLowerCase() : '';
+                        const lines = Array.from(
+                          document.querySelectorAll('main section span, main section div')
+                        )
+                          .map(e => (e.innerText || '').trim())
+                          .filter(Boolean);
+                        for (const line of lines) {
+                          if (line.length < 90 &&
+                              /[A-Za-zÁÉÍÓÚÜÑ]/.test(line) &&
+                              !/followers|seguidores|connections|contactos|linkedin/i.test(line) &&
+                              line.toLowerCase() !== name &&
+                              !/^https?:/i.test(line) &&
+                              !/@/.test(line)) {
+                            return line;
+                          }
+                        }
+                        return null;
+                    }"""
+                )
+                if location_guess and isinstance(location_guess, str):
+                    out["location"] = _clean_topcard_text(location_guess, out.get("name"))
+            except Exception:
+                pass
+        # Intentar extraer empresa desde el top-card
         if not out.get("company"):
             for sel in (
-                # Selector para el nombre de empresa en la sección de experiencia del top-card
+                # Top-card experience button (new design 2024-2025)
+                "div.pv-text-details__right-panel span[aria-hidden='true']",
+                "button[aria-label*='urrent company'] span[aria-hidden='true']",
+                "span.t-14.t-normal span[aria-hidden='true']",
+                "main a[href*='/company/']:not([href*='/company/linkedin']) span[aria-hidden='true']",
+                "main a[href*='/company/']:not([href*='/company/linkedin'])",
                 "div.inline-show-more-text--is-collapsed span[aria-hidden='true']",
-                "div[data-field='experience_position_title'] ~ div span[aria-hidden='true']",
-                "a[data-field='experience_company_logo'] span[aria-hidden='true']",
-                ".pv-text-details__right-panel .t-14.t-normal span[aria-hidden='true']",
-                "main a[href*='/company/'] span[aria-hidden='true']",
-                "main a[href*='/company/']",
+                "section[data-view-name='profile-card'] a[href*='/company/'] span",
+                "section[data-view-name='profile-card'] a[href*='/company/']",
+                "div[data-view-name='top-card'] a[href*='/company/']",
             ):
                 els = driver.query_selector_all(sel)
                 if els:
                     txt = (els[0].inner_text() or "").strip()
                     if txt and len(txt) < 100 and not txt.startswith("http"):
-                        out["company"] = txt
+                        out["company"] = _clean_topcard_text(txt, out.get("name"))
                         break
-        # Fallback: extraer empresa del headline si tiene formato "Cargo en Empresa"
-        if not out.get("company") and out["position"] and " at " in out["position"]:
-            out["company"] = out["position"].split(" at ")[-1].strip()
-        if not out.get("company") and out["position"] and " en " in out["position"]:
-            out["company"] = out["position"].split(" en ")[-1].strip()
+        # Extraer empresa del headline: "Cargo at Company" / "Cargo en Empresa"
+        if not out.get("company") and out.get("position"):
+            for sep in (" at ", " en ", " @ ", " · "):
+                if sep in out["position"]:
+                    candidate = out["position"].split(sep)[-1].strip()
+                    if candidate and len(candidate) < 100:
+                        out["company"] = candidate
+                        break
+
+        # Fallback de "position" para layouts recientes:
+        # Si position sigue vacío, extraemos la línea de cargo desde el
+        # bloque del botón "Enviar mensaje"/"Send message", donde LinkedIn
+        # suele mostrar el cargo como una línea corta junto al nombre.
+        if not out.get("position"):
+            try:
+                position_from_message = driver.evaluate(
+                    """() => {
+                        const blocked = [
+                          'information de contact','contact info','información de contacto',
+                          'send message','enviar mensaje','more','más','ir al contenido principal',
+                          'inicio','mi red','empleos','mensajes','notificaciones','para negocios'
+                        ].map(s => s.toLowerCase());
+
+                        const msgEl = Array.from(document.querySelectorAll('button,a,span'))
+                          .find(el => {
+                            const t = (el.innerText || '').trim();
+                            if (!t) return false;
+                            const low = t.toLowerCase();
+                            return low.includes('enviar mensaje') || low.includes('send message');
+                          });
+                        if (!msgEl) return null;
+
+                        // Subir unos niveles para quedarnos en el contenedor del top-card
+                        let cur = msgEl;
+                        for (let depth = 0; depth < 6 && cur; depth++) {
+                          const t = (cur.innerText || '').trim();
+                          if (!t) { cur = cur.parentElement; continue; }
+                          const lines = t.split(/\\n+/).map(x => (x||'').trim()).filter(Boolean);
+                          if (lines.length < 2) { cur = cur.parentElement; continue; }
+
+                          // Candidatos: líneas "del medio", no el propio nombre/nav.
+                          const candidates = [];
+                          for (let i = 0; i < lines.length; i++) {
+                            const ln = lines[i];
+                            const lnl = ln.toLowerCase();
+                            if (!ln || ln.length < 5 || ln.length > 120) continue;
+                            if (blocked.some(b => lnl.includes(b))) continue;
+                            if (ln.includes(',') && ln.length > 45) continue;
+                            const words = ln.split(/\\s+/).filter(Boolean);
+                            if (words.length < 3) continue; // heurística: cargo suele tener varias palabras
+                            candidates.push(ln);
+                          }
+
+                          if (candidates.length) {
+                            // elegir el más corto para evitar blobs
+                            candidates.sort((a,b)=>a.length-b.length);
+                            return candidates[0];
+                          }
+                          cur = cur.parentElement;
+                        }
+                        return null;
+                    }"""
+                )
+                if position_from_message and isinstance(position_from_message, str):
+                    out["position"] = _clean_topcard_text(position_from_message, out.get("name"))
+            except Exception:
+                pass
 
         if out.get("name") and not out.get("first_name"):
             name_parts = out["name"].split()
             if name_parts:
                 out["first_name"] = name_parts[0]
                 out["last_name"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else None
+
+        # Sanity-check final: evitar que location/company queden contaminadas
+        # por el nombre del perfil (observado en varios perfiles reales).
+        if out.get("name"):
+            def _repair_mojibake(s: str) -> str:
+                if any(ch in s for ch in ("Ã", "Â")):
+                    try:
+                        return s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+                    except Exception:
+                        return s
+                return s
+
+            name_fixed = _repair_mojibake(out["name"]).strip().lower()
+            loc_fixed = _repair_mojibake(out.get("location") or "").strip().lower()
+            comp_fixed = _repair_mojibake(out.get("company") or "").strip().lower()
+
+            if name_fixed and loc_fixed and name_fixed == loc_fixed:
+                out["location"] = None
+            if name_fixed and comp_fixed and name_fixed == comp_fixed:
+                out["company"] = None
         if out.get("name") or out.get("position") or out.get("location") or out.get("company"):
             return out
     except Exception:
@@ -1070,23 +1451,99 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
     """
     result: Dict = {"emails": None, "phones": None}
     try:
-        overlay_url = f"https://www.linkedin.com/in/{slug}/overlay/contact-info/"
-        driver.goto(overlay_url)
+        # LinkedIn a veces no renderiza correctamente el overlay si navegamos
+        # directamente a /details/contact-info/. Abrimos el perfil primero,
+        # y (clave) hacemos click en el link/acción "contact-info" dentro del
+        # perfil para que el SPA cargue el contenido (email/teléfono).
+        profile_url = f"https://www.linkedin.com/in/{slug}/"
         try:
-            driver.wait_for_selector(
-                "div.pv-contact-info, h3.pv-contact-info__header, a[href^='mailto:']",
-                timeout=8000,
-            )
+            driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
         except Exception:
-            time.sleep(3)
+            pass
+        try:
+            driver.wait_for_selector("body", timeout=15000)
+        except Exception:
+            pass
 
-        # ── Emails: enlaces mailto: ───────────────────────────────────────────────
+        try:
+            # Primary path: click on the in-page "contact info" action.
+            # This is necessary for LinkedIn to actually render the email/phone.
+            link = driver.locator("a[href*='contact-info']").first
+            if link.count() > 0:
+                link.click(timeout=8000)
+                time.sleep(2)
+        except Exception:
+            pass
+
+        try:
+            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
+        except Exception:
+            # Fallback: if click didn't open the overlay, try direct routes.
+            # LinkedIn changed routing in 2023-2024: /overlay/ → /details/
+            overlay_url = f"https://www.linkedin.com/in/{slug}/details/contact-info/"
+            try:
+                driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
+                time.sleep(2)
+            except Exception:
+                pass
+
+            # If /details/ redirected back to the plain profile, try /overlay/
+            actual_url = driver.url
+            if "details/contact-info" not in actual_url:
+                overlay_url = f"https://www.linkedin.com/in/{slug}/overlay/contact-info/"
+                try:
+                    driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
+                    time.sleep(2)
+                except Exception:
+                    pass
+
+        # Log how many h3 headers are visible to diagnose structure
+        h3_texts = driver.evaluate(
+            "() => Array.from(document.querySelectorAll('h3')).map(e => e.innerText.trim()).filter(Boolean)"
+        )
+        _log.info("overlay %s: h3 encontrados=%s", slug, h3_texts[:10] if h3_texts else [])
+
+        # Log presence of mailto links
+        mailto_count = driver.evaluate(
+            "() => document.querySelectorAll('a[href^=\"mailto:\"]').length"
+        )
+        _log.info("overlay %s: enlaces mailto=%s", slug, mailto_count)
+
+        # Dump first 3000 chars of body text to log so we can see the actual structure
+        try:
+            body_preview = driver.evaluate(
+                "() => document.body ? document.body.innerText.slice(0, 3000) : ''"
+            )
+            _log.debug("overlay %s: body_preview=%s", slug, repr(body_preview[:1500]))
+        except Exception:
+            pass
+
+        # ── Emails: solo los que están bajo el bloque "Email" del overlay ───────────
         emails = []
-        for a in driver.query_selector_all("a[href^='mailto:']"):
-            href = a.get_attribute("href") or ""
-            addr = href.replace("mailto:", "").strip()
-            if addr and "@" in addr and "linkedin.com" not in addr and addr not in emails:
-                emails.append(addr)
+        email_xpath = (
+            "//h3[contains(normalize-space(.), 'Email') "
+            "or contains(normalize-space(.), 'Correo')]"
+        )
+        email_sections = driver.locator(f"xpath={email_xpath}").all()
+        if email_sections:
+            # Preferred path: emails sibling list after the "Email" h3
+            for h3 in email_sections:
+                try:
+                    container = h3.locator("xpath=following-sibling::ul[1]")
+                    for a in (container.locator("a[href^='mailto:']").all() or []):
+                        href = a.get_attribute("href") or ""
+                        addr = href.replace("mailto:", "").strip()
+                        if addr and "@" in addr and "linkedin.com" not in addr and addr not in emails:
+                            emails.append(addr)
+                except Exception:
+                    pass
+        # Fallback: if overlay has no section headers, take the first mailto: on the page
+        if not emails:
+            for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:1]:
+                href = a.get_attribute("href") or ""
+                addr = href.replace("mailto:", "").strip()
+                if addr and "@" in addr and "linkedin.com" not in addr:
+                    emails.append(addr)
 
         # ── Teléfonos: XPath al h3 con texto "Teléfono"/"Phone" ──────────────────
         # La estructura del overlay tiene el h3 y la ul como HERMANOS dentro del mismo
@@ -1166,6 +1623,186 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
     return result
 
 
+def _get_profile_data_via_voyager(slug: str, session: "LinkedInSession") -> Optional[Dict]:
+    """
+    Obtiene nombre, cargo, empresa y ubicación via la API Voyager de LinkedIn.
+    Más fiable que el DOM scraping porque devuelve JSON estructurado.
+
+    Endpoint actualizado (abril 2026):
+      /voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={slug}
+      con decorationId=FullProfileWithEntities-93 para datos completos
+    
+    El endpoint anterior /voyager/api/identity/profiles/{slug} devuelve 410 Gone.
+    """
+    try:
+        cookies_dict = {
+            c["name"]: c["value"]
+            for c in session.cookies
+            if "linkedin.com" in c.get("domain", "")
+        }
+        jsessionid = cookies_dict.get("JSESSIONID", "").strip('"')
+        if not jsessionid:
+            return None
+
+        headers = {
+            "csrf-token": jsessionid,
+            "x-restli-protocol-version": "2.0.0",
+            "x-li-lang": "es_ES",
+            "Accept": "application/vnd.linkedin.normalized+json+2.1",
+            "Referer": f"https://www.linkedin.com/in/{slug}/",
+            "User-Agent": _CHROME_UA,
+        }
+
+        # Endpoint actualizado 2026 con decorationId para datos completos
+        decoration = "com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-93"
+        url = f"https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity={slug}&decorationId={decoration}"
+        resp = _requests.get(url, cookies=cookies_dict, headers=headers, timeout=15, allow_redirects=False)
+        _log.info("voyager profile %s: status=%d", slug, resp.status_code)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            included = data.get("included", [])
+            
+            # 1. Buscar el perfil principal (firstName/lastName)
+            profile = None
+            geo_urn = None
+            for item in included:
+                entity_urn = item.get("entityUrn", "") or item.get("$id", "")
+                if "fsd_profile:" in entity_urn or ("firstName" in item and "lastName" in item):
+                    profile = item
+                    # Extraer geoUrn para buscar ubicación
+                    geo_loc = item.get("geoLocation") or {}
+                    geo_urn = geo_loc.get("geoUrn") or geo_loc.get("*geo")
+                    break
+
+            if not profile:
+                _log.info("voyager profile %s: no se encontró perfil en included", slug)
+                return None
+
+            first = (profile.get("firstName") or "").strip()
+            last = (profile.get("lastName") or "").strip()
+            name = f"{first} {last}".strip() or None
+            headline = (profile.get("headline") or "").strip() or None
+
+            # 2. Buscar ubicación en el item fsd_geo correspondiente
+            location = None
+            if geo_urn:
+                for item in included:
+                    if item.get("entityUrn") == geo_urn:
+                        location = item.get("defaultLocalizedName") or item.get("defaultLocalizedNameWithoutCountryName")
+                        break
+
+            # 3. Buscar empresa actual en posiciones (dateRange sin end = actual)
+            company = None
+            position = None
+            for item in included:
+                if item.get("companyName") and item.get("title"):
+                    date_range = item.get("dateRange") or {}
+                    if date_range and not date_range.get("end"):  # Posición actual
+                        company = item.get("companyName")
+                        position = item.get("title")
+                        break
+
+            # Fallback: extraer empresa del headline si sigue patrón
+            if not company and headline:
+                for sep in (" at ", " en ", " @ "):
+                    if sep in headline:
+                        company = headline.split(sep, 1)[1].strip()
+                        break
+
+            # Usar position de posición actual, o headline como fallback
+            final_position = position or headline
+
+            if name or final_position:
+                out = {
+                    "name": name,
+                    "first_name": first or None,
+                    "last_name": last or None,
+                    "position": final_position,
+                    "company": company,
+                    "location": location,
+                    "profile_photo": None,
+                }
+                _log.info("voyager profile %s: name=%s position=%s company=%s location=%s", 
+                          slug, name, final_position, company, location)
+                return out
+
+        elif resp.status_code == 404:
+            _log.info("voyager profile %s: 404 (slug no encontrado)", slug)
+        else:
+            _log.info("voyager profile %s: status=%d body=%s", slug, resp.status_code, resp.text[:200])
+    except Exception as e:
+        _log.debug("voyager profile %s: error=%s", slug, e)
+    return None
+
+
+def _get_contact_info_via_voyager(slug: str, session: "LinkedInSession") -> Dict:
+    """
+    Obtiene email y teléfono via la API interna Voyager de LinkedIn.
+    Más fiable que DOM scraping porque no depende de class names.
+    Usa las mismas cookies de sesión autenticada.
+
+    Endpoint: GET /voyager/api/identity/profiles/{slug}/profileContactInfo
+    Auth: cookie li_at + JSESSIONID como CSRF token.
+    """
+    result: Dict = {}
+    try:
+        cookies_dict = {
+            c["name"]: c["value"]
+            for c in session.cookies
+            if "linkedin.com" in c.get("domain", "")
+        }
+        # JSESSIONID is used as the CSRF token (strip surrounding quotes)
+        jsessionid = cookies_dict.get("JSESSIONID", "").strip('"')
+        if not jsessionid:
+            return result
+
+        url = f"https://www.linkedin.com/voyager/api/identity/profiles/{slug}/profileContactInfo"
+        headers = {
+            "csrf-token": jsessionid,
+            "x-restli-protocol-version": "2.0.0",
+            "x-li-lang": "es_ES",
+            "Accept": "application/vnd.linkedin.normalized+json+2.1",
+            "Referer": f"https://www.linkedin.com/in/{slug}/",
+            "User-Agent": _CHROME_UA,
+            "x-li-page-instance": "urn:li:page:d_flagship3_profile_view_base_contact_details;",
+        }
+        resp = _requests.get(
+            url, cookies=cookies_dict, headers=headers, timeout=10, allow_redirects=False
+        )
+        _log.info("voyager contact %s: status=%d", slug, resp.status_code)
+        if resp.status_code == 200:
+            data = resp.json()
+            email = (
+                data.get("emailAddress")
+                or data.get("email_address")
+                or (data.get("data") or {}).get("emailAddress")
+            )
+            phones_raw = (
+                data.get("phoneNumbers")
+                or data.get("phone_numbers")
+                or (data.get("data") or {}).get("phoneNumbers")
+                or []
+            )
+            phones = []
+            for p in phones_raw:
+                num = p.get("number") or p.get("phoneNumber") if isinstance(p, dict) else str(p)
+                if num and _is_valid_phone(str(num)):
+                    phones.append(str(num))
+            if email and "@" in str(email) and "linkedin" not in str(email):
+                result["emails"] = str(email).strip()
+            if phones:
+                result["phones"] = "; ".join(phones[:3])
+            _log.info("voyager contact %s: email=%s phones=%s", slug, result.get("emails"), result.get("phones"))
+        elif resp.status_code == 403:
+            _log.info("voyager contact %s: 403 (sesión no autorizada o perfil sin datos visibles)", slug)
+        else:
+            _log.info("voyager contact %s: respuesta inesperada status=%d body=%s", slug, resp.status_code, resp.text[:200])
+    except Exception as e:
+        _log.debug("voyager contact %s: error=%s", slug, e)
+    return result
+
+
 def _extract_extra_from_dom(driver) -> Dict:
     """
     Extrae del DOM del perfil los campos que no están en JSON-LD:
@@ -1186,6 +1823,9 @@ def _extract_extra_from_dom(driver) -> Dict:
             "img.profile-photo-edit__preview",
             "img[class*='profile-picture']",
             "button.pv-top-card-profile-picture__edit-overlay img",
+            "section[data-view-name='profile-card'] img",
+            "img[class*='EntityPhoto']",
+            "img[data-ghost-classes]",
         ]:
             els = driver.query_selector_all(sel)
             if els:
@@ -1322,13 +1962,18 @@ def _scrape_profile_via_browser(
     if not driver:
         return None, []
     try:
-        driver.goto(url)
+        try:
+            driver.goto(url, wait_until="domcontentloaded", timeout=45000)
+        except Exception:
+            pass
         try:
             driver.wait_for_selector("body", timeout=BROWSER_PROFILE_WAIT * 1000)
         except Exception:
             pass
-        # Segunda carga para que la SPA inyecte el JSON-LD
-        driver.reload()
+        try:
+            driver.reload(wait_until="domcontentloaded", timeout=45000)
+        except Exception:
+            pass
         time.sleep(3)
         try:
             driver.wait_for_selector("body", timeout=BROWSER_PROFILE_WAIT * 1000)
@@ -1636,6 +2281,102 @@ def _fetch_profile_html_via_requests(slug: str, session: "LinkedInSession") -> O
     return None
 
 
+def _load_profile_row_via_requests(slug: str, session: Optional["LinkedInSession"]) -> Tuple[Optional[Dict], bool]:
+    if session is None:
+        return None, False
+
+    # Fuente 1: Voyager API — JSON estructurado, no depende de class names
+    voyager_row = _get_profile_data_via_voyager(slug, session)
+    if voyager_row and (voyager_row.get("name") or voyager_row.get("position")):
+        _log.info("load_requests %s: datos vía Voyager API OK", slug)
+        # Intentar complementar con HTML (posición desde meta si Voyager no la tiene)
+        html = _fetch_profile_html_via_requests(slug, session)
+        if html:
+            meta_row = _extract_person_from_meta(html)
+            script_row = _extract_person_from_any_script(html)
+            merged = _merge_profile_rows(voyager_row, script_row, meta_row)
+            return merged, True
+        return voyager_row, True
+
+    # Fuente 2: HTML scraping (JSON-LD + meta tags)
+    html = _fetch_profile_html_via_requests(slug, session)
+    if not html:
+        return None, False
+    script_row = _extract_person_from_any_script(html)
+    meta_row = _extract_person_from_meta(html)
+    return _merge_profile_rows(script_row, meta_row), True
+
+
+def _load_profile_row_via_browser(driver, slug: str, base_row: Optional[Dict]) -> Tuple[Optional[Dict], Dict]:
+    url = f"https://www.linkedin.com/in/{slug}/"
+    try:
+        driver.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except Exception:
+        pass
+    try:
+        driver.wait_for_function(
+            "() => {"
+            "  const h = document.querySelector('a > h1, h1.text-heading-xlarge, main h1, section h1, h1');"
+            "  if (!h || !h.innerText || h.innerText.trim().length < 2) return false;"
+            "  const name = h.innerText.trim().toLowerCase();"
+            "  let el = h.nextElementSibling;"
+            "  for (let i = 0; i < 5 && el; i++, el = el.nextElementSibling) {"
+            "    const t = (el.innerText || '').trim();"
+            "    if (t && t.length > 3 && t.toLowerCase() !== name) return true;"
+            "  }"
+            "  const p = h.parentElement;"
+            "  if (p) {"
+            "    let s = p.nextElementSibling;"
+            "    for (let i = 0; i < 3 && s; i++, s = s.nextElementSibling) {"
+            "      const t = (s.innerText || '').trim();"
+            "      if (t && t.length > 3 && t.toLowerCase() !== name) return true;"
+            "    }"
+            "  }"
+            "  return false;"
+            "}",
+            timeout=18000,
+        )
+    except Exception:
+        pass
+    time.sleep(1)
+    html = driver.content()
+    script_row = _extract_person_from_any_script(html)
+    dom_row = _extract_person_from_dom(driver, known_name=(base_row or {}).get("name"))
+    meta_row = _extract_person_from_meta(html)
+    row = _merge_profile_rows(base_row, script_row, dom_row, meta_row)
+    return row, _extract_extra_from_dom(driver)
+
+
+def _fetch_contact_info(driver, slug: str, session: Optional["LinkedInSession"], used_chrome_for_profile: bool) -> Tuple[Dict, str]:
+    contact: Dict = {}
+    source = "overlay"
+    if session is not None:
+        contact = _get_contact_info_via_voyager(slug, session)
+    if contact.get("emails") or contact.get("phones"):
+        _log.debug("enrich %s: strategy=voyager success", slug)
+        return contact, "voyager"
+    _log.debug("enrich %s: strategy=voyager empty, falling back to overlay", slug)
+
+    if driver is None:
+        _log.debug("enrich %s: sin driver, se omite fallback overlay", slug)
+        return contact, "voyager"
+
+    if not used_chrome_for_profile:
+        url = f"https://www.linkedin.com/in/{slug}/"
+        driver.goto(url)
+        try:
+            driver.wait_for_selector("body", timeout=15000)
+        except Exception as e:
+            _log.warning("enrich %s: timeout cargando perfil para overlay: %s", slug, e)
+    time.sleep(random.uniform(1.0, 2.0))
+    contact = _extract_contact_info_from_overlay(driver, slug)
+    if contact.get("emails") or contact.get("phones"):
+        _log.debug("enrich %s: strategy=overlay success", slug)
+    else:
+        _log.debug("enrich %s: strategy=overlay empty", slug)
+    return contact, source
+
+
 def _enrich_connection_from_profile(driver, slug: str, session: Optional["LinkedInSession"] = None) -> Dict:
     """
     Extrae todos los campos de un perfil de conexión.
@@ -1648,63 +2389,46 @@ def _enrich_connection_from_profile(driver, slug: str, session: Optional["Linked
     clean_slug = unquote((slug or "").strip()).strip("/")
     url = f"https://www.linkedin.com/in/{clean_slug}/"
     try:
-        row = None
+        row: Optional[Dict] = None
         extra: Dict = {}
         used_chrome_for_profile = False
+        profile_source = "requests"
 
-        # ── 1. Intentar obtener HTML via requests (sin Chrome) ─────────────────
-        if session is not None:
-            _log.info("enrich %s: intentando via requests...", slug)
-            html = _fetch_profile_html_via_requests(slug, session)
-            if html:
-                script_row = _extract_person_from_any_script(html)
-                meta_row = _extract_person_from_meta(html)
-                row = _merge_profile_rows(script_row, meta_row)
-                if row:
-                    _log.info("enrich %s: datos via requests OK — name=%s", slug, row.get("name"))
-                else:
-                    _log.info("enrich %s: requests OK pero JSON-LD sin datos de persona", slug)
-            else:
-                _log.info("enrich %s: requests no devolvió HTML válido", slug)
+        _log.info("enrich %s: intentando via requests...", slug)
+        row, had_requests_html = _load_profile_row_via_requests(clean_slug, session)
+        if row:
+            _log.info("enrich %s: datos via requests OK — name=%s", slug, row.get("name"))
+        elif had_requests_html:
+            _log.info("enrich %s: requests OK pero JSON-LD sin datos de persona", slug)
+            _log.debug("enrich %s: strategy=requestsJsonLd empty_fields", slug)
+        else:
+            _log.info("enrich %s: requests no devolvió HTML válido", slug)
+            _log.debug("enrich %s: strategy=requestsHtml failed_or_authwall", slug)
 
-        # ── 2. Fallback: cargar perfil con Chrome si requests no trajo datos
-        #     suficientes para completar nombre + metadatos base ────────────────
-        if not _row_has_minimum_profile_data(row):
+        if not _row_has_minimum_profile_data(row) and driver is not None:
             _log.info("enrich %s: fallback a Chrome para cargar perfil", slug)
-            driver.goto(url)
-            try:
-                driver.wait_for_selector("body", timeout=BROWSER_PROFILE_WAIT * 1000)
-            except Exception:
-                pass
-            for _ in range(10):
-                html = driver.content()
-                if "application/ld+json" in html or '"givenName"' in html:
-                    break
-                time.sleep(1)
-            html = driver.content()
-            script_row = _extract_person_from_any_script(html)
-            dom_row = _extract_person_from_dom(driver)
-            meta_row = _extract_person_from_meta(html)
-            row = _merge_profile_rows(row, script_row, dom_row, meta_row)
-            extra = _extract_extra_from_dom(driver)
+            row, extra = _load_profile_row_via_browser(driver, clean_slug, row)
             used_chrome_for_profile = True
-            _log.info("enrich %s: Chrome perfil — name=%s", slug, row.get("name") if row else None)
+            profile_source = "browser"
+            _log.info("enrich %s: Chrome perfil — name=%s pos=%s company=%s loc=%s",
+                      slug, row.get("name") if row else None,
+                      row.get("position") if row else None,
+                      row.get("company") if row else None,
+                      row.get("location") if row else None)
+            if not _row_has_minimum_profile_data(row):
+                _log.debug("enrich %s: strategy=domProfile incomplete_after_browser", slug)
+        elif not _row_has_minimum_profile_data(row):
+            _log.debug("enrich %s: sin driver disponible, se mantiene extracción requests-only", slug)
 
-        # ── 3. Overlay de contacto via Chrome (email/teléfono) ─────────────────
-        # Si no usamos Chrome para el perfil, necesitamos navegar a la URL primero
-        # para que el driver esté en el dominio correcto antes de abrir el overlay.
-        if not used_chrome_for_profile:
-            _log.info("enrich %s: navegando a perfil para overlay de contacto", slug)
-            driver.goto(url)
-            try:
-                driver.wait_for_selector("body", timeout=15000)
-            except Exception as e:
-                _log.warning("enrich %s: timeout cargando perfil para overlay: %s", slug, e)
-
-        time.sleep(random.uniform(1.0, 2.0))
-        _log.info("enrich %s: extrayendo overlay de contacto...", slug)
-        contact = _extract_contact_info_from_overlay(driver, clean_slug)
-        _log.info("enrich %s: overlay OK — emails=%s phones=%s", slug, contact.get("emails"), contact.get("phones"))
+        _log.info("enrich %s: obteniendo contacto (voyager->overlay)...", slug)
+        contact, contact_source = _fetch_contact_info(driver, clean_slug, session, used_chrome_for_profile)
+        _log.info(
+            "enrich %s: contacto fuente=%s emails=%s phones=%s",
+            slug,
+            contact_source,
+            contact.get("emails"),
+            contact.get("phones"),
+        )
 
         # ── 4. Construir resultado completo ────────────────────────────────────
         result = _build_connection_dict(
@@ -1746,6 +2470,8 @@ def _enrich_connection_from_profile(driver, slug: str, session: Optional["Linked
         result["open_to_work"] = extra.get("open_to_work")
         result["is_connection"] = True
         result["profile_link"] = url
+        result["_meta_profile_source"] = profile_source
+        result["_meta_contact_source"] = contact_source
 
         if not result.get("name"):
             guessed = _name_from_slug(clean_slug)
@@ -1835,7 +2561,7 @@ def scrape_connections_selenium(
                 break
 
             print(f"   Perfil {i + 1}/{len(slugs)}: {slug}", end="\r", flush=True)
-            conn = _enrich_connection_from_profile(driver, slug)
+            conn = _enrich_connection_from_profile(driver, slug, session=session)
             enriched.append(conn)
 
             # Pausa anti-detección entre visitas a perfiles
@@ -1949,124 +2675,52 @@ def collect_all_slugs(session: LinkedInSession, proxy: Optional[str] = None) -> 
     Devuelve la lista de slugs únicos encontrados.
     """
     index_max_contacts = max(20, min(int(os.getenv(INDEX_ENV_MAX_CONTACTS, "100")), 1000))
-    index_max_scroll   = max(5, min(int(os.getenv(INDEX_ENV_MAX_SCROLL_ROUNDS, "25")), 120))
-    index_recently    = os.getenv(INDEX_ENV_USE_RECENTLY_ADDED, "true").lower() == "true"
+    index_max_scroll = max(5, min(int(os.getenv(INDEX_ENV_MAX_SCROLL_ROUNDS, "25")), 120))
+    index_recently = os.getenv(INDEX_ENV_USE_RECENTLY_ADDED, "true").lower() == "true"
     _log.info(
         "collect_all_slugs: iniciando (max=%d, scroll_rounds=%d, recently_added=%s)",
-        index_max_contacts, index_max_scroll, index_recently,
+        index_max_contacts,
+        index_max_scroll,
+        index_recently,
     )
     driver = _create_driver_with_cookies(session, proxy=proxy)
     if not driver:
         _log.error("collect_all_slugs: no se pudo crear el WebDriver")
         return []
-
-    # Slugs propios a excluir (el perfil del usuario logueado y strings no-slug)
-    OWN_SLUG = (session.username or "").lower()
-    EXCLUDED = {"me", "login", "feed", "jobs", "messaging", "notifications",
-                "search", "mynetwork", "in", "company", "school", ""}
-
-    seen: set = set()
-    slugs: List[str] = []
-
-    def _harvest_page() -> int:
-        """Extrae slugs de todos los enlaces /in/ visibles en la página actual."""
-        new = 0
-        links = driver.query_selector_all("a[href*='/in/']")
-        for a in links:
-            if len(slugs) >= index_max_contacts:
-                break
-            try:
-                href = a.get_attribute("href") or ""
-                m = re.search(r"linkedin\.com/in/([^/?#]+)", href)
-                if not m:
-                    continue
-                slug = m.group(1).rstrip("/").lower()
-                if not slug or len(slug) < 2 or slug in seen:
-                    continue
-                if slug in EXCLUDED or slug == OWN_SLUG:
-                    continue
-                seen.add(slug)
-                slugs.append(slug)
-                new += 1
-            except Exception:
-                continue
-        return new
-
-    def _click_next_search_page() -> bool:
-        """
-        En la búsqueda de personas (network=F) LinkedIn pagina (10 resultados/página).
-        Este helper intenta clicar el botón Siguiente/Next. Devuelve True si navegó.
-        """
-        xpaths = [
-            "//button[contains(@aria-label,'Next') and not(@disabled)]",
-            "//button[contains(@aria-label,'Siguiente') and not(@disabled)]",
-            "//button[contains(.,'Next') and not(@disabled)]",
-            "//button[contains(.,'Siguiente') and not(@disabled)]",
-            "//li[contains(@class,'artdeco-pagination__indicator--number')]/following-sibling::li//button[contains(@aria-label,'Next') and not(@disabled)]",
-        ]
-        for xp in xpaths:
-            try:
-                btns = driver.locator(f"xpath={xp}").all()
-                for b in btns:
-                    if b.is_visible() and b.is_enabled():
-                        b.click()
-                        time.sleep(random.uniform(2.0, 3.5))
-                        return True
-            except Exception:
-                continue
-        return False
-
     try:
-        # ── ÚNICA FUENTE: búsqueda de primer grado con paginación ──────────────
-        _log.info("collect_all_slugs: cargando búsqueda de primer grado (paginada)")
-        driver.goto(_CONNECTIONS_SEARCH_URL)
-        time.sleep(random.uniform(3.5, 5.5))
-
-        final_url = driver.url
-        print(f"[collect_slugs] URL tras goto: {final_url}")
+        final_url = driver.url or ""
         if any(kw in final_url for kw in ("authwall", "/login", "checkpoint")):
-            _log.warning("collect_all_slugs: sesión no válida, redirigido a login")
-            print(f"[collect_slugs] ❌ Sesión no válida — redirigido a {final_url}")
+            _log.warning("collect_all_slugs: sesión no válida, redirigido a %s", final_url)
             session.on_block = True
             return []
 
-        # Máximo páginas = límite de contactos / 10 (resultados por página) con margen
-        max_pages = max(1, min(200, (index_max_contacts // 10) + 5))
-        page = 1
-        no_progress = 0
-        while page <= max_pages and len(slugs) < index_max_contacts:
-            prev = len(slugs)
-            _harvest_page()
-            all_links = driver.query_selector_all("a[href*='/in/']")
-            print(f"[collect_slugs] page {page}: {len(all_links)} links /in/ encontrados, +{len(slugs)-prev} slugs nuevos (total={len(slugs)})")
-            _log.info("collect_all_slugs: page %d -> +%d (total=%d)", page, len(slugs) - prev, len(slugs))
-            if len(slugs) == prev:
-                no_progress += 1
-            else:
-                no_progress = 0
-
-            # Si 2 páginas seguidas no aportan slugs, probablemente se acabó
-            if no_progress >= 2:
-                break
-
-            if len(slugs) >= index_max_contacts:
-                break
-
-            # Ir a la siguiente página
-            if not _click_next_search_page():
-                break
-            page += 1
-            # Pausa anti-detección entre páginas
-            time.sleep(random.uniform(1.5, 3.0))
-
+        slugs = _collect_connection_slugs(driver, max_contacts=index_max_contacts)
+        own_slug = (session.username or "").strip().lower()
+        excluded = {
+            "me",
+            "login",
+            "feed",
+            "jobs",
+            "messaging",
+            "notifications",
+            "search",
+            "mynetwork",
+            "in",
+            "company",
+            "school",
+            "",
+        }
+        slugs = [
+            s for s in slugs
+            if s and len(s) >= 2 and s not in excluded and s != own_slug
+        ]
         _log.info("collect_all_slugs: %d slugs totales recopilados", len(slugs))
-
+        return slugs[:index_max_contacts]
     except Exception as e:
         _log.error("collect_all_slugs: error inesperado: %s", e)
+        return []
     finally:
         try:
             driver.quit()
         except Exception:
             pass
-
-    return slugs[:index_max_contacts]

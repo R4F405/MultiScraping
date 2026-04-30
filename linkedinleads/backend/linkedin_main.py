@@ -21,6 +21,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
@@ -39,6 +40,7 @@ from db import (
     insert_run,
     queue_slugs,
     get_pending_slugs,
+    requeue_errors,
     upsert_contact,
     mark_queue_done,
     mark_queue_error,
@@ -46,6 +48,8 @@ from db import (
     get_queue_stats,
     contact_exists,
     contact_has_core_fields,
+    contact_has_contact_details,
+    contact_has_suspicious_geo_fields,
     days_since_last_scrape,
     register_account,
     update_account_last_run,
@@ -78,15 +82,22 @@ MAX_CONTACTS_PER_RUN = max(
     ),
 )
 MAX_CONTACTS_PER_DAY = max(1, int(os.getenv("MAX_CONTACTS_PER_DAY", "80")))
-SCRAPE_WINDOW_START = int(os.getenv("SCRAPE_WINDOW_START", "8"))  # hora (0-23)
-SCRAPE_WINDOW_END = int(os.getenv("SCRAPE_WINDOW_END", "21"))  # hora (0-23)
+SCRAPE_WINDOW_START = int(os.getenv("SCRAPE_WINDOW_START", "0"))  # hora (0-23)
+SCRAPE_WINDOW_END = int(os.getenv("SCRAPE_WINDOW_END", "23"))  # hora (0-23)
 # Días mínimos antes de refrescar un contacto ya scrapeado.
 # Si tiene datos de hace menos de CONTACT_REFRESH_DAYS, se salta sin visitar el perfil.
 CONTACT_REFRESH_DAYS = max(1, int(os.getenv("CONTACT_REFRESH_DAYS", "30")))
 
-COOLDOWN_FILE = ".linkedin_429_cooldown"
-COOLDOWN_COUNT_FILE = ".linkedin_429_count"
-LAST_RUN_FILE = ".linkedin_last_run"
+
+def _state_file(name: str) -> str:
+    # Keep limiter state next to DB so it is stable in Docker and service restarts.
+    from db import DB_PATH as _DB_PATH
+    return str(Path(_DB_PATH).resolve().parent / name)
+
+
+COOLDOWN_FILE = _state_file(".linkedin_429_cooldown")
+COOLDOWN_COUNT_FILE = _state_file(".linkedin_429_count")
+LAST_RUN_FILE = _state_file(".linkedin_last_run")
 
 
 # ── Re-login automático ────────────────────────────────────────────────────────
@@ -353,13 +364,14 @@ def _run_safety_checks(username: str, interactive: bool) -> None:
     if _check_min_interval():
         _abort(f"Solo se permite una ejecución cada {MIN_HOURS_BETWEEN_RUNS} h.")
 
-    if _check_time_window():
-        now_h = datetime.now().hour
+    # Respetar franja horaria permitida.
+    # _check_time_window() devuelve True cuando estamos FUERA de ventana.
+    if username and _check_time_window():
         _abort(
-            "Fuera de la franja horaria permitida "
-            f"({SCRAPE_WINDOW_START}:00–{SCRAPE_WINDOW_END}:00). "
-            f"Hora actual: {now_h}:xx."
+            "Fuera de la franja horaria permitida. "
+            f"Se permite ejecutar entre {SCRAPE_WINDOW_START}:00 y {SCRAPE_WINDOW_END}:00."
         )
+
 
     if username and _check_daily_budget(username):
         _abort(
@@ -562,6 +574,11 @@ def run_enrich(
             })
         return
 
+    requeued = requeue_errors(username)
+    if requeued:
+        logger.info("run_enrich: %d slugs con error re-enolados como pending", requeued)
+
+
     slugs = get_pending_slugs(username, limit=fetch_limit)
     if not slugs:
         stats = get_queue_stats(username)
@@ -585,6 +602,7 @@ def run_enrich(
 
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     new_count = updated_count = skipped_count = error_count = visited = 0
+    strategy_errors = {"requests": 0, "voyager": 0, "overlay": 0}
     run_limit = max_contacts_override or MAX_CONTACTS_PER_RUN
     effective_total = min(run_limit, remaining_budget, len(slugs))
     if progress_callback:
@@ -598,17 +616,19 @@ def run_enrich(
             "updated_count": 0,
             "skipped_count": 0,
             "error_count": 0,
+            "strategy_errors": strategy_errors,
         })
 
     # En servidores con ≤1 GB RAM, Chrome acumula memoria entre perfiles y crashea.
     # Reiniciamos proactivamente cada N perfiles para liberar RAM antes del OOM.
     # En local puedes desactivarlo con DRIVER_RESTART_EVERY=0 para que NO cierre/abra Chrome.
+    # Default aumentado a 8 para reducir detección de bot por cierres/aperturas frecuentes.
     try:
-        DRIVER_RESTART_EVERY = int(os.getenv("DRIVER_RESTART_EVERY", "3"))
+        DRIVER_RESTART_EVERY = int(os.getenv("DRIVER_RESTART_EVERY", "8"))
     except ValueError:
-        DRIVER_RESTART_EVERY = 3
+        DRIVER_RESTART_EVERY = 8
     if DRIVER_RESTART_EVERY < 0:
-        DRIVER_RESTART_EVERY = 3
+        DRIVER_RESTART_EVERY = 8
 
     def _make_fresh_driver():
         drv = _create_driver_with_cookies(session, proxy=proxy)
@@ -618,8 +638,21 @@ def run_enrich(
 
     driver = _make_fresh_driver()
     if not driver:
-        print("❌ No se pudo abrir el navegador. Revisa la sesión.")
-        return
+        logger.warning("run_enrich: no se pudo abrir navegador, usando fallback requests-only")
+        print("⚠️  No se pudo abrir el navegador. Continuando en modo requests-only.")
+        if progress_callback:
+            progress_callback({
+                "phase": "running",
+                "label": "Modo degradado",
+                "detail": "Browser no disponible, usando extracción requests/voyager.",
+                "current": 0,
+                "total": max(1, effective_total),
+                "new_count": 0,
+                "updated_count": 0,
+                "skipped_count": 0,
+                "error_count": 0,
+                "strategy_errors": strategy_errors,
+            })
 
     import random
 
@@ -634,7 +667,15 @@ def run_enrich(
             if contact_exists(username, slug):
                 days = days_since_last_scrape(username, slug)
                 core_complete = contact_has_core_fields(username, slug)
-                if days is not None and days < CONTACT_REFRESH_DAYS and core_complete:
+                details_complete = contact_has_contact_details(username, slug)
+                suspicious_geo = contact_has_suspicious_geo_fields(username, slug)
+                if (
+                    days is not None
+                    and days < CONTACT_REFRESH_DAYS
+                    and core_complete
+                    and details_complete
+                    and not suspicious_geo
+                ):
                     mark_queue_done(username, slug)
                     skipped_count += 1
                     logger.debug("skip %s (hace %.1f días)", slug, days)
@@ -655,6 +696,8 @@ def run_enrich(
 
             # ── Reinicio proactivo de Chrome cada N perfiles ──────────────────
             if (
+                driver
+                and
                 DRIVER_RESTART_EVERY
                 and visited > 0
                 and visited % DRIVER_RESTART_EVERY == 0
@@ -671,14 +714,21 @@ def run_enrich(
                 driver = _make_fresh_driver()
                 if not driver:
                     logger.error(
-                        "run_enrich: no se pudo recrear el WebDriver, abortando"
+                        "run_enrich: no se pudo recrear el WebDriver, continuando requests-only"
                     )
-                    break
+
+            # ── Delay anti-bot entre perfiles ─────────────────────────────────
+            if visited > 0:
+                delay = random.uniform(2.0, 5.0)
+                time.sleep(delay)
 
             # ── Visita real del perfil ────────────────────────────────────────
             print(f"   [{visited + 1}/{run_limit}] {slug}", end="\r", flush=True)
             try:
                 data = _enrich_connection_from_profile(driver, slug, session=session)
+                if data.get("_meta_contact_source") == "overlay":
+                    # Track fallback path usage; helps diagnose Voyager failures.
+                    strategy_errors["voyager"] += 1
                 result = upsert_contact(username, data)
                 mark_queue_done(username, slug)
                 visited += 1
@@ -697,10 +747,18 @@ def run_enrich(
                         "updated_count": updated_count,
                         "skipped_count": skipped_count,
                         "error_count": error_count,
+                        "strategy_errors": strategy_errors,
                         "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
                     })
             except Exception as exc:
                 logger.warning("run_enrich: error en %s: %s", slug, exc)
+                err_text = str(exc).lower()
+                if "voyager" in err_text:
+                    strategy_errors["voyager"] += 1
+                elif "overlay" in err_text or "contact" in err_text:
+                    strategy_errors["overlay"] += 1
+                else:
+                    strategy_errors["requests"] += 1
                 mark_queue_error(username, slug, str(exc))
                 error_count += 1
                 visited += 1  # también cuenta: se hizo una petición
@@ -715,6 +773,7 @@ def run_enrich(
                         "updated_count": updated_count,
                         "skipped_count": skipped_count,
                         "error_count": error_count,
+                        "strategy_errors": strategy_errors,
                         "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
                     })
                 # Si el renderer de Chrome crasheó, recrear el driver inmediatamente
@@ -729,17 +788,17 @@ def run_enrich(
                     )
                 ):
                     logger.warning("run_enrich: renderer crash — recreando WebDriver...")
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
+                    if driver:
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
                     time.sleep(4)
                     driver = _make_fresh_driver()
                     if not driver:
                         logger.error(
-                            "run_enrich: no se pudo recrear el WebDriver, abortando"
+                            "run_enrich: no se pudo recrear el WebDriver, continuando requests-only"
                         )
-                        break
 
             # Pausa anti-detección (no pausar tras el último)
             if visited < run_limit and visited < remaining_budget:
@@ -748,10 +807,11 @@ def run_enrich(
                 time.sleep(pause)
 
     finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
     print()  # nueva línea tras el \r
     finished_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -798,6 +858,7 @@ def run_enrich(
             "queue_pending": stats.get("pending", 0),
             "queue_done": stats.get("done", 0),
             "queue_error": stats.get("error", 0),
+            "strategy_errors": strategy_errors,
             "eta_seconds": 0,
         })
     print(

@@ -12,6 +12,14 @@ class SearchRequest(BaseModel):
     account: str
     max_contacts: int = 20
 
+    @field_validator("account")
+    @classmethod
+    def validate_account(cls, v: str) -> str:
+        account = (v or "").strip()
+        if not account:
+            raise ValueError("account no puede estar vacío")
+        return account
+
     @field_validator("max_contacts")
     @classmethod
     def cap_max_contacts(cls, v: int) -> int:

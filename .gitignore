@@ -45,3 +45,9 @@ Thumbs.db
 
 # Claude Code
 .claude/
+.claude/settings.local.json
+.claude/agent-memory-local/
+
+# Docker
+.env
+nginx/certs/

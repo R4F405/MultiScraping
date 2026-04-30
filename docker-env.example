@@ -1,0 +1,107 @@
+# ── scraperLead-web ──────────────────────────────────────────────────────────
+SESSION_SECRET=daf2c466588d9067fc6cce92b8a103ba6c82ed9919d3c7722f32deeb6ae5638b
+AUTH_USERS=admin:password123,maria:otrapassword
+IP_WHITELIST=
+SESSION_MAX_AGE=28800
+HTTPS_ONLY=false
+
+MAPLEADS_API_URL=http://mapleads:8001
+INSTALEADS_API_URL=http://instaleads:8002
+LINKEDINLEADS_API_URL=http://linkedinleads:8003
+MAPLEADS_API_KEY=
+
+# ── mapleads ─────────────────────────────────────────────────────────────────
+LOG_LEVEL=INFO
+API_KEY=
+PROXY_LIST=http://pwsmfzvn:6ztwe4ynqiqf@31.59.20.176:6754/,http://pwsmfzvn:6ztwe4ynqiqf@198.23.239.134:6540/,http://pwsmfzvn:6ztwe4ynqiqf@45.38.107.97:6014/,http://pwsmfzvn:6ztwe4ynqiqf@107.172.163.27:6543/,http://pwsmfzvn:6ztwe4ynqiqf@198.105.121.200:6462/,http://pwsmfzvn:6ztwe4ynqiqf@216.10.27.159:6837/,http://pwsmfzvn:6ztwe4ynqiqf@142.111.67.146:5611/,http://pwsmfzvn:6ztwe4ynqiqf@191.96.254.138:6185/,http://pwsmfzvn:6ztwe4ynqiqf@31.58.9.4:6077/,http://pwsmfzvn:6ztwe4ynqiqf@23.26.71.145:5628/
+
+# ── instaleads ───────────────────────────────────────────────────────────────
+IG_USERNAME=
+IG_SESSION_KEY=
+IG_PROXY_LIST=http://pwsmfzvn:6ztwe4ynqiqf@31.59.20.176:6754/,http://pwsmfzvn:6ztwe4ynqiqf@198.23.239.134:6540/,http://pwsmfzvn:6ztwe4ynqiqf@45.38.107.97:6014/,http://pwsmfzvn:6ztwe4ynqiqf@107.172.163.27:6543/,http://pwsmfzvn:6ztwe4ynqiqf@198.105.121.200:6462/,http://pwsmfzvn:6ztwe4ynqiqf@216.10.27.159:6837/,http://pwsmfzvn:6ztwe4ynqiqf@142.111.67.146:5611/,http://pwsmfzvn:6ztwe4ynqiqf@191.96.254.138:6185/,http://pwsmfzvn:6ztwe4ynqiqf@31.58.9.4:6077/
+
+# ── linkedinleads ─────────────────────────────────────────────────────────────
+HEADLESS=true
+SESSIONS_DIR=/app/sessions
+
+## LinkedIn Scraper — Backend FastAPI
+## Copia este fichero a `.env` y rellena los valores sensibles.
+
+# Puerto del servidor FastAPI
+LINKEDIN_API_PORT=8003
+
+# ---------------------------
+# Anti-ban / limites de scraping
+# ---------------------------
+MAX_CONTACTS_PER_RUN=20
+MAX_CONTACTS_PER_DAY=60
+MAX_CONTACTS_CAP=50
+SCRAPE_WINDOW_START=8
+SCRAPE_WINDOW_END=21
+MIN_HOURS_BETWEEN_RUNS=0
+COOLDOWN_HOURS_AFTER_429=48
+SCHEDULED_RANDOM_DELAY_MINUTES=25
+CONTACT_REFRESH_DAYS=30
+
+# ---------------------------
+# Scraping (Selenium)
+# ---------------------------
+BROWSER_PROFILE_WAIT=15
+SLEEP_BETWEEN_CONNECTIONS=6
+HEADLESS=true
+CHROME_BINARY=
+
+# ---------------------------
+# Notificaciones Telegram (opcional)
+# ---------------------------
+TELEGRAM_BOT_TOKEN=8697928169:AAEZzcyxb53k1xcYAdaHlMOy-vZJgNVAy2I
+TELEGRAM_CHAT_ID=2050786051
+
+# ---------------------------
+# Cifrado de credenciales (re-login automatico)
+# ---------------------------
+# Genera una clave nueva:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+CREDENTIAL_KEY=DIhIOv6j2hVCw5QIquIfyhEkLwXZhprcssxGdZE202g=
+
+# ---------------------------
+# Base de datos SQLite (opcional)
+# ---------------------------
+# Por defecto: data/contacts.db
+DB_PATH=
+
+# ── Límites mapleads ─────────────────────────────────────
+MAX_REQUESTS_PER_PROXY_BEFORE_COOLDOWN=30
+PROXY_COOLDOWN_SECONDS=480
+MAX_CONCURRENT_REQUESTS=6
+REQUEST_DELAY_MIN_SECONDS=1.0
+REQUEST_DELAY_MAX_SECONDS=2.5
+ERROR_RATE_THRESHOLD=0.20
+HIGH_ERROR_COOLDOWN_SECONDS=900
+MAX_REQUESTS_PER_DAY=10000
+DEDUPE_DAYS=30
+
+# ── Límites instaleads ───────────────────────────────────
+IG_LIMIT_DAILY_UNAUTHENTICATED=99999
+IG_DELAY_UNAUTH_MIN=4.0
+IG_DELAY_UNAUTH_MAX=9.0
+IG_LIMIT_DAILY_AUTHENTICATED=80
+IG_LIMIT_HOURLY_AUTHENTICATED=20
+IG_DELAY_AUTH_MIN=4.0
+IG_DELAY_AUTH_MAX=10.0
+IG_BACKOFF_INITIAL=60
+IG_BACKOFF_MULTIPLIER=2
+IG_BACKOFF_MAX=3600
+
+# ── Límites linkedinleads ────────────────────────────────
+MAX_CONTACTS_PER_RUN=20
+MAX_CONTACTS_PER_DAY=60
+MAX_CONTACTS_CAP=50
+SCRAPE_WINDOW_START=8
+SCRAPE_WINDOW_END=21
+MIN_HOURS_BETWEEN_RUNS=0
+COOLDOWN_HOURS_AFTER_429=48
+SCHEDULED_RANDOM_DELAY_MINUTES=25
+CONTACT_REFRESH_DAYS=30
+BROWSER_PROFILE_WAIT=15
+SLEEP_BETWEEN_CONNECTIONS=6

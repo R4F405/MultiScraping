@@ -539,17 +539,22 @@ def test_run_enrich_skip_inteligente_contacto_fresco(tmp_path):
                                 with patch("linkedin_main.contact_exists", side_effect=[True, False]):
                                     with patch("linkedin_main.days_since_last_scrape", return_value=5.0):
                                         with patch("linkedin_main.contact_has_core_fields", return_value=True):
-                                            with patch("linkedin_main._enrich_connection_from_profile",
-                                                       return_value={"profile_id": "bob"}) as mock_enrich:
-                                                with patch("linkedin_main.upsert_contact", return_value="inserted"):
-                                                    with patch("linkedin_main.mark_queue_done") as mock_done:
-                                                        with patch("linkedin_main.mark_queue_error"):
-                                                            with patch("linkedin_main.insert_run"):
-                                                                with patch("linkedin_main.get_queue_stats",
-                                                                           return_value={"pending": 0, "done": 2, "error": 0, "total": 2}):
-                                                                    with patch("linkedin_main.update_account_last_run"):
-                                                                        with patch("linkedin_main.time.sleep"):
-                                                                            m.run_enrich(interactive=False)
+                                            with patch("linkedin_main.contact_has_contact_details", return_value=True):
+                                                with patch(
+                                                    "linkedin_main._enrich_connection_from_profile",
+                                                    return_value={"profile_id": "bob"}
+                                                ) as mock_enrich:
+                                                    with patch("linkedin_main.upsert_contact", return_value="inserted"):
+                                                        with patch("linkedin_main.mark_queue_done") as mock_done:
+                                                            with patch("linkedin_main.mark_queue_error"):
+                                                                with patch("linkedin_main.insert_run"):
+                                                                    with patch(
+                                                                        "linkedin_main.get_queue_stats",
+                                                                        return_value={"pending": 0, "done": 2, "error": 0, "total": 2},
+                                                                    ):
+                                                                        with patch("linkedin_main.update_account_last_run"):
+                                                                            with patch("linkedin_main.time.sleep"):
+                                                                                m.run_enrich(interactive=False)
 
         # alice fue saltada (skip) pero también marcada done
         # bob fue visitada
