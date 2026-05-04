@@ -12,6 +12,7 @@ import re
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
@@ -49,8 +50,11 @@ def _get_env_float(name: str, default: float) -> float:
 BROWSER_PROFILE_WAIT      = _get_env_int("BROWSER_PROFILE_WAIT", 10)
 SLEEP_BETWEEN_CONNECTIONS = _get_env_float("SLEEP_BETWEEN_CONNECTIONS", 6.0)
 MAX_CONTACTS_CAP          = _get_env_int("MAX_CONTACTS_CAP", 50)
-SESSION_FILE              = "session.pkl"
-SESSIONS_DIR              = os.getenv("SESSIONS_DIR", "sessions")
+# Rutas absolutas al directorio linkedinleads/sessions (no depender del cwd de uvicorn).
+_LINKEDINLEADS_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_SESSIONS_DIR = _LINKEDINLEADS_ROOT / "sessions"
+SESSIONS_DIR = os.getenv("SESSIONS_DIR", str(_DEFAULT_SESSIONS_DIR))
+SESSION_FILE = os.getenv("SESSION_FILE", str(_DEFAULT_SESSIONS_DIR / "session.pkl"))
 # Muestra el navegador si HEADLESS=false en .env (útil para depuración)
 HEADLESS                  = os.getenv("HEADLESS", "true").lower() != "false"
 
@@ -61,6 +65,7 @@ _CONNECTIONS_SEARCH_URL = "https://www.linkedin.com/search/results/people/?netwo
 # Nombres de env para límites del index (leídos en tiempo de ejecución en collect_all_slugs).
 INDEX_ENV_MAX_CONTACTS      = "INDEX_MAX_CONTACTS"
 INDEX_ENV_MAX_SCROLL_ROUNDS = "INDEX_MAX_SCROLL_ROUNDS"
+INDEX_ENV_NO_PROGRESS_LIMIT = "INDEX_NO_PROGRESS_LIMIT"
 INDEX_ENV_USE_RECENTLY_ADDED = "INDEX_USE_RECENTLY_ADDED"
 
 CONTACT_OVERLAY_WAIT_SELECTOR = (
@@ -1451,57 +1456,89 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
     """
     result: Dict = {"emails": None, "phones": None}
     try:
-        # LinkedIn a veces no renderiza correctamente el overlay si navegamos
-        # directamente a /details/contact-info/. Abrimos el perfil primero,
-        # y (clave) hacemos click en el link/acción "contact-info" dentro del
-        # perfil para que el SPA cargue el contenido (email/teléfono).
         profile_url = f"https://www.linkedin.com/in/{slug}/"
+        details_url = f"https://www.linkedin.com/in/{slug}/details/contact-info/"
+
+        def _url() -> str:
+            return (driver.url or "").lower()
+
+        def _needs_profile_flow() -> bool:
+            u = _url()
+            if "login" in u or "authwall" in u or "checkpoint" in u:
+                return True
+            if "contact-info" in u:
+                return False
+            return True
+
+        # 1) Muchas sesiones cargan bien yendo directo a /details/contact-info/.
         try:
-            driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
-        except Exception:
-            pass
-        try:
-            driver.wait_for_selector("body", timeout=15000)
+            driver.goto(details_url, wait_until="domcontentloaded", timeout=25000)
+            time.sleep(2.5)
         except Exception:
             pass
 
-        try:
-            # Primary path: click on the in-page "contact info" action.
-            # This is necessary for LinkedIn to actually render the email/phone.
-            link = driver.locator("a[href*='contact-info']").first
-            if link.count() > 0:
-                link.click(timeout=8000)
-                time.sleep(2)
-        except Exception:
-            pass
-
-        try:
-            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
-        except Exception:
-            # Fallback: if click didn't open the overlay, try direct routes.
-            # LinkedIn changed routing in 2023-2024: /overlay/ → /details/
-            overlay_url = f"https://www.linkedin.com/in/{slug}/details/contact-info/"
+        if _needs_profile_flow():
             try:
-                driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
-                time.sleep(2)
+                driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                pass
+            try:
+                driver.wait_for_selector("body", timeout=15000)
             except Exception:
                 pass
 
-            # If /details/ redirected back to the plain profile, try /overlay/
-            actual_url = driver.url
-            if "details/contact-info" not in actual_url:
-                overlay_url = f"https://www.linkedin.com/in/{slug}/overlay/contact-info/"
+            try:
+                contact_open_selectors = (
+                    "a[href*='contact-info']",
+                    "a[href*='overlay/contact-info']",
+                    "a[href*='details/contact-info']",
+                    "[data-view-name='profile-contact-info']",
+                    "button[aria-label*='Contact info']",
+                    "button[aria-label*='Información de contacto']",
+                    "a[aria-label*='Contact info']",
+                    "a[aria-label*='Información de contacto']",
+                )
+                for sel in contact_open_selectors:
+                    try:
+                        loc = driver.locator(sel)
+                        if loc.count() > 0:
+                            loc.first.click(timeout=8000)
+                            time.sleep(2)
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+            try:
+                driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
+            except Exception:
                 try:
-                    driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
+                    driver.goto(details_url, wait_until="domcontentloaded", timeout=20000)
                     time.sleep(2)
                 except Exception:
                     pass
+                if "details/contact-info" not in _url():
+                    try:
+                        driver.goto(
+                            f"https://www.linkedin.com/in/{slug}/overlay/contact-info/",
+                            wait_until="domcontentloaded",
+                            timeout=20000,
+                        )
+                        time.sleep(2)
+                    except Exception:
+                        pass
 
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
             "() => Array.from(document.querySelectorAll('h3')).map(e => e.innerText.trim()).filter(Boolean)"
         )
         _log.info("overlay %s: h3 encontrados=%s", slug, h3_texts[:10] if h3_texts else [])
+
+        in_contact_context = "contact-info" in _url() or any(
+            re.search(r"email|correo|e-mail|tel[eé]fono|phone", t or "", re.I)
+            for t in (h3_texts or [])
+        )
 
         # Log presence of mailto links
         mailto_count = driver.evaluate(
@@ -1522,7 +1559,8 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
         emails = []
         email_xpath = (
             "//h3[contains(normalize-space(.), 'Email') "
-            "or contains(normalize-space(.), 'Correo')]"
+            "or contains(normalize-space(.), 'Correo') "
+            "or contains(normalize-space(.), 'E-mail')]"
         )
         email_sections = driver.locator(f"xpath={email_xpath}").all()
         if email_sections:
@@ -1537,8 +1575,10 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                             emails.append(addr)
                 except Exception:
                     pass
-        # Fallback: if overlay has no section headers, take the first mailto: on the page
-        if not emails:
+        # Fallback mailto: solo si estamos en la ruta de contacto (evita enlaces de
+        # "Más perfiles", anuncios o pie de página cuando Voyager devuelve 410).
+        contact_like = in_contact_context or bool(email_sections)
+        if not emails and contact_like:
             for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:1]:
                 href = a.get_attribute("href") or ""
                 addr = href.replace("mailto:", "").strip()
@@ -1572,7 +1612,7 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 pass
 
         # Fallback: si XPath no encontró nada, buscar en BeautifulSoup con regex sin anclas
-        if not phones:
+        if not phones and in_contact_context:
             soup = BeautifulSoup(driver.content(), "html.parser")
             for header in soup.find_all(
                 string=re.compile(r"Tel[eé]fono|Phone|Tel\b", re.IGNORECASE)
@@ -1591,8 +1631,8 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                         break
                     node = node.parent
 
-        # Fallback final: regex sobre texto completo del overlay
-        if not phones:
+        # Fallback final: regex sobre el cuerpo (solo en página de contacto)
+        if not phones and in_contact_context:
             body_text = ""
             try:
                 body = driver.query_selector("body")
@@ -1736,6 +1776,75 @@ def _get_profile_data_via_voyager(slug: str, session: "LinkedInSession") -> Opti
     return None
 
 
+def _parse_voyager_profile_contact_info_payload(data: dict) -> Dict[str, Optional[str]]:
+    """
+    Extrae emails/teléfonos del JSON de profileContactInfo.
+    LinkedIn devuelve a veces un objeto plano y otras el formato Rest.li normalizado
+    (bloque `data` + lista `included` con las entidades reales).
+    """
+    emails: List[str] = []
+    phones: List[str] = []
+    seen_emails: set = set()
+    seen_phones: set = set()
+
+    def _push_email(addr: str) -> None:
+        addr = (addr or "").strip()
+        if not addr or "@" not in addr or "linkedin" in addr.lower():
+            return
+        key = addr.lower()
+        if key not in seen_emails:
+            seen_emails.add(key)
+            emails.append(addr)
+
+    def _push_phone(num: str) -> None:
+        num = (num or "").strip()
+        if not num or not _is_valid_phone(num):
+            return
+        key = re.sub(r"\D", "", num)
+        if key not in seen_phones:
+            seen_phones.add(key)
+            phones.append(num)
+
+    def _from_obj(obj: Optional[dict]) -> None:
+        if not isinstance(obj, dict):
+            return
+        em = obj.get("emailAddress") or obj.get("email_address")
+        if em and isinstance(em, str):
+            _push_email(em)
+        raw_ph = obj.get("phoneNumbers") or obj.get("phone_numbers") or []
+        if isinstance(raw_ph, list):
+            for p in raw_ph:
+                if isinstance(p, dict):
+                    num = p.get("number") or p.get("phoneNumber") or p.get("value")
+                else:
+                    num = str(p) if p is not None else None
+                if num:
+                    _push_phone(str(num))
+
+    _from_obj(data)
+    inner = data.get("data")
+    if isinstance(inner, dict):
+        _from_obj(inner)
+    for key in ("included", "elements"):
+        arr = data.get(key)
+        if not isinstance(arr, list):
+            continue
+        for item in arr[:80]:
+            if isinstance(item, dict):
+                _from_obj(item)
+                # Objetos anidados tipo { "value": { ... } }
+                val = item.get("value") or item.get("item")
+                if isinstance(val, dict):
+                    _from_obj(val)
+
+    out: Dict[str, Optional[str]] = {}
+    if emails:
+        out["emails"] = "; ".join(emails[:5])
+    if phones:
+        out["phones"] = "; ".join(phones[:5])
+    return out
+
+
 def _get_contact_info_via_voyager(slug: str, session: "LinkedInSession") -> Dict:
     """
     Obtiene email y teléfono via la API interna Voyager de LinkedIn.
@@ -1773,29 +1882,30 @@ def _get_contact_info_via_voyager(slug: str, session: "LinkedInSession") -> Dict
         _log.info("voyager contact %s: status=%d", slug, resp.status_code)
         if resp.status_code == 200:
             data = resp.json()
-            email = (
-                data.get("emailAddress")
-                or data.get("email_address")
-                or (data.get("data") or {}).get("emailAddress")
-            )
-            phones_raw = (
-                data.get("phoneNumbers")
-                or data.get("phone_numbers")
-                or (data.get("data") or {}).get("phoneNumbers")
-                or []
-            )
-            phones = []
-            for p in phones_raw:
-                num = p.get("number") or p.get("phoneNumber") if isinstance(p, dict) else str(p)
-                if num and _is_valid_phone(str(num)):
-                    phones.append(str(num))
-            if email and "@" in str(email) and "linkedin" not in str(email):
-                result["emails"] = str(email).strip()
-            if phones:
-                result["phones"] = "; ".join(phones[:3])
-            _log.info("voyager contact %s: email=%s phones=%s", slug, result.get("emails"), result.get("phones"))
+            if not isinstance(data, dict):
+                _log.info("voyager contact %s: JSON no es objeto", slug)
+                return result
+            parsed = _parse_voyager_profile_contact_info_payload(data)
+            result.update(parsed)
+            if not result.get("emails") and not result.get("phones"):
+                top_keys = list(data.keys())[:12]
+                n_inc = len(data.get("included") or []) if isinstance(data.get("included"), list) else 0
+                _log.info(
+                    "voyager contact %s: 200 sin email/teléfono parseable (keys=%s included=%d)",
+                    slug,
+                    top_keys,
+                    n_inc,
+                )
+            else:
+                _log.info("voyager contact %s: email=%s phones=%s", slug, result.get("emails"), result.get("phones"))
         elif resp.status_code == 403:
             _log.info("voyager contact %s: 403 (sesión no autorizada o perfil sin datos visibles)", slug)
+        elif resp.status_code == 410:
+            _log.warning(
+                "voyager contact %s: 410 Gone — endpoint profileContactInfo retirado/cerrado; "
+                "se usará solo extracción por navegador (overlay).",
+                slug,
+            )
         else:
             _log.info("voyager contact %s: respuesta inesperada status=%d body=%s", slug, resp.status_code, resp.text[:200])
     except Exception as e:
@@ -2021,6 +2131,25 @@ def _scrape_profile_via_browser(
 
 # ── Scraping de conexiones ─────────────────────────────────────────────────────
 
+def _slug_from_profile_href(href: str) -> Optional[str]:
+    """
+    Extrae el public_id desde el href de un enlace a perfil.
+    LinkedIn puede devolver URL absoluta (…linkedin.com/in/…) o relativa (/in/…).
+    """
+    if not href:
+        return None
+    href = href.strip()
+    m = re.search(r"linkedin\.com/in/([^/?#]+)", href, re.I)
+    if not m:
+        m = re.match(r"^/in/([^/?#]+)", href)
+    if not m:
+        return None
+    slug = m.group(1).rstrip("/").lower()
+    if not slug or len(slug) < 2:
+        return None
+    return slug
+
+
 def _build_connection_dict(slug: str, name: Optional[str], position: Optional[str]) -> Dict:
     """Construye el dict normalizado de una conexión."""
     return {
@@ -2067,11 +2196,8 @@ def _extract_connection_cards_from_driver(driver) -> list:
                 if not link_els:
                     continue
                 href = link_els[0].get_attribute("href") or ""
-                m = re.search(r"linkedin\.com/in/([^/?#]+)", href)
-                if not m:
-                    continue
-                slug = m.group(1).rstrip("/").lower()
-                if not slug or len(slug) < 2 or slug in seen_slugs:
+                slug = _slug_from_profile_href(href)
+                if not slug or slug in seen_slugs:
                     continue
                 seen_slugs.add(slug)
 
@@ -2114,11 +2240,8 @@ def _extract_connection_cards_from_driver(driver) -> list:
                 if not link_els:
                     continue
                 href = link_els[0].get_attribute("href") or ""
-                m = re.search(r"linkedin\.com/in/([^/?#]+)", href)
-                if not m:
-                    continue
-                slug = m.group(1).rstrip("/").lower()
-                if not slug or len(slug) < 2 or slug in seen_slugs:
+                slug = _slug_from_profile_href(href)
+                if not slug or slug in seen_slugs:
                     continue
                 seen_slugs.add(slug)
 
@@ -2154,11 +2277,8 @@ def _extract_connection_cards_from_driver(driver) -> list:
     for a in links:
         try:
             href = a.get_attribute("href") or ""
-            m = re.search(r"linkedin\.com/in/([^/?#]+)", href)
-            if not m:
-                continue
-            slug = m.group(1).rstrip("/").lower()
-            if not slug or len(slug) < 2 or slug in seen_slugs:
+            slug = _slug_from_profile_href(href)
+            if not slug or slug in seen_slugs:
                 continue
             seen_slugs.add(slug)
             name = (a.inner_text() or "").strip() or None
@@ -2170,12 +2290,27 @@ def _extract_connection_cards_from_driver(driver) -> list:
     return results
 
 
-def _collect_connection_slugs(driver, max_contacts: int) -> List[str]:
+def _collect_connection_slugs(
+    driver,
+    max_contacts: int,
+    *,
+    max_scroll_rounds: int | None = None,
+    no_progress_limit: int | None = None,
+) -> List[str]:
     """
-    Navega por la página de conexiones y la página de búsqueda de primer grado
-    para recopilar slugs únicos hasta alcanzar max_contacts.
-    No extrae datos de cada perfil aqui - eso lo hace _enrich_connection_from_profile.
+    Navega por la página de conexiones y la búsqueda de primer grado (con scroll
+    y paginación) para recopilar slugs únicos hasta alcanzar max_contacts.
+
+    LinkedIn carga conexiones con scroll infinito: si paramos demasiado pronto
+    (pocos intentos sin nuevos slugs) nos quedamos cortos respecto al total real.
     """
+    scroll_cap = max_scroll_rounds
+    if scroll_cap is None:
+        scroll_cap = max(40, min(int(os.getenv(INDEX_ENV_MAX_SCROLL_ROUNDS, "120")), 250))
+    stall_cap = no_progress_limit
+    if stall_cap is None:
+        stall_cap = max(6, min(int(os.getenv(INDEX_ENV_NO_PROGRESS_LIMIT, "14")), 40))
+
     seen: set = set()
     slugs: List[str] = []
 
@@ -2188,12 +2323,8 @@ def _collect_connection_slugs(driver, max_contacts: int) -> List[str]:
                 break
             try:
                 href = a.get_attribute("href") or ""
-                m = re.search(r"linkedin\.com/in/([^/?#]+)", href)
-                if not m:
-                    continue
-                slug = m.group(1).rstrip("/").lower()
-                # Excluir slugs que sean del propio usuario, menús u otras secciones
-                if not slug or len(slug) < 2 or slug in seen:
+                slug = _slug_from_profile_href(href)
+                if not slug or slug in seen:
                     continue
                 seen.add(slug)
                 slugs.append(slug)
@@ -2202,42 +2333,102 @@ def _collect_connection_slugs(driver, max_contacts: int) -> List[str]:
                 continue
         return new
 
-    # Intentar primero la página de conexiones (/mynetwork/invite-connect/connections/)
-    _log.info("Slug collection: cargando %s", _CONNECTIONS_URL)
+    def _scroll_page_down() -> None:
+        try:
+            driver.evaluate(
+                "() => { window.scrollBy(0, Math.min(900, innerHeight)); "
+                "window.scrollTo(0, Math.max(document.body.scrollHeight, "
+                "document.documentElement.scrollHeight)); }"
+            )
+        except Exception:
+            try:
+                driver.evaluate(f"window.scrollBy(0, {random.randint(400, 800)});")
+            except Exception:
+                pass
+
+    def _click_next_search_page() -> bool:
+        xpaths = [
+            "//button[contains(@aria-label,'Next') and not(@disabled)]",
+            "//button[contains(@aria-label,'Siguiente') and not(@disabled)]",
+            "//button[contains(.,'Next') and not(@disabled)]",
+            "//button[contains(.,'Siguiente') and not(@disabled)]",
+            "//li[contains(@class,'artdeco-pagination__indicator--number')]/following-sibling::li//button[contains(@aria-label,'Next') and not(@disabled)]",
+        ]
+        for xp in xpaths:
+            try:
+                btns = driver.locator(f"xpath={xp}").all()
+                for b in btns:
+                    if b.is_visible() and b.is_enabled():
+                        b.click()
+                        time.sleep(random.uniform(2.0, 3.5))
+                        return True
+            except Exception:
+                continue
+        return False
+
+    # ── 1) Página de conexiones (scroll infinito) ───────────────────────────
+    _log.info("Slug collection: cargando %s (max_scroll=%d, stall=%d)", _CONNECTIONS_URL, scroll_cap, stall_cap)
     driver.goto(_CONNECTIONS_URL)
     time.sleep(random.uniform(3.0, 5.0))
 
     no_progress = 0
-    for scroll_i in range(max(20, max_contacts // 5 + 10)):
+    for scroll_i in range(scroll_cap):
         if len(slugs) >= max_contacts:
             break
         prev = len(slugs)
         _extract_slugs_from_page()
         if len(slugs) == prev:
             no_progress += 1
-            if no_progress >= 4:
+            if no_progress >= stall_cap:
+                _log.info(
+                    "Slug collection: fin scroll conexiones tras %d rondas sin nuevos slugs (%d totales)",
+                    no_progress,
+                    len(slugs),
+                )
                 break
             time.sleep(random.uniform(1.5, 3.0))
         else:
             no_progress = 0
 
-        steps = random.randint(2, 4)
+        steps = random.randint(2, 5)
         for _ in range(steps):
-            driver.evaluate(f"window.scrollBy(0, {random.randint(300, 600)});")
-            time.sleep(random.uniform(0.2, 0.5))
-        time.sleep(random.uniform(1.0, 2.0))
+            _scroll_page_down()
+            time.sleep(random.uniform(0.15, 0.45))
+        time.sleep(random.uniform(0.8, 1.6))
 
+    # ── 2) Búsqueda 1er grado: scroll + paginación ───────────────────────────
     if len(slugs) < max_contacts:
-        # Fallback: búsqueda de conexiones de primer grado
-        _log.info("Slug collection: fallback a búsqueda (%d/%d hasta ahora)", len(slugs), max_contacts)
+        _log.info("Slug collection: fallback búsqueda 1er grado (%d/%d)", len(slugs), max_contacts)
         driver.goto(_CONNECTIONS_SEARCH_URL)
         time.sleep(random.uniform(3.5, 5.5))
-        for _ in range(max(8, max_contacts // 8 + 5)):
+
+        max_search_pages = max(3, min(200, (max_contacts // 8) + 15))
+        inner_scrolls = max(12, min(40, max_contacts // 3 + 8))
+
+        for page_num in range(1, max_search_pages + 1):
             if len(slugs) >= max_contacts:
                 break
-            _extract_slugs_from_page()
-            driver.evaluate("window.scrollBy(0, 700);")
-            time.sleep(random.uniform(1.5, 3.0))
+            no_prog = 0
+            for _ in range(inner_scrolls):
+                if len(slugs) >= max_contacts:
+                    break
+                prev = len(slugs)
+                _extract_slugs_from_page()
+                if len(slugs) == prev:
+                    no_prog += 1
+                    if no_prog >= min(stall_cap, 10):
+                        break
+                else:
+                    no_prog = 0
+                _scroll_page_down()
+                time.sleep(random.uniform(1.0, 2.2))
+
+            if len(slugs) >= max_contacts:
+                break
+            if not _click_next_search_page():
+                _log.info("Slug collection: búsqueda sin botón Siguiente (página %d)", page_num)
+                break
+            _log.debug("Slug collection: búsqueda página %d", page_num + 1)
 
     _log.info("Slugs recopilados: %d", len(slugs))
     return slugs[:max_contacts]
@@ -2675,7 +2866,7 @@ def collect_all_slugs(session: LinkedInSession, proxy: Optional[str] = None) -> 
     Devuelve la lista de slugs únicos encontrados.
     """
     index_max_contacts = max(20, min(int(os.getenv(INDEX_ENV_MAX_CONTACTS, "100")), 1000))
-    index_max_scroll = max(5, min(int(os.getenv(INDEX_ENV_MAX_SCROLL_ROUNDS, "25")), 120))
+    index_max_scroll = max(40, min(int(os.getenv(INDEX_ENV_MAX_SCROLL_ROUNDS, "120")), 250))
     index_recently = os.getenv(INDEX_ENV_USE_RECENTLY_ADDED, "true").lower() == "true"
     _log.info(
         "collect_all_slugs: iniciando (max=%d, scroll_rounds=%d, recently_added=%s)",
@@ -2694,7 +2885,11 @@ def collect_all_slugs(session: LinkedInSession, proxy: Optional[str] = None) -> 
             session.on_block = True
             return []
 
-        slugs = _collect_connection_slugs(driver, max_contacts=index_max_contacts)
+        slugs = _collect_connection_slugs(
+            driver,
+            max_contacts=index_max_contacts,
+            max_scroll_rounds=index_max_scroll,
+        )
         own_slug = (session.username or "").strip().lower()
         excluded = {
             "me",

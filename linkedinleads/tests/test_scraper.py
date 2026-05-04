@@ -17,6 +17,7 @@ from scraper import (
     _save_cookies,
     _driver_cookies_to_list,
     _build_connection_dict,
+    _parse_voyager_profile_contact_info_payload,
     _parse_person_from_json_ld,
     _extract_person_from_any_script,
     _extract_person_from_dom,
@@ -55,6 +56,32 @@ def test_linkedin_session_on_block(fake_cookies):
     s = LinkedInSession(fake_cookies)
     s.on_block = True
     assert s.on_block is True
+
+
+def test_parse_voyager_contact_flat_legacy():
+    data = {
+        "emailAddress": "a@example.com",
+        "phoneNumbers": [{"number": "+34 600 000 000"}],
+    }
+    r = _parse_voyager_profile_contact_info_payload(data)
+    assert r.get("emails") == "a@example.com"
+    assert r.get("phones") and "600" in r["phones"]
+
+
+def test_parse_voyager_contact_normalized_included():
+    data = {
+        "data": {"$type": "stub", "entityUrn": "urn:li:fsd_profile:xxx"},
+        "included": [
+            {
+                "entityUrn": "urn:li:fsd_profileContactInfo:1",
+                "emailAddress": "conn@example.org",
+            },
+            {"phoneNumbers": [{"phoneNumber": "+1 555-0100"}], "note": "noise"},
+        ],
+    }
+    r = _parse_voyager_profile_contact_info_payload(data)
+    assert r.get("emails") == "conn@example.org"
+    assert r.get("phones") and "555" in r["phones"]
 
 
 # ── _load_cookies / _save_cookies ──────────────────────────────────────────────
@@ -536,6 +563,7 @@ def test_collect_connection_slugs_respeta_max_contacts():
 def test_extract_contact_info_email_via_mailto():
     """Extrae email de un enlace mailto: en el overlay."""
     mock_driver = MagicMock()
+    mock_driver.url = "https://www.linkedin.com/in/test-user/details/contact-info/"
 
     mailto_el = MagicMock()
     mailto_el.get_attribute.return_value = "mailto:test@example.com"
@@ -548,6 +576,11 @@ def test_extract_contact_info_email_via_mailto():
     mock_driver.query_selector_all.side_effect = fake_query_selector_all
     mock_driver.locator.return_value.all.return_value = []
     mock_driver.content.return_value = "<html><body></body></html>"
+    mock_driver.evaluate.side_effect = [
+        ["Email"],  # h3_texts
+        1,  # mailto_count
+        "",  # body_preview
+    ]
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "test-user")
@@ -560,9 +593,15 @@ def test_extract_contact_info_email_via_mailto():
 def test_extract_contact_info_sin_datos():
     """Si no hay mailto ni sección de teléfono, devuelve None en ambos campos."""
     mock_driver = MagicMock()
+    mock_driver.url = "https://www.linkedin.com/in/no-contact/"
     mock_driver.query_selector_all.return_value = []
     mock_driver.locator.return_value.all.return_value = []
     mock_driver.content.return_value = "<html><body><p>Sin contacto</p></body></html>"
+    mock_driver.evaluate.side_effect = [
+        ["Más perfiles para ti"],  # h3_texts — sin palabras de contacto
+        0,
+        "",
+    ]
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "no-contact")
@@ -574,6 +613,7 @@ def test_extract_contact_info_sin_datos():
 def test_extract_contact_info_multiples_emails():
     """Si hay varios emails, los separa con '; '."""
     mock_driver = MagicMock()
+    mock_driver.url = "https://www.linkedin.com/in/multi-email/details/contact-info/"
 
     def make_mailto(addr):
         el = MagicMock()
@@ -588,6 +628,7 @@ def test_extract_contact_info_multiples_emails():
     mock_driver.query_selector_all.side_effect = fake_query_selector_all
     mock_driver.locator.return_value.all.return_value = []
     mock_driver.content.return_value = "<html></html>"
+    mock_driver.evaluate.side_effect = [["Email"], 2, ""]
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "multi-email")

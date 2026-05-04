@@ -16,6 +16,7 @@ Endpoints:
 
 import io
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -70,9 +71,10 @@ _job_progress: dict[str, Any] = {}
 _login_status_lock = threading.Lock()
 _login_status: dict[str, dict[str, Any]] = {}
 
-# Control de cadencia: evita spam de ejecuciones
+# Control de cadencia: evita spam de ejecuciones y reduce riesgo de ban.
+# Index: 1 h por defecto entre disparos del mismo usuario. Override: LINKEDIN_INDEX_MIN_INTERVAL_SECONDS=0 (solo dev).
 _MIN_ENRICH_INTERVAL = 20 * 60   # 20 min entre enrich del mismo usuario
-_MIN_INDEX_INTERVAL = 60 * 60    # 60 min entre index
+_MIN_INDEX_INTERVAL = int(os.getenv("LINKEDIN_INDEX_MIN_INTERVAL_SECONDS", str(60 * 60)))
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -217,8 +219,13 @@ def _cooldown_remaining(account: str) -> dict:
         now = time.time()
         index_last = get_last_trigger_epoch(f"{account}:index")
         enrich_last = get_last_trigger_epoch(f"{account}:enrich")
+        idx_rem = (
+            0
+            if _MIN_INDEX_INTERVAL <= 0
+            else max(0, int(_MIN_INDEX_INTERVAL - (now - index_last)))
+        )
         return {
-            "index_cooldown_remaining": max(0, int(_MIN_INDEX_INTERVAL - (now - index_last))),
+            "index_cooldown_remaining": idx_rem,
             "enrich_cooldown_remaining": max(0, int(_MIN_ENRICH_INTERVAL - (now - enrich_last))),
         }
     except Exception:
@@ -497,7 +504,7 @@ async def trigger_search(req: SearchRequest) -> Any:
         from backend.db import get_last_trigger_epoch, set_last_trigger_epoch
         last = get_last_trigger_epoch(key)
         elapsed = time.time() - last
-        if elapsed < interval:
+        if interval > 0 and elapsed < interval:
             wait_min = int((interval - elapsed) / 60)
             raise HTTPException(
                 status_code=429,
