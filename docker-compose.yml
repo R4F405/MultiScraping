@@ -59,7 +59,7 @@ services:
     depends_on:
       - scraperleadweb
     environment:
-      - NGINX_HOST=tu-dominio.com
+      - NGINX_HOST=vps-d6ea56ba.vps.ovh.net
       - NGINX_PORT=10080
 
 volumes:
