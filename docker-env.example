@@ -3,7 +3,7 @@ SESSION_SECRET=daf2c466588d9067fc6cce92b8a103ba6c82ed9919d3c7722f32deeb6ae5638b
 AUTH_USERS=admin:password123,maria:otrapassword
 IP_WHITELIST=
 SESSION_MAX_AGE=28800
-HTTPS_ONLY=false
+HTTPS_ONLY=true
 
 MAPLEADS_API_URL=http://mapleads:8001
 INSTALEADS_API_URL=http://instaleads:8002
