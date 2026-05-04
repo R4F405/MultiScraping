@@ -724,49 +724,92 @@ def run_enrich(
 
             # ── Visita real del perfil ────────────────────────────────────────
             print(f"   [{visited + 1}/{run_limit}] {slug}", end="\r", flush=True)
-            try:
-                data = _enrich_connection_from_profile(driver, slug, session=session)
-                if data.get("_meta_contact_source") == "overlay":
-                    # Track fallback path usage; helps diagnose Voyager failures.
-                    strategy_errors["voyager"] += 1
-                result = upsert_contact(username, data)
-                mark_queue_done(username, slug)
-                visited += 1
-                if result == "inserted":
-                    new_count += 1
-                else:
-                    updated_count += 1
-                if progress_callback:
-                    progress_callback({
-                        "phase": "running",
-                        "label": "Enriqueciendo perfiles",
-                        "detail": f"[{visited}/{effective_total}] {slug}",
-                        "current": visited,
-                        "total": max(1, effective_total),
-                        "new_count": new_count,
-                        "updated_count": updated_count,
-                        "skipped_count": skipped_count,
-                        "error_count": error_count,
-                        "strategy_errors": strategy_errors,
-                        "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
-                    })
-            except Exception as exc:
-                logger.warning("run_enrich: error en %s: %s", slug, exc)
-                err_text = str(exc).lower()
+
+            retryable_error_tokens = (
+                "renderer",
+                "session info",
+                "no such session",
+                "invalid session",
+                "page crashed",
+                "targetclosederror",
+                "target page, context or browser has been closed",
+                "timeout",
+                "timed out",
+            )
+
+            last_exc: Exception | None = None
+            succeeded = False
+            for attempt in (1, 2):
+                try:
+                    data = _enrich_connection_from_profile(driver, slug, session=session)
+                    if data.get("_meta_contact_source") == "overlay":
+                        # Track fallback path usage; helps diagnose Voyager failures.
+                        strategy_errors["voyager"] += 1
+                    result = upsert_contact(username, data)
+                    mark_queue_done(username, slug)
+                    visited += 1
+                    if result == "inserted":
+                        new_count += 1
+                    else:
+                        updated_count += 1
+                    if progress_callback:
+                        progress_callback({
+                            "phase": "running",
+                            "label": "Enriqueciendo perfiles",
+                            "detail": f"[{visited}/{effective_total}] {slug}",
+                            "current": visited,
+                            "total": max(1, effective_total),
+                            "new_count": new_count,
+                            "updated_count": updated_count,
+                            "skipped_count": skipped_count,
+                            "error_count": error_count,
+                            "strategy_errors": strategy_errors,
+                            "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
+                        })
+                    succeeded = True
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    exc_str = str(exc).lower()
+                    is_retryable = any(token in exc_str for token in retryable_error_tokens)
+
+                    # Reintento inmediato una vez para errores transitorios.
+                    if attempt == 1 and is_retryable:
+                        logger.warning(
+                            "run_enrich: error transitorio en %s (attempt %d/2): %s",
+                            slug,
+                            attempt,
+                            exc,
+                        )
+                        if driver:
+                            try:
+                                driver.quit()
+                            except Exception:
+                                pass
+                        time.sleep(3)
+                        driver = _make_fresh_driver()
+                        continue
+                    break
+
+            if not succeeded and last_exc is not None:
+                logger.warning("run_enrich: error en %s: %s", slug, last_exc)
+                err_text = str(last_exc).lower()
                 if "voyager" in err_text:
                     strategy_errors["voyager"] += 1
                 elif "overlay" in err_text or "contact" in err_text:
                     strategy_errors["overlay"] += 1
                 else:
                     strategy_errors["requests"] += 1
-                mark_queue_error(username, slug, str(exc))
+
+                mark_queue_error(username, slug, str(last_exc))
                 error_count += 1
                 visited += 1  # también cuenta: se hizo una petición
+
                 if progress_callback:
                     progress_callback({
                         "phase": "running",
                         "label": "Enriqueciendo perfiles",
-                        "detail": f"Error en {slug}: {exc}",
+                        "detail": f"Error en {slug}: {last_exc}",
                         "current": visited,
                         "total": max(1, effective_total),
                         "new_count": new_count,
@@ -776,29 +819,6 @@ def run_enrich(
                         "strategy_errors": strategy_errors,
                         "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
                     })
-                # Si el renderer de Chrome crasheó, recrear el driver inmediatamente
-                exc_str = str(exc).lower()
-                if any(
-                    kw in exc_str
-                    for kw in (
-                        "renderer",
-                        "session info",
-                        "no such session",
-                        "invalid session",
-                    )
-                ):
-                    logger.warning("run_enrich: renderer crash — recreando WebDriver...")
-                    if driver:
-                        try:
-                            driver.quit()
-                        except Exception:
-                            pass
-                    time.sleep(4)
-                    driver = _make_fresh_driver()
-                    if not driver:
-                        logger.error(
-                            "run_enrich: no se pudo recrear el WebDriver, continuando requests-only"
-                        )
 
             # Pausa anti-detección (no pausar tras el último)
             if visited < run_limit and visited < remaining_budget:
