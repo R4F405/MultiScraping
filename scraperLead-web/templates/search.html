@@ -21,7 +21,7 @@
     <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 mb-4 text-sm" role="status" aria-live="polite">
       <p class="font-medium">{{ proxy_message | default('No se pudo consultar el estado del backend en este momento.') }}</p>
       <p class="mt-1 text-amber-700">Puedes continuar, pero algunas acciones pueden fallar temporalmente.</p>
-      <a href="/search" class="inline-block mt-2 underline font-medium text-amber-900">Reintentar estado</a>
+      <a href="{{ url_for('search') }}" class="inline-block mt-2 underline font-medium text-amber-900">Reintentar estado</a>
     </div>
   {% endif %}
 

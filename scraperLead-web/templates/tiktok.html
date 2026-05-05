@@ -14,10 +14,10 @@
       Estamos preparando una nueva versión desde cero.
     </div>
     <div class="mt-6 flex gap-3">
-      <a href="/" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium no-underline hover:bg-slate-700 transition">
+      <a href="{{ url_for('home') }}" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium no-underline hover:bg-slate-700 transition">
         Volver al inicio
       </a>
-      <a href="/databases" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm no-underline hover:bg-slate-50 transition">
+      <a href="{{ url_for('databases') }}" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm no-underline hover:bg-slate-50 transition">
         Ver otras bases de datos
       </a>
     </div>

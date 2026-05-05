@@ -129,8 +129,8 @@
       <p class="font-medium">{{ leads_message | default(job_message) | default('No se pudo cargar la información solicitada desde el backend.') }}</p>
       <p class="mt-1 text-amber-700">No se mostrará un vacío silencioso cuando el problema sea de upstream.</p>
       <div class="mt-2 flex items-center gap-4">
-        <a href="/leads{% if job_id %}?job_id={{ job_id }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
-        <a href="/history" class="underline font-medium text-blue-700">Volver al historial</a>
+        <a href="{% if job_id %}{{ url_for('leads', job_id=job_id) }}{% else %}{{ url_for('leads') }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
+        <a href="{{ url_for('history') }}" class="underline font-medium text-blue-700">Volver al historial</a>
       </div>
     </div>
   {% endif %}
@@ -213,8 +213,8 @@
       <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-sm text-amber-800">
         <p class="font-medium">{{ jobs_message | default('No se pudo cargar la lista de scrapeos.') }}</p>
         <div class="mt-3 flex items-center gap-4">
-          <a href="/leads{% if job_id %}?job_id={{ job_id }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
-          <a href="/history" class="underline font-medium text-blue-700">Ver historial</a>
+          <a href="{% if job_id %}{{ url_for('leads', job_id=job_id) }}{% else %}{{ url_for('leads') }}{% endif %}" class="underline font-medium text-amber-900">Reintentar</a>
+          <a href="{{ url_for('history') }}" class="underline font-medium text-blue-700">Ver historial</a>
         </div>
       </div>
     {% elif not jobs %}
@@ -232,7 +232,7 @@
           {% set badge_class = status_classes.get(jst, 'bg-slate-100 text-slate-600') %}
           {% set badge_label = status_labels.get(jst, jst) %}
           {% set is_selected = job_id and j.get('job_id') and j.get('job_id') | string == job_id | string %}
-          <a href="/leads?job_id={{ j.get('job_id', '') }}"
+          <a href="{{ url_for('leads', job_id=j.get('job_id', '')) }}"
              data-scrape-job-id="{{ j.get('job_id', '') }}"
              class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-3 hover:border-blue-300 hover:shadow-sm transition-all no-underline group {% if is_selected %}border-blue-300 ring-2 ring-blue-100{% endif %}">
             <div class="flex items-center justify-between">
