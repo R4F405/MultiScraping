@@ -61,7 +61,7 @@
       <div id="cards-view" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {% for job in jobs %}
         {% set st = job.get('status', 'done') %}
-        <a href="{{ url_for('leads', job_id=job.get('job_id', '')) }}" class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-3 hover:border-blue-300 hover:shadow-sm transition-all no-underline group">
+        <a href="{{ url_for('leads') }}{% if job.get('job_id') %}?job_id={{ job.get('job_id', '') }}{% endif %}" class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-3 hover:border-blue-300 hover:shadow-sm transition-all no-underline group">
           <div class="flex items-center justify-between">
             <div class="w-7 h-7 rounded-lg bg-[#e8f0fe] flex items-center justify-center">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -118,7 +118,7 @@
               {% for job in jobs %}
               {% set st = job.get('status', 'done') %}
               <tr class="border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition"
-                  data-href="{{ url_for('leads', job_id=job.get('job_id', '')) }}">
+                  data-href="{{ url_for('leads') }}{% if job.get('job_id') %}?job_id={{ job.get('job_id', '') }}{% endif %}">
                 <td class="px-4 py-3">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" fill="#EA4335"/>
