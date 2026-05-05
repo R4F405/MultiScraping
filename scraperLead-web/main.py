@@ -96,7 +96,7 @@ async def auth_middleware(request: Request, call_next):
     if not user:
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
-        next_url = ROOT_PATH + request.url.path
+        next_url = request.url.path
         if request.url.query:
             next_url += "?" + str(request.url.query)
         return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next_url, safe='')}", status_code=302)
