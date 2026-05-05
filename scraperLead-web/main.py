@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 load_dotenv()
 
@@ -33,6 +34,10 @@ ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+# Trust X-Forwarded-Proto header from reverse proxy (Nginx/OpenLiteSpeed)
+# This allows FastAPI to know it's behind HTTPS and generate correct URLs (https:// not http://)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 
 # ── Jinja2 custom filters ────────────────────────────────────────────────────
