@@ -482,9 +482,9 @@ export function initInstagramForm() {
 
   const loadResults = async (jobId) => {
     displayedJobId = jobId ? String(jobId) : null;
-    const url = displayedJobId
+    const url = window.__BASE__ + (displayedJobId
       ? `/api/instagram/leads?job_id=${encodeURIComponent(displayedJobId)}`
-      : '/api/instagram/leads';
+      : '/api/instagram/leads');
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Error ${res.status}`);
     allLeads = await res.json();

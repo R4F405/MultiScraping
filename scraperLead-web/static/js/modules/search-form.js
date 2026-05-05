@@ -228,7 +228,7 @@ function initSearchPage() {
 
   async function fetchCategorySuggestions(query, limit = 20) {
     try {
-      const url = `/api/maps/categories?q=${encodeURIComponent(query)}&limit=${limit}`;
+      const url = window.__BASE__ + `/api/maps/categories?q=${encodeURIComponent(query)}&limit=${limit}`;
       const res = await fetch(url);
       if (!res.ok) return [];
       const data = await res.json();

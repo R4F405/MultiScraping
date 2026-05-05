@@ -23,7 +23,7 @@ export function subscribeProxyStatus(subscriber) {
 
 export async function fetchProxyStatus() {
   try {
-    const response = await fetch('/api/proxy/status');
+    const response = await fetch(window.__BASE__ + '/api/proxy/status');
     if (!response.ok) return currentProxyStatus;
 
     currentProxyStatus = await response.json();
