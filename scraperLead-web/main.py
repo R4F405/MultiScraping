@@ -30,27 +30,27 @@ SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-in-production")
 SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "28800"))
 HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 ROOT_PATH: str = os.getenv("ROOT_PATH", "")
+FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
 app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
-# ── Middleware to handle X-Forwarded-Proto from reverse proxy ──
-class TrustProxyMiddleware:
+# ── Middleware to set HTTPS scheme for url_for() ──
+class HTTPSSchemeMiddleware:
     def __init__(self, app: ASGIApp):
         self.app = app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            headers = dict(scope["headers"])
-            # If reverse proxy sends X-Forwarded-Proto: https, trust it
-            if headers.get(b"x-forwarded-proto") == b"https":
+            # Force HTTPS scheme for url_for() if configured
+            if FORCE_HTTPS_URLS or HTTPS_ONLY:
                 scope["scheme"] = "https"
         await self.app(scope, receive, send)
 
 
-app.add_middleware(TrustProxyMiddleware)
+app.add_middleware(HTTPSSchemeMiddleware)
 
 
 # ── Jinja2 custom filters ────────────────────────────────────────────────────
