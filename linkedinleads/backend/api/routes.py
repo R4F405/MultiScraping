@@ -12,6 +12,7 @@ Endpoints:
   GET  /api/linkedin/jobs
   GET  /api/linkedin/leads
   GET  /api/linkedin/leads/export
+  POST /api/linkedin/data/reset    → borra contacts, cola y runs (reinicio scraping)
 """
 
 import io
@@ -31,6 +32,7 @@ from fastapi.responses import StreamingResponse
 from backend.api.schemas import (
     AccountAddRequest,
     AccountResponse,
+    DataResetRequest,
     HealthResponse,
     JobResponse,
     JobStatusResponse,
@@ -275,15 +277,39 @@ async def health() -> Any:
             accounts_count = row["n"] if row else 0
         except Exception:
             pass
+    import hashlib
     import os as _os
+
     from backend.api.schemas import _MAX_CONTACTS_CAP
+
     _default = max(1, int(_os.getenv("MAX_CONTACTS_PER_RUN", "20")))
+
+    scraper_digest = None
+    scraper_mtime_utc = None
+    sessions_dir: Optional[str] = None
+    try:
+        scraper_path = Path(__file__).resolve().parent.parent / "scraper.py"
+        if scraper_path.is_file():
+            raw = scraper_path.read_bytes()
+            scraper_digest = hashlib.sha256(raw).hexdigest()[:12]
+            scraper_mtime_utc = datetime.fromtimestamp(
+                scraper_path.stat().st_mtime, tz=timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        from backend.scraper import SESSIONS_DIR as _sd
+
+        sessions_dir = str(_sd)
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "db_exists": _db_exists(),
         "accounts_count": accounts_count,
         "max_contacts_cap": _MAX_CONTACTS_CAP,
         "max_contacts_default": _default,
+        "scraper_digest": scraper_digest,
+        "scraper_mtime_utc": scraper_mtime_utc,
+        "sessions_dir": sessions_dir,
     }
 
 
@@ -487,6 +513,41 @@ async def account_stats(username: str) -> Any:
 
 
 # ── Search / trigger ──────────────────────────────────────────────────────────
+
+@router.post("/data/reset")
+async def reset_scraping_data(body: DataResetRequest) -> Any:
+    """
+    Borra contactos, cola y runs (opcionalmente cadencia index/enrich).
+    No elimina cuentas registradas ni ficheros de sesión.
+    """
+    with _job_lock:
+        _adopt_legacy_job_globals_if_needed()
+        if _job_state.running:
+            raise HTTPException(
+                status_code=409,
+                detail="Hay un job en curso. Espera a que termine antes de vaciar datos.",
+            )
+    if not body.reset_all and not (body.account and body.account.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Indica 'account' o marca reset_all=true.",
+        )
+    try:
+        from backend.db import clear_scraping_data
+
+        stats = clear_scraping_data(
+            account_username=body.account,
+            reset_all=body.reset_all,
+            clear_triggers=body.clear_triggers,
+        )
+        logger.info("data/reset: %s", stats)
+        return {"status": "ok", **stats}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as exc:
+        logger.exception("data/reset error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 @router.post("/search")
 async def trigger_search(req: SearchRequest) -> Any:

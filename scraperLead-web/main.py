@@ -594,6 +594,11 @@ async def li_account_stats(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}/stats", request)
 
 
+@app.post("/api/linkedin/data/reset")
+async def li_data_reset(request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/data/reset", request)
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8081"))

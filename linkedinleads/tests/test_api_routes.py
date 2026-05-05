@@ -195,6 +195,55 @@ class TestDeleteAccount:
         assert r.status_code == 200  # devuelve 200 igualmente
 
 
+# ── POST /api/linkedin/data/reset ─────────────────────────────────────────────
+
+class TestDataReset:
+    def test_reset_cuenta_ok(self, client, tmp_path):
+        import sqlite3
+
+        db_path = str(tmp_path / "r.db")
+        with patch("backend.api.routes.DB_PATH", db_path), patch("backend.db.DB_PATH", db_path):
+            import backend.db as db_mod
+
+            db_mod._tables_initialized_for = None
+            db_mod.ensure_tables()
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "INSERT INTO contacts (username, profile_id, first_scraped_at, last_scraped_at) VALUES (?,?,?,?)",
+                ("acc1", "p1", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+            conn.execute(
+                "INSERT INTO contact_queue (username, slug, status, queued_at) VALUES (?,?,?,?)",
+                ("acc1", "p1", "pending", "2026-01-01T00:00:00Z"),
+            )
+            conn.commit()
+            conn.close()
+
+            r = client.post(
+                "/api/linkedin/data/reset",
+                json={"account": "acc1", "reset_all": False},
+            )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["contacts_deleted"] == 1
+        assert data["queue_deleted"] == 1
+
+    def test_reset_400_sin_account(self, client):
+        r = client.post("/api/linkedin/data/reset", json={"reset_all": False})
+        assert r.status_code == 400
+
+    def test_reset_409_si_job_en_curso(self, client):
+        import backend.api.routes as routes
+
+        routes._job_running = True
+        r = client.post(
+            "/api/linkedin/data/reset",
+            json={"reset_all": True},
+        )
+        assert r.status_code == 409
+
+
 # ── POST /api/linkedin/search ────────────────────────────────────────────────
 
 class TestSearch:

@@ -825,6 +825,59 @@ def deactivate_account(username: str) -> bool:
     return cur.rowcount > 0
 
 
+def clear_scraping_data(
+    *,
+    account_username: Optional[str] = None,
+    reset_all: bool = False,
+    clear_triggers: bool = True,
+) -> Dict[str, int]:
+    """
+    Borra contactos scrapeados, cola de enriquecimiento e historial de runs.
+    No toca la tabla `accounts` ni sesiones .pkl.
+
+    - reset_all=True: vacía todas las filas de contacts, contact_queue y runs.
+    - reset_all=False: solo filas donde username coincide con account_username.
+
+    Si clear_triggers, elimina entradas de trigger_limits (cadencia index/enrich).
+    """
+    ensure_tables()
+    out: Dict[str, int] = {
+        "contacts_deleted": 0,
+        "queue_deleted": 0,
+        "runs_deleted": 0,
+        "triggers_deleted": 0,
+    }
+    acc = (account_username or "").strip()
+    if not reset_all and not acc:
+        raise ValueError("Indica account_username o usa reset_all=True")
+
+    with _db() as conn:
+        if reset_all:
+            cur = conn.execute("DELETE FROM contacts")
+            out["contacts_deleted"] = cur.rowcount or 0
+            cur = conn.execute("DELETE FROM contact_queue")
+            out["queue_deleted"] = cur.rowcount or 0
+            cur = conn.execute("DELETE FROM runs")
+            out["runs_deleted"] = cur.rowcount or 0
+            if clear_triggers:
+                cur = conn.execute("DELETE FROM trigger_limits")
+                out["triggers_deleted"] = cur.rowcount or 0
+        else:
+            cur = conn.execute("DELETE FROM contacts WHERE username = ?", (acc,))
+            out["contacts_deleted"] = cur.rowcount or 0
+            cur = conn.execute("DELETE FROM contact_queue WHERE username = ?", (acc,))
+            out["queue_deleted"] = cur.rowcount or 0
+            cur = conn.execute("DELETE FROM runs WHERE username = ?", (acc,))
+            out["runs_deleted"] = cur.rowcount or 0
+            if clear_triggers:
+                cur = conn.execute(
+                    "DELETE FROM trigger_limits WHERE key IN (?, ?)",
+                    (f"{acc}:index", f"{acc}:enrich"),
+                )
+                out["triggers_deleted"] = cur.rowcount or 0
+    return out
+
+
 # ── trigger_limits (cadencia persistente) ─────────────────────────────────────
 
 def get_last_trigger_epoch(key: str) -> float:

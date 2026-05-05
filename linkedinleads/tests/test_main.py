@@ -292,8 +292,7 @@ def test_get_username_non_interactive_desde_env():
 
 def test_get_username_non_interactive_fallback_account_slug():
     """
-    Fallback a account_slug cuando la auto-detección y LINKEDIN_PROFILE_URL fallan.
-    Este es el caso real en servidor: --account=miquel-roca siempre resuelve.
+    Con account_slug se resuelve aunque la sesión no devuelva username (sin env).
     """
     fake = MagicMock()
     with patch("linkedin_main.get_current_username", return_value=None):
@@ -303,14 +302,15 @@ def test_get_username_non_interactive_fallback_account_slug():
             assert result == "miquel-roca"
 
 
-def test_get_username_non_interactive_account_slug_no_usado_si_hay_sesion():
+def test_get_username_non_interactive_account_slug_gana_sobre_sesion_detectada():
     """
-    El account_slug NO se usa si la sesión ya detectó el username (prioridad 1 > 2).
+    account_slug tiene prioridad sobre el vanity detectado en sesión para alinear
+    cola INDEX/ENRICH con la cuenta registrada en la app.
     """
     fake = MagicMock()
     with patch("linkedin_main.get_current_username", return_value="username-real"):
         result = main_module.get_username_non_interactive(fake, account_slug="slug-diferente")
-        assert result == "username-real"
+        assert result == "slug-diferente"
 
 
 def test_get_username_non_interactive_sin_usuario_ni_env_lanza():

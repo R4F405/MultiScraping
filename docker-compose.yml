@@ -29,6 +29,8 @@ services:
     environment:
       DB_PATH: /app/data/contacts.db
     volumes:
+      # Dev: montar el backend para que el scraper del contenedor = código del repo (sin rebuild).
+      # - ./linkedinleads/backend:/app/backend
       - linkedin_sessions:/app/sessions
       - linkedin_data:/app/data
       - linkedin_logs:/app/logs

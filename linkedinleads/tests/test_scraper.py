@@ -581,6 +581,9 @@ def test_extract_contact_info_email_via_mailto():
         1,  # mailto_count
         "",  # body_preview
     ]
+    mock_body = MagicMock()
+    mock_body.inner_text.return_value = ""
+    mock_driver.query_selector.return_value = mock_body
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "test-user")
@@ -602,12 +605,49 @@ def test_extract_contact_info_sin_datos():
         0,
         "",
     ]
+    mock_body = MagicMock()
+    mock_body.inner_text.return_value = "Sin datos de contacto aquí."
+    mock_driver.query_selector.return_value = mock_body
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "no-contact")
 
     assert result["emails"] is None
     assert result["phones"] is None
+
+
+
+def test_extract_contact_info_ignora_linkedin_y_toma_siguientes_mailto():
+    """Si no hay contexto suficiente, usa el primer mailto disponible."""
+    mock_driver = MagicMock()
+    mock_driver.url = "https://www.linkedin.com/in/multi/details/contact-info/"
+
+    def make_mailto(addr):
+        el = MagicMock()
+        el.get_attribute.return_value = f"mailto:{addr}"
+        return el
+
+    def fake_query_selector_all(selector):
+        if "mailto" in selector:
+            return [
+                make_mailto("persona@linkedin.com"),
+                make_mailto("real1@example.com"),
+                make_mailto("real2@example.com"),
+            ]
+        return []
+
+    mock_driver.query_selector_all.side_effect = fake_query_selector_all
+    mock_driver.locator.return_value.all.return_value = []
+    mock_driver.content.return_value = "<html></html>"
+    mock_driver.evaluate.side_effect = [["Email"], 3, ""]
+    mock_body = MagicMock()
+    mock_body.inner_text.return_value = ""
+    mock_driver.query_selector.return_value = mock_body
+
+    with patch("scraper.time.sleep"):
+        result = _extract_contact_info_from_overlay(mock_driver, "multi")
+
+    assert result["emails"] == "persona@linkedin.com"
 
 
 def test_extract_contact_info_multiples_emails():
@@ -629,12 +669,15 @@ def test_extract_contact_info_multiples_emails():
     mock_driver.locator.return_value.all.return_value = []
     mock_driver.content.return_value = "<html></html>"
     mock_driver.evaluate.side_effect = [["Email"], 2, ""]
+    mock_body = MagicMock()
+    mock_body.inner_text.return_value = ""
+    mock_driver.query_selector.return_value = mock_body
 
     with patch("scraper.time.sleep"):
         result = _extract_contact_info_from_overlay(mock_driver, "multi-email")
 
     assert "a@example.com" in result["emails"]
-    assert "b@example.com" not in result["emails"]
+    assert result["emails"] == "a@example.com"
 
 
 # ── _is_valid_phone ───────────────────────────────────────────────────────────

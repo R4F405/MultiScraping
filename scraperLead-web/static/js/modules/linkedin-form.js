@@ -60,6 +60,10 @@ export function initLinkedInForm() {
   const historyBody  = $('li-history-body');
   const reloadHistory= $('li-reload-history');
 
+  const resetAllChk = $('li-reset-all');
+  const resetDataBtn = $('li-reset-data-btn');
+  const resetStatus = $('li-reset-status');
+
   const searchInput    = $('li-search-input');
   const filterAccount  = $('li-filter-account');
   const filterType     = $('li-filter-type');
@@ -385,6 +389,68 @@ export function initLinkedInForm() {
     addBtn.disabled = false;
     addBtn.textContent = 'Iniciar sesión';
   });
+
+  // ── Reinicio de datos (contactos + cola + runs) ─────────────────────────
+  if (resetDataBtn) {
+    resetDataBtn.addEventListener('click', async () => {
+      if (resetStatus) {
+        resetStatus.classList.add('hidden');
+        resetStatus.textContent = '';
+      }
+      const all = !!(resetAllChk && resetAllChk.checked);
+      const account = accountSelect.value;
+      if (!all && !account) {
+        if (resetStatus) {
+          resetStatus.textContent =
+            'Selecciona una cuenta en «Extracción» o marca borrar todas las cuentas.';
+          resetStatus.className = 'mt-2 text-xs font-medium text-red-600';
+          resetStatus.classList.remove('hidden');
+        }
+        return;
+      }
+      const msg = all
+        ? '¿Borrar contactos, colas y runs de TODAS las cuentas? No se puede deshacer.'
+        : `¿Borrar contactos, cola y runs solo para @${account}?`;
+      if (!confirm(msg)) return;
+      resetDataBtn.disabled = true;
+      try {
+        const body = all
+          ? { reset_all: true, clear_triggers: true }
+          : { account, clear_triggers: true };
+        const r = await fetch('/api/linkedin/data/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          if (resetStatus) {
+            resetStatus.textContent = data.detail || `Error ${r.status}`;
+            resetStatus.className = 'mt-2 text-xs font-medium text-red-600';
+            resetStatus.classList.remove('hidden');
+          }
+          return;
+        }
+        if (resetStatus) {
+          resetStatus.textContent =
+            `Listo: ${data.contacts_deleted ?? 0} contactos, ${data.queue_deleted ?? 0} cola, ${data.runs_deleted ?? 0} runs, ${data.triggers_deleted ?? 0} cadencias.`;
+          resetStatus.className = 'mt-2 text-xs font-medium text-emerald-700';
+          resetStatus.classList.remove('hidden');
+        }
+        await loadAccounts();
+        renderAccountSummaryFromAccount(getSelectedAccount());
+        checkHealth();
+      } catch {
+        if (resetStatus) {
+          resetStatus.textContent = 'Error de red al llamar al backend.';
+          resetStatus.className = 'mt-2 text-xs font-medium text-red-600';
+          resetStatus.classList.remove('hidden');
+        }
+      } finally {
+        resetDataBtn.disabled = false;
+      }
+    });
+  }
 
   function showAddAlert(msg) {
     addAlert.textContent = msg;

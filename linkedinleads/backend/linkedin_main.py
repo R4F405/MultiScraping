@@ -308,22 +308,20 @@ def get_username_non_interactive(session, account_slug: Optional[str] = None) ->
     Resuelve el username de LinkedIn en modo no interactivo (cron / servidor).
 
     Orden de prioridad:
-      1. Detección automática desde la sesión activa (más fiable).
-      2. account_slug — el slug con el que se registró la cuenta; siempre
-         disponible cuando se lanza un run con --account=<slug>.
+      1. account_slug — slug de la cuenta en la app (mismo que INDEX encola).
+         init_client puede rellenar la sesión con el vanity público de LinkedIn
+         tras validar cookies (>6h) mientras el pkl reciente usa el slug del
+         fichero; priorizar account_slug evita ENRICH con cola vacía.
+      2. Detección automática desde la sesión activa.
       3. LINKEDIN_PROFILE_URL en .env (fallback legacy).
       4. ValueError — solo si ninguna fuente lo puede resolver.
     """
+    acc = (account_slug or "").strip()
+    if acc:
+        return acc
     username = get_current_username(session)
     if username:
         return username
-    if account_slug:
-        logger.debug(
-            "get_username_non_interactive: auto-detección fallida, "
-            "usando account_slug '%s' como fallback",
-            account_slug,
-        )
-        return account_slug
     url = os.getenv("LINKEDIN_PROFILE_URL", "").strip()
     if url:
         return extract_username(url)
@@ -631,10 +629,24 @@ def run_enrich(
         DRIVER_RESTART_EVERY = 8
 
     def _make_fresh_driver():
-        drv = _create_driver_with_cookies(session, proxy=proxy)
-        if not drv:
-            logger.error("run_enrich: no se pudo crear el WebDriver")
-        return drv
+        for attempt in range(1, 4):
+            drv = _create_driver_with_cookies(session, proxy=proxy)
+            if drv:
+                return drv
+            logger.warning(
+                "run_enrich: no se pudo crear el WebDriver (intento %d/3)",
+                attempt,
+            )
+            # Recuperación defensiva: resetear Playwright del hilo antes de reintentar.
+            try:
+                from backend.scraper import _cleanup_pw
+
+                _cleanup_pw()
+            except Exception:
+                pass
+            time.sleep(2)
+        logger.error("run_enrich: no se pudo crear el WebDriver tras reintentos")
+        return None
 
     driver = _make_fresh_driver()
     if not driver:
@@ -956,7 +968,11 @@ def run_scrape(
     except RuntimeError:
         notify_session_expired(account)
         raise
-    username = get_username(session) if interactive else get_username_non_interactive(session)
+    username = (
+        get_username(session)
+        if interactive
+        else get_username_non_interactive(session, account_slug=account)
+    )
     max_contacts = (
         max(1, max_contacts_override)
         if max_contacts_override is not None

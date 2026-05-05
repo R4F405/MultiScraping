@@ -1431,10 +1431,56 @@ def _is_valid_phone(text: str) -> bool:
         return False
     if re.search(r'[a-zA-ZÀ-ÿ]', text):
         return False
+    # Evitar rangos de años de experiencia (p. ej. "2025 - 2026").
+    if re.fullmatch(r"\s*\d{4}\s*[-–]\s*\d{4}\s*", text):
+        return False
     if "." in text:  # versiones (1.13.42781) u otros formatos no telefónicos
         return False
     digits = re.sub(r'\D', '', text)
     return len(digits) >= 7 and bool(re.match(r'^[\+\d][\d\s\-\(\)]+$', text))
+
+
+def _linkedin_contact_dom_probe(driver) -> bool:
+    """True si el DOM parece incluir el panel/modal de información de contacto."""
+    for sel in (
+        "section.pv-contact-info",
+        "div.pv-contact-info",
+        "[data-view-name='profile-display-contact-info']",
+        "[data-view-name='profile-contact-info']",
+        "[data-view-name*='contact-info']",
+    ):
+        try:
+            cnt = driver.locator(sel).count()
+            if isinstance(cnt, int) and cnt > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _body_suggests_contact_modal(driver) -> bool:
+    """Heurística: texto típico del modal de contacto (ES/EN) en los primeros KB del body."""
+    try:
+        body = driver.query_selector("body")
+        txt = (body.inner_text() or "")[:14000].lower()
+    except Exception:
+        return False
+    needles = (
+        "correo electrónico",
+        "correo electronico",
+        "dirección de correo",
+        "direccion de correo",
+        "email address",
+        "teléfono",
+        "telefono",
+        "phone number",
+        "número de teléfono",
+        "numero de telefono",
+        "contact info",
+        "información de contacto",
+        "informacion de contacto",
+    )
+    return any(n in txt for n in needles)
 
 
 def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
@@ -1456,24 +1502,64 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
     """
     result: Dict = {"emails": None, "phones": None}
     try:
+        def _pick_best_email(candidates: List[str], slug_hint: str) -> Optional[str]:
+            if not candidates:
+                return None
+            norm_slug = re.sub(r"[^a-z0-9]", "", unquote(slug_hint or "").lower())
+            tokens = [t for t in re.split(r"[-_.]+", unquote(slug_hint or "").lower()) if t]
+            best = candidates[0]
+            best_score = -1
+            for addr in candidates:
+                local = addr.split("@", 1)[0].lower()
+                norm_local = re.sub(r"[^a-z0-9]", "", local)
+                score = 0
+                if norm_slug and norm_slug in norm_local:
+                    score += 5
+                for tok in tokens:
+                    if tok and tok in norm_local:
+                        score += 1
+                if score > best_score:
+                    best_score = score
+                    best = addr
+            return best
+
         profile_url = f"https://www.linkedin.com/in/{slug}/"
         details_url = f"https://www.linkedin.com/in/{slug}/details/contact-info/"
+        overlay_url = f"https://www.linkedin.com/in/{slug}/overlay/contact-info/"
 
         def _url() -> str:
             return (driver.url or "").lower()
+
+        def _is_not_found_page() -> bool:
+            try:
+                txt = driver.evaluate(
+                    "() => document.body ? document.body.innerText.slice(0, 1200).toLowerCase() : ''"
+                )
+            except Exception:
+                return False
+            if not isinstance(txt, str):
+                return False
+            return (
+                "esta página no existe" in txt
+                or "esta pagina no existe" in txt
+                or "this page doesn't exist" in txt
+            )
 
         def _needs_profile_flow() -> bool:
             u = _url()
             if "login" in u or "authwall" in u or "checkpoint" in u:
                 return True
-            if "contact-info" in u:
+            if "overlay/contact-info" in u and not _is_not_found_page():
+                return False
+            # Compatibilidad con rutas antiguas y con tests unitarios mockeados.
+            if "details/contact-info" in u:
                 return False
             return True
 
-        # 1) Muchas sesiones cargan bien yendo directo a /details/contact-info/.
+        # 1) Intento rápido de URL directa del overlay.
         try:
-            driver.goto(details_url, wait_until="domcontentloaded", timeout=25000)
-            time.sleep(2.5)
+            driver.goto(overlay_url, wait_until="domcontentloaded", timeout=18000)
+            time.sleep(1.5)
         except Exception:
             pass
 
@@ -1486,12 +1572,36 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 driver.wait_for_selector("body", timeout=15000)
             except Exception:
                 pass
+            time.sleep(2.5)
+
+            # Primero resolver el href real del link "Información de contacto" en DOM.
+            try:
+                contact_href = driver.evaluate(
+                    "() => {"
+                    " const a = document.querySelector(\"a[href*='/overlay/contact-info/']\")"
+                    "        || document.querySelector(\"a[href*='overlay/contact-info']\")"
+                    "        || Array.from(document.querySelectorAll('a')).find(x => /información de contacto|informacion de contacto|contact info/i.test((x.innerText||'').trim()));"
+                    " return a ? a.href : null;"
+                    "}"
+                )
+            except Exception:
+                contact_href = None
+            if isinstance(contact_href, str) and contact_href:
+                try:
+                    driver.goto(contact_href, wait_until="domcontentloaded", timeout=20000)
+                    time.sleep(2)
+                except Exception:
+                    pass
 
             try:
                 contact_open_selectors = (
-                    "a[href*='contact-info']",
+                    "a[href*='/overlay/contact-info/']",
                     "a[href*='overlay/contact-info']",
-                    "a[href*='details/contact-info']",
+                    "a:has-text('Información de contacto')",
+                    "a:has-text('Informacion de contacto')",
+                    "a:has-text('Contact info')",
+                    "a[href*='/details/contact-info/']",
+                    "a[href*='contact-info']",
                     "[data-view-name='profile-contact-info']",
                     "button[aria-label*='Contact info']",
                     "button[aria-label*='Información de contacto']",
@@ -1501,9 +1611,21 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 for sel in contact_open_selectors:
                     try:
                         loc = driver.locator(sel)
-                        if loc.count() > 0:
-                            loc.first.click(timeout=8000)
-                            time.sleep(2)
+                        total = loc.count()
+                        if total <= 0:
+                            continue
+                        clicked = False
+                        for i in range(min(total, 4)):
+                            item = loc.nth(i)
+                            try:
+                                if item.is_visible():
+                                    item.click(timeout=8000)
+                                    time.sleep(2)
+                                    clicked = True
+                                    break
+                            except Exception:
+                                continue
+                        if clicked:
                             break
                     except Exception:
                         continue
@@ -1518,16 +1640,32 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                     time.sleep(2)
                 except Exception:
                     pass
-                if "details/contact-info" not in _url():
+                if "details/contact-info" not in _url() and "overlay/contact-info" not in _url():
                     try:
-                        driver.goto(
-                            f"https://www.linkedin.com/in/{slug}/overlay/contact-info/",
-                            wait_until="domcontentloaded",
-                            timeout=20000,
-                        )
+                        driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
                         time.sleep(2)
                     except Exception:
-                        pass
+                        try:
+                            driver.goto(details_url, wait_until="domcontentloaded", timeout=20000)
+                            time.sleep(2)
+                        except Exception:
+                            pass
+
+        # Último intento: abrir el panel desde el CTA visible en el perfil.
+        if "contact-info" not in _url():
+            try:
+                clicked = driver.evaluate(
+                    "() => {"
+                    " const a = Array.from(document.querySelectorAll('a,button')).find(el => /información de contacto|informacion de contacto|contact info/i.test((el.innerText||el.getAttribute('aria-label')||'').trim()));"
+                    " if (!a) return false;"
+                    " a.click();"
+                    " return true;"
+                    "}"
+                )
+                if clicked:
+                    time.sleep(2.0)
+            except Exception:
+                pass
 
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
@@ -1545,6 +1683,10 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             "() => document.querySelectorAll('a[href^=\"mailto:\"]').length"
         )
         _log.info("overlay %s: enlaces mailto=%s", slug, mailto_count)
+
+        dom_panel = _linkedin_contact_dom_probe(driver)
+        body_kw = _body_suggests_contact_modal(driver)
+        _log.info("overlay %s: dom_panel=%s body_contact_kw=%s", slug, dom_panel, body_kw)
 
         # Dump first 3000 chars of body text to log so we can see the actual structure
         try:
@@ -1571,19 +1713,29 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                     for a in (container.locator("a[href^='mailto:']").all() or []):
                         href = a.get_attribute("href") or ""
                         addr = href.replace("mailto:", "").strip()
-                        if addr and "@" in addr and "linkedin.com" not in addr and addr not in emails:
+                        if addr and "@" in addr and addr not in emails:
                             emails.append(addr)
                 except Exception:
                     pass
-        # Fallback mailto: solo si estamos en la ruta de contacto (evita enlaces de
-        # "Más perfiles", anuncios o pie de página cuando Voyager devuelve 410).
-        contact_like = in_contact_context or bool(email_sections)
+        # Fallback mailto: si el panel de contacto es plausible (URL, DOM, texto
+        # típico del modal o secciones Email en h3). Evita solo la home sin contexto.
+        mc = int(mailto_count or 0)
+        contact_like = (
+            in_contact_context
+            or bool(email_sections)
+            or dom_panel
+            or (mc >= 1 and body_kw)
+        )
         if not emails and contact_like:
-            for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:1]:
+            fallback_candidates: List[str] = []
+            for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:8]:
                 href = a.get_attribute("href") or ""
                 addr = href.replace("mailto:", "").strip()
-                if addr and "@" in addr and "linkedin.com" not in addr:
-                    emails.append(addr)
+                if addr and "@" in addr and addr not in fallback_candidates:
+                    fallback_candidates.append(addr)
+            best = _pick_best_email(fallback_candidates, slug)
+            if best:
+                emails.append(best)
 
         # ── Teléfonos: XPath al h3 con texto "Teléfono"/"Phone" ──────────────────
         # La estructura del overlay tiene el h3 y la ul como HERMANOS dentro del mismo
@@ -1598,21 +1750,44 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
         for h3 in driver.locator(f"xpath={phone_xpath}").all():
             try:
                 # El <ul> con los números está como hermano siguiente del <h3>
-                ul = h3.query_selector("xpath=following-sibling::ul[1]")
-                if not ul:
+                ul_text = ""
+                ul = h3.locator("xpath=following-sibling::ul[1]")
+                ul_count = ul.count()
+                if not isinstance(ul_count, int):
+                    ul_count = 0
+                if ul_count > 0:
+                    ul_text = (ul.first.inner_text() or "").strip()
+                else:
+                    # Fallback para tests/mocks antiguos basados en query_selector.
+                    legacy_ul = h3.query_selector("xpath=following-sibling::ul[1]")
+                    if legacy_ul:
+                        try:
+                            raw_text = legacy_ul.inner_text()
+                            ul_text = raw_text.strip() if isinstance(raw_text, str) else ""
+                        except Exception:
+                            ul_text = ""
+                        if not ul_text:
+                            try:
+                                parts = []
+                                for span in legacy_ul.query_selector_all("span"):
+                                    txt = (span.inner_text() or "").strip()
+                                    if txt:
+                                        parts.append(txt)
+                                ul_text = " ".join(parts).strip()
+                            except Exception:
+                                ul_text = ""
+                if not ul_text:
                     continue
-                # Span con la clase t-black t-normal = el número (no la etiqueta "Móvil")
-                for span in ul.query_selector_all(
-                    "span.t-14.t-black.t-normal, span.t-black.t-normal"
-                ):
-                    text = (span.inner_text() or "").strip()
-                    if _is_valid_phone(text) and text not in phones:
-                        phones.append(text)
+                # LinkedIn cambia clases con frecuencia; buscar texto numérico dentro del ul.
+                for cand in re.findall(r"\+?\d[\d\s\-\(\)]{6,}\d", ul_text):
+                    cand = re.sub(r"\s+", " ", cand).strip()
+                    if _is_valid_phone(cand) and cand not in phones:
+                        phones.append(cand)
             except Exception:
                 pass
 
         # Fallback: si XPath no encontró nada, buscar en BeautifulSoup con regex sin anclas
-        if not phones and in_contact_context:
+        if not phones and contact_like:
             soup = BeautifulSoup(driver.content(), "html.parser")
             for header in soup.find_all(
                 string=re.compile(r"Tel[eé]fono|Phone|Tel\b", re.IGNORECASE)
@@ -1631,8 +1806,8 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                         break
                     node = node.parent
 
-        # Fallback final: regex sobre el cuerpo (solo en página de contacto)
-        if not phones and in_contact_context:
+        # Fallback final: regex sobre líneas con contexto explícito de teléfono.
+        if not phones and contact_like:
             body_text = ""
             try:
                 body = driver.query_selector("body")
@@ -1644,6 +1819,9 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 for line in body_text.splitlines():
                     line = line.strip()
                     if not line:
+                        continue
+                    line_l = line.lower()
+                    if not re.search(r"tel[eé]fono|phone|m[oó]vil|mobile|work|trabajo", line_l):
                         continue
                     # Captura teléfonos internacionales y nacionales comunes
                     m = re.findall(r"\+?\d[\d\s\-\(\)]{6,}\d", line)
@@ -1789,7 +1967,7 @@ def _parse_voyager_profile_contact_info_payload(data: dict) -> Dict[str, Optiona
 
     def _push_email(addr: str) -> None:
         addr = (addr or "").strip()
-        if not addr or "@" not in addr or "linkedin" in addr.lower():
+        if not addr or "@" not in addr:
             return
         key = addr.lower()
         if key not in seen_emails:
@@ -2642,7 +2820,7 @@ def _enrich_connection_from_profile(driver, slug: str, session: Optional["Linked
         # ── Email enrichment si overlay no dio email ──────────────────────────
         if not result.get("emails") and result.get("company"):
             try:
-                from email_enrichment import enrich_email_if_missing
+                from backend.email_enrichment import enrich_email_if_missing
                 enriched = enrich_email_if_missing(
                     company=result["company"],
                     first_name=result.get("first_name") or "",

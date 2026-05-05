@@ -7,6 +7,22 @@ from pydantic import BaseModel, field_validator
 _MAX_CONTACTS_CAP = max(1, int(os.getenv("MAX_CONTACTS_CAP", "20")))
 
 
+class DataResetRequest(BaseModel):
+    """Vacía datos scrapeados para poder rehacer index/enrich desde cero."""
+
+    account: Optional[str] = None
+    reset_all: bool = False
+    clear_triggers: bool = True
+
+    @field_validator("account")
+    @classmethod
+    def strip_account(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = v.strip()
+        return s or None
+
+
 class SearchRequest(BaseModel):
     mode: Literal["index", "enrich"]
     account: str
@@ -113,3 +129,7 @@ class HealthResponse(BaseModel):
     accounts_count: int
     max_contacts_cap: int = _MAX_CONTACTS_CAP
     max_contacts_default: int = 20
+    # Diagnóstico: comprobar si el proceso que atiende al frontend es el mismo código que en disco
+    scraper_digest: Optional[str] = None
+    scraper_mtime_utc: Optional[str] = None
+    sessions_dir: Optional[str] = None

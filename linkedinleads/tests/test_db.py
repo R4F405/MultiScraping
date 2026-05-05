@@ -470,3 +470,61 @@ def test_update_account_last_run(tmp_db):
     row = conn.execute("SELECT last_run_at FROM accounts WHERE username='alice'").fetchone()
     conn.close()
     assert row["last_run_at"] is not None
+
+
+def test_clear_scraping_data_una_cuenta(tmp_db):
+    db_module.ensure_tables()
+    db_module.register_account("alice", "sessions/a.pkl")
+    db_module.register_account("bob", "sessions/b.pkl")
+    db_module.queue_slugs("alice", ["s1", "s2"])
+    db_module.queue_slugs("bob", ["b1"])
+    db_module.upsert_contact(
+        "alice",
+        {
+            "profile_id": "s1",
+            "name": "A",
+            "first_scraped_at": "2026-01-01T00:00:00Z",
+            "last_scraped_at": "2026-01-01T00:00:00Z",
+        },
+    )
+    db_module.insert_run(
+        "alice", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z", contacts_scraped=1
+    )
+    db_module.set_last_trigger_epoch("alice:index", 100.0)
+    db_module.set_last_trigger_epoch("alice:enrich", 200.0)
+    stats = db_module.clear_scraping_data(account_username="alice", reset_all=False)
+    assert stats["contacts_deleted"] >= 1
+    assert stats["queue_deleted"] >= 2
+    assert stats["runs_deleted"] >= 1
+    assert stats["triggers_deleted"] == 2
+    conn = _conn(tmp_db)
+    n_alice_c = conn.execute(
+        "SELECT COUNT(*) FROM contacts WHERE username='alice'"
+    ).fetchone()[0]
+    n_bob_q = conn.execute(
+        "SELECT COUNT(*) FROM contact_queue WHERE username='bob'"
+    ).fetchone()[0]
+    conn.close()
+    assert n_alice_c == 0
+    assert n_bob_q == 1
+
+
+def test_clear_scraping_data_reset_all(tmp_db):
+    db_module.ensure_tables()
+    db_module.queue_slugs("u", ["a"])
+    db_module.set_last_trigger_epoch("u:index", 1.0)
+    stats = db_module.clear_scraping_data(reset_all=True)
+    assert stats["queue_deleted"] >= 1
+    assert stats["triggers_deleted"] >= 1
+    conn = _conn(tmp_db)
+    nq = conn.execute("SELECT COUNT(*) FROM contact_queue").fetchone()[0]
+    nt = conn.execute("SELECT COUNT(*) FROM trigger_limits").fetchone()[0]
+    conn.close()
+    assert nq == 0
+    assert nt == 0
+
+
+def test_clear_scraping_data_sin_cuenta_ni_all_lanza():
+    db_module.ensure_tables()
+    with pytest.raises(ValueError):
+        db_module.clear_scraping_data(account_username=None, reset_all=False)
