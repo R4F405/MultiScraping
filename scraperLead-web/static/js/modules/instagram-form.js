@@ -187,7 +187,7 @@ export function initInstagramForm() {
   // ── Usage stats (read-only, no configuration) ────────────────────────
   const loadUsage = async () => {
     try {
-      const res = await fetch('/api/instagram/limits');
+      const res = await fetch(window.__BASE__ + '/api/instagram/limits');
       if (!res.ok) return;
       const data = await res.json();
       if (usageUnauth) usageUnauth.textContent = `${data.used_today_unauth ?? '—'}/${data.daily_unauth ?? MAX_UNAUTH_DAILY}`;
@@ -245,7 +245,7 @@ export function initInstagramForm() {
       const jobId = jobIdGetter();
       if (!jobId) return;
       try {
-        const res = await fetch(`/api/instagram/jobs/${encodeURIComponent(jobId)}`);
+        const res = await fetch(`${window.__BASE__}/api/instagram/jobs/${encodeURIComponent(jobId)}`);
         if (!res.ok) return;
         const job = await res.json();
         updateProgress(job, barEl, progressTextEl, emailsTextEl, progressWrapEl);
@@ -347,7 +347,7 @@ export function initInstagramForm() {
 
     try {
       const emailGoal = clamp(dorkingEmailGoal?.value, 1, 9999, 20);
-      const res = await fetch('/api/instagram/search', {
+      const res = await fetch(window.__BASE__ + '/api/instagram/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'dorking', target: `${niche}|${location}`, email_goal: emailGoal }),
@@ -558,7 +558,7 @@ export function initInstagramForm() {
     jobsError?.classList.add('hidden');
     jobsEmpty?.classList.add('hidden');
     try {
-      const res = await fetch('/api/instagram/jobs?limit=24');
+      const res = await fetch(window.__BASE__ + '/api/instagram/jobs?limit=24');
       if (!res.ok) throw new Error();
       const jobs = await res.json();
       const arr = Array.isArray(jobs) ? jobs : [];
@@ -689,7 +689,7 @@ export function initInstagramForm() {
       loadUsage(),
       (async () => {
         try {
-          const res = await fetch('/api/instagram/health');
+          const res = await fetch(window.__BASE__ + '/api/instagram/health');
           if (res.ok) updateHealthUi(await res.json());
         } catch (_) {}
       })(),

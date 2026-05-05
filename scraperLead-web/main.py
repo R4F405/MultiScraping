@@ -28,8 +28,9 @@ IP_WHITELIST: list = parse_ip_whitelist(os.getenv("IP_WHITELIST", ""))
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-in-production")
 SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "28800"))
 HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
+ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 
-app = FastAPI()
+app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 

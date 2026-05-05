@@ -260,7 +260,7 @@ export function initLinkedInForm() {
 
   async function checkHealth() {
     try {
-      const r = await fetch('/api/linkedin/health');
+      const r = await fetch(window.__BASE__ + '/api/linkedin/health');
       if (!r.ok) throw new Error();
       const h = await r.json();
       statusDot.className = 'w-2 h-2 rounded-full bg-green-400 shrink-0';
@@ -278,7 +278,7 @@ export function initLinkedInForm() {
   // ── Load accounts ─────────────────────────────────────────────────────
   async function loadAccounts() {
     try {
-      const r = await fetch('/api/linkedin/accounts');
+      const r = await fetch(window.__BASE__ + '/api/linkedin/accounts');
       if (!r.ok) throw new Error();
       accounts = await r.json();
       _lastAccountsLoadTs = Date.now();
@@ -345,7 +345,7 @@ export function initLinkedInForm() {
     document.querySelectorAll('.li-delete-account').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm(`¿Desactivar la cuenta @${btn.dataset.username}?`)) return;
-        await fetch(`/api/linkedin/accounts/${btn.dataset.username}`, { method: 'DELETE' });
+        await fetch(`${window.__BASE__}/api/linkedin/accounts/${btn.dataset.username}`, { method: 'DELETE' });
         loadAccounts();
         checkHealth();
       });
@@ -364,7 +364,7 @@ export function initLinkedInForm() {
     addBtn.disabled = true;
     addBtn.textContent = 'Iniciando sesión…';
     try {
-      const r = await fetch('/api/linkedin/accounts', {
+      const r = await fetch(window.__BASE__ + '/api/linkedin/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -417,7 +417,7 @@ export function initLinkedInForm() {
         const body = all
           ? { reset_all: true, clear_triggers: true }
           : { account, clear_triggers: true };
-        const r = await fetch('/api/linkedin/data/reset', {
+        const r = await fetch(window.__BASE__ + '/api/linkedin/data/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -494,7 +494,7 @@ export function initLinkedInForm() {
     progressPct.textContent = '0%';
     progressDetail.textContent = '';
     try {
-      const r = await fetch('/api/linkedin/search', {
+      const r = await fetch(window.__BASE__ + '/api/linkedin/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode, account, max_contacts: maxContacts }),
@@ -613,7 +613,7 @@ export function initLinkedInForm() {
 
   async function pollStatus() {
     try {
-      const r = await fetch('/api/linkedin/status');
+      const r = await fetch(window.__BASE__ + '/api/linkedin/status');
       if (!r.ok) return;
       const s = await r.json();
       const percent = typeof s.percent === 'number'
@@ -678,7 +678,7 @@ export function initLinkedInForm() {
   async function loadHistory() {
     historyBody.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">Cargando…</p>';
     try {
-      const r = await fetch('/api/linkedin/jobs?limit=50&days=30');
+      const r = await fetch(window.__BASE__ + '/api/linkedin/jobs?limit=50&days=30');
       if (!r.ok) throw new Error();
       const jobs = await r.json();
 
@@ -741,7 +741,7 @@ export function initLinkedInForm() {
     });
 
     try {
-      const r = await fetch(`/api/linkedin/leads?${params}`);
+      const r = await fetch(`${window.__BASE__}/api/linkedin/leads?${params}`);
       if (!r.ok) throw new Error();
       const data = await r.json();
 

@@ -54,7 +54,7 @@ function initSearchPage() {
   async function loadCategoriesCoverageHint() {
     if (!categoriesSyncStatus) return;
     try {
-      const res = await fetch('/api/maps/categories/sync/report');
+      const res = await fetch(window.__BASE__ + '/api/maps/categories/sync/report');
       if (!res.ok) return;
       const data = await res.json();
       const total = Number(data?.catalog_types_count || 0);
@@ -72,7 +72,7 @@ function initSearchPage() {
     if (categoriesSyncPolling) return; // evita múltiples loops
     const pollOnce = async () => {
       try {
-        const res = await fetch('/api/maps/categories/sync/status');
+        const res = await fetch(window.__BASE__ + '/api/maps/categories/sync/status');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const st = await res.json();
         const running = !!st.running;
@@ -126,7 +126,7 @@ function initSearchPage() {
     if (categoriesSyncStatus) categoriesSyncStatus.textContent = 'Iniciando actualización...';
 
     try {
-      const res = await fetch('/api/maps/categories/sync', { method: 'POST' });
+      const res = await fetch(window.__BASE__ + '/api/maps/categories/sync', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.detail ? String(data.detail) : `HTTP ${res.status}`);
@@ -731,7 +731,7 @@ function initSearchPage() {
 
   async function loadCapacity() {
     try {
-      const res = await fetch('/api/proxy/capacity');
+      const res = await fetch(window.__BASE__ + '/api/proxy/capacity');
       if (!res.ok) return;
       _capacityData = await res.json();
       updateCapacityNotice();
@@ -1426,7 +1426,7 @@ function initSearchPage() {
   document.getElementById('page-last')?.addEventListener('click', () => renderPage(Math.ceil(_allLeads.length / PAGE_SIZE)));
 
   async function deleteLead(id, row) {
-    const res = await fetch(`/api/leads/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${window.__BASE__}/api/leads/${id}`, { method: 'DELETE' });
     if (res.ok) {
       _allLeads = _allLeads.filter((lead) => lead.id !== id);
       row.remove();
@@ -1438,7 +1438,7 @@ function initSearchPage() {
   }
 
   async function loadResults(jobId) {
-    const res = await fetch(`/api/leads?job_id=${jobId}`);
+    const res = await fetch(`${window.__BASE__}/api/leads?job_id=${jobId}`);
     if (!res.ok) return;
     const leads = await res.json();
     renderTable(leads);
@@ -1447,7 +1447,7 @@ function initSearchPage() {
 
   async function loadLocationsSummary(jobId) {
     try {
-      const res = await fetch(`/api/jobs/${jobId}/locations`);
+      const res = await fetch(`${window.__BASE__}/api/jobs/${jobId}/locations`);
       if (!res.ok) return null;
       const rows = await res.json();
       if (!Array.isArray(rows)) return null;
@@ -1471,7 +1471,7 @@ function initSearchPage() {
 
   async function pollJob(jobId) {
     try {
-      const res = await fetch(`/api/jobs/${jobId}`);
+      const res = await fetch(`${window.__BASE__}/api/jobs/${jobId}`);
       if (!res.ok) return;
       const job = await res.json();
       updateLoaderCount(job.progress, job.total, job.emails_found, job.waiting_for_proxy, job.proxy_wait_seconds, job);
@@ -1599,7 +1599,7 @@ function initSearchPage() {
     });
 
     try {
-      const res = await fetch('/api/search', {
+      const res = await fetch(window.__BASE__ + '/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
