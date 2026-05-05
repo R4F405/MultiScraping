@@ -99,7 +99,7 @@ async def auth_middleware(request: Request, call_next):
         next_url = request.url.path
         if request.url.query:
             next_url += "?" + str(request.url.query)
-        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
+        return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
 
@@ -113,7 +113,7 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION
 @app.get("/auth/login")
 async def auth_login_get(request: Request, next: str = Query(default="/")):
     if get_current_user(request):
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse(f"{ROOT_PATH}/", status_code=302)
     error = request.session.pop("login_error", None)
     return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
 
@@ -129,15 +129,15 @@ async def auth_login_post(
     if hashed and verify_password(password, hashed):
         request.session["user"] = username.strip()
         redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/"
-        return RedirectResponse(redirect_to, status_code=303)
+        return RedirectResponse(f"{ROOT_PATH}{redirect_to}", status_code=303)
     request.session["login_error"] = "Usuario o contraseña incorrectos"
-    return RedirectResponse(f"/auth/login?next={quote(next, safe='')}", status_code=303)
+    return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next, safe='')}", status_code=303)
 
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/auth/login", status_code=302)
+    return RedirectResponse(f"{ROOT_PATH}/auth/login", status_code=302)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
