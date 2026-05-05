@@ -37,7 +37,7 @@
       <p class="text-[10px] font-semibold tracking-[0.08em] text-white/30 uppercase px-2 pt-3 pb-1 select-none">Buscar</p>
 
       {% set is_home = request.url.path == "/" %}
-      <a href="/"
+      <a href="{{ url_for('home') }}"
          class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition no-underline
                 {% if is_home %}bg-white/10 text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
