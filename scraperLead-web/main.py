@@ -36,6 +36,11 @@ app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+# Debug: print root_path on startup
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"FastAPI root_path: '{ROOT_PATH}'")
+
 
 # ── Middleware to set HTTPS scheme for url_for() ──
 class HTTPSSchemeMiddleware:
