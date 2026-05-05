@@ -39,7 +39,7 @@
     {% endif %}
 
     <!-- Form -->
-    <form method="post" action="/auth/login" class="space-y-4">
+    <form method="post" action="{{ url_for('auth_login_post') }}" class="space-y-4">
       <input type="hidden" name="next" value="{{ next | default('/') }}" />
 
       <div>
