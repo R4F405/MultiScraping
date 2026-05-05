@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+from starlette.types import ASGIApp
 
 load_dotenv()
 
@@ -35,9 +35,22 @@ app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Trust X-Forwarded-Proto header from reverse proxy (Nginx/OpenLiteSpeed)
-# This allows FastAPI to know it's behind HTTPS and generate correct URLs (https:// not http://)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+
+# ── Middleware to handle X-Forwarded-Proto from reverse proxy ──
+class TrustProxyMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope["headers"])
+            # If reverse proxy sends X-Forwarded-Proto: https, trust it
+            if headers.get(b"x-forwarded-proto") == b"https":
+                scope["scheme"] = "https"
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(TrustProxyMiddleware)
 
 
 # ── Jinja2 custom filters ────────────────────────────────────────────────────
