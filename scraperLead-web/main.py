@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -12,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -104,7 +107,10 @@ _PUBLIC_PATHS = ("/scraper/auth/login", "/scraper/auth/logout", "/scraper/static
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if any(path.startswith(p) for p in _PUBLIC_PATHS):
+    is_public = any(path.startswith(p) for p in _PUBLIC_PATHS)
+    logger.info(f"AUTH MIDDLEWARE: path={path}, is_public={is_public}, PUBLIC_PATHS={_PUBLIC_PATHS}")
+
+    if is_public:
         return await call_next(request)
 
     ip = request.client.host
@@ -116,6 +122,7 @@ async def auth_middleware(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
         next_url = request.url.path
+        logger.info(f"AUTH MIDDLEWARE: redirecting to /scraper/auth/login with next={next_url}")
         return RedirectResponse(f"/scraper/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
