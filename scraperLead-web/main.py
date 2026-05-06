@@ -7,7 +7,7 @@ from urllib.parse import quote
 import httpx
 from auth import get_current_user, is_ip_allowed, parse_ip_whitelist, parse_users, verify_password
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Form, Query, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -35,8 +35,7 @@ HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
 app = FastAPI()
-router = APIRouter(prefix="/scraper")
-app.mount("/scraper/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
@@ -96,21 +95,18 @@ templates.env.filters["format_date"] = format_date
 templates.env.filters["format_duration"] = format_duration
 templates.env.globals["format_duration"] = format_duration
 templates.env.globals["get_user"] = lambda req: req.session.get("user") if hasattr(req, "session") else None
-templates.env.globals["BASE_PATH"] = "/scraper"
+templates.env.globals["BASE_PATH"] = ""
 
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_PUBLIC_PATHS = ("/scraper/auth/login", "/scraper/auth/logout", "/scraper/static")
+_PUBLIC_PATHS = ("/auth/login", "/auth/logout", "/static")
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    is_public = any(path.startswith(p) for p in _PUBLIC_PATHS)
-    logger.info(f"AUTH MIDDLEWARE: path={path}, is_public={is_public}, PUBLIC_PATHS={_PUBLIC_PATHS}")
-
-    if is_public:
+    if any(path.startswith(p) for p in _PUBLIC_PATHS):
         return await call_next(request)
 
     ip = request.client.host
@@ -122,8 +118,7 @@ async def auth_middleware(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
         next_url = request.url.path
-        logger.info(f"AUTH MIDDLEWARE: redirecting to /scraper/auth/login with next={next_url}")
-        return RedirectResponse(f"/scraper/auth/login?next={quote(next_url, safe='')}", status_code=302)
+        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
 
@@ -134,34 +129,34 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION
 
 # ── Auth routes ───────────────────────────────────────────────────────────────
 
-@router.get("/auth/login")
-async def auth_login_get(request: Request, next: str = Query(default="/scraper/")):
+@app.get("/auth/login")
+async def auth_login_get(request: Request, next: str = Query(default="/")):
     if get_current_user(request):
-        return RedirectResponse("/scraper/", status_code=302)
+        return RedirectResponse("/", status_code=302)
     error = request.session.pop("login_error", None)
     return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
 
 
-@router.post("/auth/login")
+@app.post("/auth/login")
 async def auth_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    next: str = Form(default="/scraper/"),
+    next: str = Form(default="/"),
 ):
     hashed = USERS.get(username.strip())
     if hashed and verify_password(password, hashed):
         request.session["user"] = username.strip()
-        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/scraper/"
+        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/"
         return RedirectResponse(f"{redirect_to}", status_code=303)
     request.session["login_error"] = "Usuario o contraseña incorrectos"
-    return RedirectResponse(f"/scraper/auth/login?next={quote(next, safe='')}", status_code=303)
+    return RedirectResponse(f"/auth/login?next={quote(next, safe='')}", status_code=303)
 
 
-@router.get("/auth/logout")
+@app.get("/auth/logout")
 async def auth_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/scraper/auth/login", status_code=302)
+    return RedirectResponse("/auth/login", status_code=302)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -189,7 +184,7 @@ async def safe_fetch(url: str, params: dict | None = None, timeout: float = 10.0
 
 # ── Page routes ──────────────────────────────────────────────────────────────
 
-@router.get("/")
+@app.get("/")
 async def home(request: Request):
     jobs, jobs_state = await safe_fetch(f"{MAPLEADS_URL}/api/jobs", {"limit": 3})
     jobs_message = None
@@ -213,7 +208,7 @@ async def home(request: Request):
     })
 
 
-@router.get("/search")
+@app.get("/search")
 async def search(request: Request):
     proxy_status, proxy_state = await safe_fetch(f"{MAPLEADS_URL}/api/proxy/status", timeout=5.0)
     proxy_message = None
@@ -231,7 +226,7 @@ async def search(request: Request):
     })
 
 
-@router.get("/leads")
+@app.get("/leads")
 async def leads(request: Request, job_id: str | None = Query(default=None)):
     job, job_state = {}, "empty"
     job_message = None
@@ -300,7 +295,7 @@ async def leads(request: Request, job_id: str | None = Query(default=None)):
     })
 
 
-@router.get("/history")
+@app.get("/history")
 async def history(request: Request):
     jobs, jobs_state = await safe_fetch(f"{MAPLEADS_URL}/api/jobs", {"limit": 200}, timeout=10.0)
     jobs = jobs or []
@@ -324,7 +319,7 @@ async def history(request: Request):
     })
 
 
-@router.get("/databases")
+@app.get("/databases")
 async def databases(request: Request):
     ml_stats_task = safe_fetch(f"{MAPLEADS_URL}/api/stats", timeout=10.0)
     proxy_task = safe_fetch(f"{MAPLEADS_URL}/api/proxy/status", timeout=5.0)
@@ -352,7 +347,7 @@ async def databases(request: Request):
     })
 
 
-@router.get("/instagram")
+@app.get("/instagram")
 async def instagram(request: Request, from_page: str | None = Query(default=None, alias="from")):
     _ = from_page
     health, health_state = await safe_fetch(f"{INSTALEADS_URL}/api/instagram/health", timeout=45.0)
@@ -368,7 +363,7 @@ async def instagram(request: Request, from_page: str | None = Query(default=None
     })
 
 
-@router.get("/instagram/leads")
+@app.get("/instagram/leads")
 async def instagram_leads(request: Request, job_id: str | None = Query(default=None)):
     _ = job_id
     return templates.TemplateResponse("instagram_leads.html", {"request": request})
@@ -418,131 +413,131 @@ async def _proxy_to(target_url: str, request: Request) -> Response:
                     media_type=content_type)
 
 
-@router.get("/api/proxy/status")
+@app.get("/api/proxy/status")
 async def proxy_status(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/proxy/status", request)
 
 
-@router.get("/api/proxy/capacity")
+@app.get("/api/proxy/capacity")
 async def proxy_capacity(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/proxy/capacity", request)
 
 
-@router.post("/api/search")
+@app.post("/api/search")
 async def api_search(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/search", request)
 
 
-@router.get("/api/maps/categories")
+@app.get("/api/maps/categories")
 async def api_maps_categories(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories", request)
 
 
-@router.post("/api/maps/categories/sync")
+@app.post("/api/maps/categories/sync")
 async def api_maps_categories_sync(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync", request)
 
 
-@router.get("/api/maps/categories/sync/status")
+@app.get("/api/maps/categories/sync/status")
 async def api_maps_categories_sync_status(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync/status", request)
 
 
-@router.get("/api/maps/categories/sync/report")
+@app.get("/api/maps/categories/sync/report")
 async def api_maps_categories_sync_report(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/maps/categories/sync/report", request)
 
 
-@router.get("/api/leads")
+@app.get("/api/leads")
 async def api_leads(request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/leads", request)
 
 
-@router.delete("/api/leads/{lead_id}")
+@app.delete("/api/leads/{lead_id}")
 async def api_delete_lead(lead_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/leads/{lead_id}", request)
 
 
-@router.get("/api/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}")
 async def api_job(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}", request)
 
 
-@router.get("/api/jobs/{job_id}/locations")
+@app.get("/api/jobs/{job_id}/locations")
 async def api_job_locations(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}/locations", request)
 
 
-@router.get("/api/export/{job_id}")
+@app.get("/api/export/{job_id}")
 async def api_export(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/export/{job_id}", request)
 
 
 # ── Proxy routes: Instagram → localhost:8002 ──────────────────────────────────
 
-@router.get("/api/instagram/stats")
+@app.get("/api/instagram/stats")
 async def ig_stats(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/stats", request)
 
 
-@router.get("/api/instagram/health")
+@app.get("/api/instagram/health")
 async def ig_health(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/health", request)
 
 
-@router.get("/api/instagram/debug/last")
+@app.get("/api/instagram/debug/last")
 async def ig_debug_last(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/debug/last", request)
 
 
-@router.post("/api/instagram/diagnose")
+@app.post("/api/instagram/diagnose")
 async def ig_diagnose(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/diagnose", request)
 
 
-@router.post("/api/instagram/search")
+@app.post("/api/instagram/search")
 async def ig_search(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/search", request)
 
 
-@router.get("/api/instagram/jobs")
+@app.get("/api/instagram/jobs")
 async def ig_jobs(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/jobs", request)
 
 
-@router.get("/api/instagram/jobs/{job_id}")
+@app.get("/api/instagram/jobs/{job_id}")
 async def ig_job(job_id: str, request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/jobs/{job_id}", request)
 
 
-@router.get("/api/instagram/leads")
+@app.get("/api/instagram/leads")
 async def ig_leads(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/leads", request)
 
 
-@router.get("/api/instagram/export/{job_id}")
+@app.get("/api/instagram/export/{job_id}")
 async def ig_export(job_id: str, request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/export/{job_id}", request)
 
 
-@router.get("/api/instagram/limits")
+@app.get("/api/instagram/limits")
 async def ig_limits(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/limits", request)
 
 
 
-@router.get("/tiktok")
+@app.get("/tiktok")
 async def tiktok_page(request: Request):
     return templates.TemplateResponse("tiktok.html", {"request": request})
 
 
-@router.get("/tiktok/leads")
+@app.get("/tiktok/leads")
 async def tiktok_leads(request: Request, job_id: str | None = Query(default=None)):
     _ = job_id
     return templates.TemplateResponse("tiktok_leads.html", {"request": request})
 
 
-@router.get("/linkedin")
+@app.get("/linkedin")
 async def linkedin_page(request: Request):
     health, health_state = await safe_fetch(f"{LINKEDINLEADS_URL}/api/linkedin/health", timeout=5.0)
     health = health or {"status": "unknown", "db_exists": False, "accounts_count": 0}
@@ -564,68 +559,65 @@ async def linkedin_page(request: Request):
 
 # ── Proxy routes: LinkedIn → localhost:8003 ───────────────────────────────────
 
-@router.get("/api/linkedin/health")
+@app.get("/api/linkedin/health")
 async def li_health(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/health", request)
 
 
-@router.get("/api/linkedin/stats")
+@app.get("/api/linkedin/stats")
 async def li_stats(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/stats", request)
 
 
-@router.post("/api/linkedin/search")
+@app.post("/api/linkedin/search")
 async def li_search(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/search", request)
 
 
-@router.get("/api/linkedin/status")
+@app.get("/api/linkedin/status")
 async def li_status(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/status", request)
 
 
-@router.get("/api/linkedin/jobs")
+@app.get("/api/linkedin/jobs")
 async def li_jobs(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/jobs", request)
 
 
-@router.get("/api/linkedin/leads")
+@app.get("/api/linkedin/leads")
 async def li_leads(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/leads", request)
 
 
-@router.get("/api/linkedin/leads/export")
+@app.get("/api/linkedin/leads/export")
 async def li_leads_export(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/leads/export", request)
 
 
-@router.get("/api/linkedin/accounts")
+@app.get("/api/linkedin/accounts")
 async def li_accounts_list(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)
 
 
-@router.post("/api/linkedin/accounts")
+@app.post("/api/linkedin/accounts")
 async def li_accounts_add(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)
 
 
-@router.delete("/api/linkedin/accounts/{username}")
+@app.delete("/api/linkedin/accounts/{username}")
 async def li_accounts_delete(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}", request)
 
 
-@router.get("/api/linkedin/accounts/{username}/stats")
+@app.get("/api/linkedin/accounts/{username}/stats")
 async def li_account_stats(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}/stats", request)
 
 
-@router.post("/api/linkedin/data/reset")
+@app.post("/api/linkedin/data/reset")
 async def li_data_reset(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/data/reset", request)
 
-
-# Include the /scraper prefix router
-app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
