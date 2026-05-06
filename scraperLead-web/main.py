@@ -106,7 +106,8 @@ _PUBLIC_PATHS = ("/auth/login", "/auth/logout", "/static")
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    path = request.url.path
+    # scope["path"] is the path WITHOUT root_path; request.url.path includes it.
+    path = request.scope.get("path", "")
     if any(path.startswith(p) for p in _PUBLIC_PATHS):
         return await call_next(request)
 
@@ -118,7 +119,7 @@ async def auth_middleware(request: Request, call_next):
     if not user:
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
-        next_url = f"{ROOT_PATH}{request.url.path}"
+        next_url = f"{ROOT_PATH}{path}"
         return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
