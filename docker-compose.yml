@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
     ports:
       - "0.0.0.0:8443:443"
-      - "0.0.0.0:8080:80"
+      - "0.0.0.0:9090:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt/live/vps-d6ea56ba.vps.ovh.net:/etc/nginx/certs:ro
