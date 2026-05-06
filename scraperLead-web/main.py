@@ -34,7 +34,7 @@ SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "28800"))
 HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
-app = FastAPI()
+app = FastAPI(root_path="/scraper")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
