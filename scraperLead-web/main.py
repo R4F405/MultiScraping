@@ -101,7 +101,7 @@ templates.env.globals["BASE_PATH"] = "/scraper"
 _PUBLIC_PATHS = ("/scraper/auth/login", "/scraper/auth/logout", "/scraper/static")
 
 
-@router.middleware("http")
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if any(path.startswith(p) for p in _PUBLIC_PATHS):
@@ -121,7 +121,7 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# SessionMiddleware must be added AFTER @router.middleware("http") so it runs first (outermost).
+# SessionMiddleware must be added AFTER @app.middleware("http") so it runs first (outermost).
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION_MAX_AGE, https_only=HTTPS_ONLY)
 
 
