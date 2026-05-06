@@ -104,6 +104,10 @@ _PUBLIC_PATHS = ("/auth/login", "/auth/logout", "/static")
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
+    # Normalize path: remove root_path prefix for internal route comparisons
+    if ROOT_PATH and path.startswith(ROOT_PATH):
+        path = path[len(ROOT_PATH):] or "/"
+
     if any(path.startswith(p) for p in _PUBLIC_PATHS):
         return await call_next(request)
 
