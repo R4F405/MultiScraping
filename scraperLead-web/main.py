@@ -33,7 +33,11 @@ ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
 app = FastAPI(root_path=ROOT_PATH)
-app.mount(f"{ROOT_PATH}/static" if ROOT_PATH else "/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Mount static files at the correct path based on root_path
+# When proxy_pass has no trailing slash, nginx preserves the full path,
+# so we need to mount at {root_path}/static if root_path is set
+static_mount_path = f"{ROOT_PATH}/static" if ROOT_PATH else "/static"
+app.mount(static_mount_path, StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
