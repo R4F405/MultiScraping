@@ -33,10 +33,7 @@ ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
 app = FastAPI(root_path=ROOT_PATH)
-# Mount static files at /scraper/static when ROOT_PATH=/scraper
-# This works because nginx proxies the full path /scraper/* to http://backend/scraper/*
-static_mount_path = f"{ROOT_PATH}/static" if ROOT_PATH else "/static"
-app.mount(static_mount_path, StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
