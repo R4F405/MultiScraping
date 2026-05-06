@@ -33,7 +33,7 @@ ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
 app = FastAPI(root_path=ROOT_PATH)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount(f"{ROOT_PATH}/static" if ROOT_PATH else "/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
@@ -115,8 +115,6 @@ async def auth_middleware(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
         next_url = request.url.path
-        if request.url.query:
-            next_url += "?" + str(request.url.query)
         return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
