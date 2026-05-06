@@ -116,7 +116,7 @@ async def auth_middleware(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
         next_url = request.url.path
-        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
+        return RedirectResponse(f"/scraper/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
 
@@ -128,9 +128,9 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION
 # ── Auth routes ───────────────────────────────────────────────────────────────
 
 @router.get("/auth/login")
-async def auth_login_get(request: Request, next: str = Query(default="/")):
+async def auth_login_get(request: Request, next: str = Query(default="/scraper/")):
     if get_current_user(request):
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse("/scraper/", status_code=302)
     error = request.session.pop("login_error", None)
     return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
 
@@ -140,21 +140,21 @@ async def auth_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    next: str = Form(default="/"),
+    next: str = Form(default="/scraper/"),
 ):
     hashed = USERS.get(username.strip())
     if hashed and verify_password(password, hashed):
         request.session["user"] = username.strip()
-        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/"
+        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/scraper/"
         return RedirectResponse(f"{redirect_to}", status_code=303)
     request.session["login_error"] = "Usuario o contraseña incorrectos"
-    return RedirectResponse(f"/auth/login?next={quote(next, safe='')}", status_code=303)
+    return RedirectResponse(f"/scraper/auth/login?next={quote(next, safe='')}", status_code=303)
 
 
 @router.get("/auth/logout")
 async def auth_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/auth/login", status_code=302)
+    return RedirectResponse("/scraper/auth/login", status_code=302)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
