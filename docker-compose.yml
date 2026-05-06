@@ -55,9 +55,10 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     ports:
-      - "0.0.0.0:9090:80"
+      - "0.0.0.0:9090:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - scraperleadweb
     networks:
