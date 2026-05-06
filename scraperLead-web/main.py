@@ -32,12 +32,10 @@ HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 ROOT_PATH: str = os.getenv("ROOT_PATH", "")
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
 
-app = FastAPI(root_path=ROOT_PATH)
-# Mount static files at the correct path based on root_path
-# When proxy_pass has no trailing slash, nginx preserves the full path,
-# so we need to mount at {root_path}/static if root_path is set
-static_mount_path = f"{ROOT_PATH}/static" if ROOT_PATH else "/static"
-app.mount(static_mount_path, StaticFiles(directory=STATIC_DIR), name="static")
+app = FastAPI()
+# Mount static files at /static. With nginx proxy_pass trailing slash,
+# nginx rewrites /scraper/* to /* for the backend, so static files are at /static
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
@@ -97,6 +95,7 @@ templates.env.filters["format_date"] = format_date
 templates.env.filters["format_duration"] = format_duration
 templates.env.globals["format_duration"] = format_duration
 templates.env.globals["get_user"] = lambda req: req.session.get("user") if hasattr(req, "session") else None
+templates.env.globals["BASE_PATH"] = ROOT_PATH
 
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
