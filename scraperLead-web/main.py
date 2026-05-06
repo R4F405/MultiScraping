@@ -33,8 +33,9 @@ SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-in-production")
 SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "28800"))
 HTTPS_ONLY: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 FORCE_HTTPS_URLS: bool = os.getenv("FORCE_HTTPS_URLS", "false").lower() == "true"
+ROOT_PATH: str = os.getenv("ROOT_PATH", "").rstrip("/")
 
-app = FastAPI()
+app = FastAPI(root_path=ROOT_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
@@ -95,7 +96,7 @@ templates.env.filters["format_date"] = format_date
 templates.env.filters["format_duration"] = format_duration
 templates.env.globals["format_duration"] = format_duration
 templates.env.globals["get_user"] = lambda req: req.session.get("user") if hasattr(req, "session") else None
-templates.env.globals["BASE_PATH"] = ""
+templates.env.globals["BASE_PATH"] = ROOT_PATH
 
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
@@ -117,8 +118,8 @@ async def auth_middleware(request: Request, call_next):
     if not user:
         if path.startswith("/api/"):
             return JSONResponse({"detail": "No autenticado"}, status_code=401)
-        next_url = request.url.path
-        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='')}", status_code=302)
+        next_url = f"{ROOT_PATH}{request.url.path}"
+        return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next_url, safe='')}", status_code=302)
 
     return await call_next(request)
 
@@ -130,11 +131,12 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=SESSION
 # ── Auth routes ───────────────────────────────────────────────────────────────
 
 @app.get("/auth/login")
-async def auth_login_get(request: Request, next: str = Query(default="/")):
+async def auth_login_get(request: Request, next: str = Query(default="")):
     if get_current_user(request):
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse(f"{ROOT_PATH}/", status_code=302)
     error = request.session.pop("login_error", None)
-    return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
+    next_value = next or f"{ROOT_PATH}/"
+    return templates.TemplateResponse("login.html", {"request": request, "next": next_value, "error": error})
 
 
 @app.post("/auth/login")
@@ -142,21 +144,22 @@ async def auth_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    next: str = Form(default="/"),
+    next: str = Form(default=""),
 ):
     hashed = USERS.get(username.strip())
     if hashed and verify_password(password, hashed):
         request.session["user"] = username.strip()
-        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else "/"
-        return RedirectResponse(f"{redirect_to}", status_code=303)
+        default_target = f"{ROOT_PATH}/"
+        redirect_to = next if (next.startswith("/") and not next.startswith("//")) else default_target
+        return RedirectResponse(redirect_to, status_code=303)
     request.session["login_error"] = "Usuario o contraseña incorrectos"
-    return RedirectResponse(f"/auth/login?next={quote(next, safe='')}", status_code=303)
+    return RedirectResponse(f"{ROOT_PATH}/auth/login?next={quote(next, safe='')}", status_code=303)
 
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/auth/login", status_code=302)
+    return RedirectResponse(f"{ROOT_PATH}/auth/login", status_code=302)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
