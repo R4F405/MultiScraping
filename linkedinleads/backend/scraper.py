@@ -1756,93 +1756,47 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             return best
 
         profile_url = f"https://www.linkedin.com/in/{slug}/"
-        details_url = f"https://www.linkedin.com/in/{slug}/details/contact-info/"
-        overlay_url = f"https://www.linkedin.com/in/{slug}/overlay/contact-info/"
 
         def _url() -> str:
             return (driver.url or "").lower()
 
-        def _is_not_found_page() -> bool:
-            try:
-                txt = driver.evaluate(
-                    "() => document.body ? document.body.innerText.slice(0, 1200).toLowerCase() : ''"
-                )
-            except Exception:
-                return False
-            if not isinstance(txt, str):
-                return False
-            return (
-                "esta página no existe" in txt
-                or "esta pagina no existe" in txt
-                or "this page doesn't exist" in txt
-            )
-
-        def _needs_profile_flow() -> bool:
-            u = _url()
-            if "login" in u or "authwall" in u or "checkpoint" in u:
-                return True
-            if "overlay/contact-info" in u and not _is_not_found_page():
-                return False
-            # Compatibilidad con rutas antiguas y con tests unitarios mockeados.
-            if "details/contact-info" in u:
-                return False
-            return True
-
-        # 1) Fast path: navigate directly to the overlay URL.
+        # LinkedIn SPA routing: goto() to overlay URL causes a full-page reload which
+        # LinkedIn intercepts and redirects to the profile page. The only reliable way
+        # to open the contact-info modal is to load the profile page and CLICK the link
+        # so the SPA router handles navigation without a page reload.
+        #
+        # Strategy:
+        #   1. Load the profile page (wait for networkidle so React renders).
+        #   2. Wait for the "Información de contacto" link to appear in the DOM.
+        #   3. Click it via Playwright element handle (not JS evaluate) so the browser
+        #      dispatches a trusted click event through the SPA router.
+        #   4. Wait for the modal to render before reading the DOM.
+        _CONTACT_LINK_SEL = "a[href*='overlay/contact-info']"
+        _clicked_link = False
         try:
-            driver.goto(overlay_url, wait_until="domcontentloaded", timeout=15000)
-            time.sleep(1.5)
+            driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
+            time.sleep(3.0)
         except Exception:
             pass
 
-        if _needs_profile_flow():
-            # 2) Redirect path: load the profile page, then click the contact-info link.
-            # Kept minimal (1 goto + 1 click attempt) to avoid chaining many timeouts.
-            try:
-                driver.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
-                time.sleep(2.0)
-            except Exception:
-                pass
-
-            # Try to navigate directly via the href found in the DOM first (fastest).
-            try:
-                contact_href = driver.evaluate(
-                    "() => {"
-                    " const a = document.querySelector(\"a[href*='overlay/contact-info']\");"
-                    " return a ? a.href : null;"
-                    "}"
-                )
-            except Exception:
-                contact_href = None
-
-            if isinstance(contact_href, str) and contact_href:
-                try:
-                    driver.goto(contact_href, wait_until="domcontentloaded", timeout=15000)
-                    time.sleep(1.5)
-                except Exception:
-                    pass
-            else:
-                # Fallback: click "Información de contacto" text link (1 attempt only).
-                try:
-                    driver.evaluate(
-                        "() => {"
-                        " const a = Array.from(document.querySelectorAll('a,button')).find("
-                        "   el => /información de contacto|contact info/i.test((el.innerText||el.getAttribute('aria-label')||'').trim()));"
-                        " if (a) a.click();"
-                        "}"
-                    )
-                    time.sleep(2.0)
-                except Exception:
-                    pass
+        try:
+            # Wait up to 8s for React to render the contact-info link.
+            driver.wait_for_selector(_CONTACT_LINK_SEL, timeout=8000)
+            contact_link = driver.query_selector(_CONTACT_LINK_SEL)
+            if contact_link:
+                contact_link.click()
+                _clicked_link = True
+                _log.debug("overlay %s: click SPA en enlace contacto", slug)
+        except Exception as _click_exc:
+            _log.debug("overlay %s: no se pudo hacer click en contacto: %s", slug, _click_exc)
 
         # Wait for the React modal to finish rendering before reading the DOM.
-        # The goto + sleep(1.5) fires after domcontentloaded, but the overlay modal
-        # is rendered asynchronously by React — without this wait we may read an
-        # empty DOM when the profile flow was skipped (URL already had contact-info).
         try:
-            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=7000)
+            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
         except Exception:
             pass
+        if _clicked_link:
+            time.sleep(0.5)  # extra settle after click
 
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
@@ -1925,8 +1879,11 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             except Exception:
                 pass
 
-        # Fallback mailto: si el panel de contacto es plausible (URL, DOM, texto
-        # típico del modal o secciones Email en h3). Evita solo la home sin contexto.
+        # Fallback mailto: scan all mailto: links on the page, but ONLY when we have
+        # confirmed the contact-info section rendered (Email h3 found OR dom_panel).
+        # Using the URL alone ("contact-info" in URL) is NOT sufficient — if React
+        # didn't render the modal in time, we'd scan the entire page and pick up
+        # company support emails, colleague emails from the sidebar, etc.
         mc = int(mailto_count or 0)
         contact_like = (
             in_contact_context
@@ -1934,7 +1891,9 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             or dom_panel
             or (mc >= 1 and body_kw)
         )
-        if not emails and contact_like:
+        # contact_section_confirmed: we actually found the overlay section in DOM
+        contact_section_confirmed = bool(email_sections) or dom_panel
+        if not emails and contact_section_confirmed and mc >= 1:
             fallback_candidates: List[str] = []
             for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:8]:
                 href = a.get_attribute("href") or ""
@@ -2037,6 +1996,20 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                         cand = re.sub(r"\s+", " ", cand).strip()
                         if _is_valid_phone(cand) and cand not in phones:
                             phones.append(cand)
+
+        # Second-chance mailto fallback: if a phone was found (modal was open) but no
+        # email was captured yet (e.g. "Email" h3 absent or CSS changed), scan mailto
+        # links — they belong to the modal when we know the modal rendered.
+        if not emails and bool(phones) and mc >= 1:
+            fallback2: List[str] = []
+            for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:8]:
+                href = a.get_attribute("href") or ""
+                addr = href.replace("mailto:", "").strip()
+                if addr and "@" in addr and addr not in fallback2:
+                    fallback2.append(addr)
+            best2 = _pick_best_email(fallback2, slug)
+            if best2:
+                emails.append(best2)
 
         if emails:
             result["emails"] = "; ".join(emails)
