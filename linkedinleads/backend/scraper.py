@@ -1890,6 +1890,15 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             except Exception:
                 pass
 
+        # Wait for the React modal to finish rendering before reading the DOM.
+        # The goto + sleep(1.5) fires after domcontentloaded, but the overlay modal
+        # is rendered asynchronously by React — without this wait we may read an
+        # empty DOM when the profile flow was skipped (URL already had contact-info).
+        try:
+            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=7000)
+        except Exception:
+            pass
+
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
             "() => Array.from(document.querySelectorAll('h3')).map(e => e.innerText.trim()).filter(Boolean)"
@@ -1990,19 +1999,6 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             best = _pick_best_email(fallback_candidates, slug)
             if best:
                 emails.append(best)
-        # Ultimate fallback: regex over body text when no mailto links found but
-        # we're clearly in a contact-info overlay (handles plain-text emails anywhere)
-        if not emails and in_contact_context:
-            try:
-                body_txt = driver.evaluate(
-                    "() => document.body ? document.body.innerText : ''"
-                ) or ""
-                for addr in _email_re.findall(body_txt):
-                    if addr not in emails:
-                        emails.append(addr)
-                        break  # take first match to avoid false positives
-            except Exception:
-                pass
 
         # ── Teléfonos: XPath al h3 con texto "Teléfono"/"Phone" ──────────────────
         # La estructura del overlay tiene el h3 y la ul como HERMANOS dentro del mismo
