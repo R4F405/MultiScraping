@@ -604,6 +604,11 @@ async def li_accounts_login_status(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/login-status", request)
 
 
+@app.delete("/api/linkedin/accounts/login-status")
+async def li_accounts_cancel_login(request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/login-status", request)
+
+
 @app.post("/api/linkedin/accounts")
 async def li_accounts_add(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)

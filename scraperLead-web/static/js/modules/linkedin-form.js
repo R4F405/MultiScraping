@@ -439,7 +439,17 @@ export function initLinkedInForm() {
         }),
       });
       const data = await r.json();
-      if (!r.ok) {
+      if (r.status === 409) {
+        const accountKey = email.split('@')[0].replace(/\./g, '-');
+        addAlert.innerHTML = `${data.detail} <button id="li-cancel-login-btn" class="ml-2 underline text-red-700 font-semibold">Cancelar login anterior</button>`;
+        addAlert.classList.remove('hidden');
+        addBtn.disabled = false;
+        addBtn.textContent = 'Iniciar sesión';
+        document.getElementById('li-cancel-login-btn')?.addEventListener('click', async () => {
+          await fetch(`${window.__BASE__}/api/linkedin/accounts/login-status?account=${encodeURIComponent(accountKey)}`, { method: 'DELETE' });
+          hideAddAlert();
+        });
+      } else if (!r.ok) {
         showAddAlert(data.detail || 'Error al iniciar sesión.');
         addBtn.disabled = false;
         addBtn.textContent = 'Iniciar sesión';

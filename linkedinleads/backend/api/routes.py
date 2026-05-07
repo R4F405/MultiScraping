@@ -371,6 +371,16 @@ async def login_status(account: Optional[str] = Query(default=None)) -> Any:
         return list(_login_status.values())
 
 
+@router.delete("/accounts/login-status")
+async def cancel_login(account: str = Query(...)) -> Any:
+    """Clear a stuck login status so the user can retry."""
+    with _login_status_lock:
+        removed = _login_status.pop(account, None)
+    if removed is None:
+        raise HTTPException(status_code=404, detail=f"No hay login en curso para '{account}'.")
+    return {"status": "cancelled", "account": account}
+
+
 @router.post("/accounts")
 async def add_account(body: AccountAddRequest) -> Any:
     """
