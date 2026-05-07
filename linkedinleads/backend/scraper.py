@@ -1794,19 +1794,30 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 _log.debug("overlay %s: click SPA en enlace contacto", slug)
                 # Confirm SPA navigation: wait for URL to change to overlay.
                 # If this times out the click still fired — just give React time.
+                _url_confirmed = False
                 try:
                     driver.wait_for_url("**/overlay/contact-info/**", timeout=6000)
+                    _url_confirmed = True
                 except Exception:
                     time.sleep(2.0)
+
+                if _url_confirmed:
+                    # URL is overlay/contact-info: now safe to wait for mailto links
+                    # (no false positives from profile page inline emails because we
+                    # confirmed we're inside the modal via the URL change).
+                    try:
+                        driver.wait_for_selector("a[href^='mailto:']", timeout=6000)
+                    except Exception:
+                        pass
         except Exception as _click_exc:
             _log.debug("overlay %s: no se pudo hacer click en contacto: %s", slug, _click_exc)
 
         # Wait for modal-specific DOM selectors (mailto excluded — see constant comment).
         try:
-            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=6000)
+            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=4000)
         except Exception:
             pass
-        time.sleep(0.5)  # Final settle for React to flush remaining renders
+        time.sleep(0.3)  # Final settle for React to flush remaining renders
 
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
