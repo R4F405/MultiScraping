@@ -256,7 +256,7 @@ def _cleanup_pw() -> None:
 atexit.register(_cleanup_pw)
 
 
-def _new_page(headless: bool = True, proxy: Optional[str] = None, display: Optional[str] = None) -> "Page":
+def _new_page(headless: bool = True, proxy: Optional[str] = None) -> "Page":
     """
     Crea un nuevo browser Playwright + context + page.
     Parcha page.quit() para cerrar el browser al terminar.
@@ -265,7 +265,7 @@ def _new_page(headless: bool = True, proxy: Optional[str] = None, display: Optio
     Playwright Chromium descargado, que puede crashear en algunos entornos.
     """
     pw = _get_pw()
-    launch_kwargs = _make_browser_launch_kwargs(headless=headless, display=display)
+    launch_kwargs = _make_browser_launch_kwargs(headless=headless)
     context_kwargs: dict = {"user_agent": _CHROME_UA, "viewport": {"width": 1280, "height": 800}}
     if proxy:
         p = _parse_proxy(proxy)
@@ -342,12 +342,12 @@ def _parse_proxy(proxy_str: str) -> dict:
     return {"host": host, "port": port, "user": user, "password": password}
 
 
-def _make_browser_launch_kwargs(headless: bool = True, display: Optional[str] = None) -> dict:
+def _make_browser_launch_kwargs(headless: bool = True) -> dict:
     """
     Devuelve kwargs para chromium.launch() con flags optimizados para RAM baja.
     El proxy se configura a nivel de contexto en _new_page() — no aquí.
-    Cuando display está presente (modo VNC/Xvfb), se omiten flags que rompen
-    el rendering visual (--disable-images, --no-zygote).
+    En modo headless=False (VNC/Xvfb) se omiten --disable-images y --no-zygote
+    que rompen el rendering visual.
     """
     args = [
         "--no-sandbox",
@@ -383,14 +383,7 @@ def _make_browser_launch_kwargs(headless: bool = True, display: Optional[str] = 
             "--js-flags=--max-old-space-size=384",
         ]
 
-    env = None
-    if display:
-        env = {**os.environ, "DISPLAY": display}
-
-    result: dict = {"headless": headless, "args": args}
-    if env:
-        result["env"] = env
-    return result
+    return {"headless": headless, "args": args}
 
 
 def _apply_stealth(page: "Page") -> None:
@@ -759,8 +752,7 @@ def _start_vnc_session(account: str) -> str:
         try:
             procs.append(subprocess.Popen(
                 ["x11vnc", "-display", _VNC_DISPLAY, "-rfbport", str(_VNC_PORT),
-                 "-nopw", "-forever", "-shared", "-quiet", "-bg",
-                 "-o", "/tmp/x11vnc.log"],
+                 "-nopw", "-forever", "-shared", "-quiet"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             ))
             time.sleep(1.0)
@@ -861,8 +853,9 @@ def login_with_credentials(
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             time.sleep(1.5)
-        driver = _new_page(headless=headless, proxy=proxy,
-                           display=_VNC_DISPLAY if use_xvfb else None)
+            # Chrome (Playwright) inherits the process environment for DISPLAY
+            os.environ["DISPLAY"] = _VNC_DISPLAY
+        driver = _new_page(headless=headless, proxy=proxy)
         _apply_stealth(driver)
         driver.goto("https://www.linkedin.com/login")
         time.sleep(random.uniform(2.0, 3.5))
