@@ -397,6 +397,16 @@ async def add_account(body: AccountAddRequest) -> Any:
         )
 
     account_key = username or email.split("@")[0].replace(".", "-")
+
+    # Reject duplicate concurrent logins for the same account
+    with _login_status_lock:
+        existing = _login_status.get(account_key, {})
+        if existing.get("status") in ("started", "running", "waiting_captcha", "waiting_code"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya hay un login en curso para la cuenta '{account_key}'. Espera a que termine.",
+            )
+
     _set_login_status(account_key, "started", "Login iniciado en background.")
     t = threading.Thread(target=_do_add_account, args=(username, email, password, display_name, proxy), daemon=True)
     t.start()
@@ -419,6 +429,14 @@ def _do_add_account(
         sys.path.insert(0, backend_dir)
 
     temp_slug = username or email.split("@")[0].replace(".", "-")
+
+    # Belt-and-suspenders: if another thread already claimed this slot, abort silently
+    with _login_status_lock:
+        current = _login_status.get(temp_slug, {}).get("status")
+        if current in ("running", "waiting_captcha", "waiting_code"):
+            logger.warning("_do_add_account: aborting duplicate login thread for %s (status=%s)", temp_slug, current)
+            return
+
     _set_login_status(temp_slug, "running", "Intentando autenticación en LinkedIn...")
     try:
         from backend.scraper import login_with_credentials
