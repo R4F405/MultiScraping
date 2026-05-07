@@ -1922,6 +1922,7 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
 
         # ── Emails: solo los que están bajo el bloque "Email" del overlay ───────────
         emails = []
+        _email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
         email_xpath = (
             "//h3[contains(normalize-space(.), 'Email') "
             "or contains(normalize-space(.), 'Correo') "
@@ -1929,17 +1930,47 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
         )
         email_sections = driver.locator(f"xpath={email_xpath}").all()
         if email_sections:
-            # Preferred path: emails sibling list after the "Email" h3
             for h3 in email_sections:
                 try:
                     container = h3.locator("xpath=following-sibling::ul[1]")
+                    # Preferred: mailto: links
                     for a in (container.locator("a[href^='mailto:']").all() or []):
                         href = a.get_attribute("href") or ""
                         addr = href.replace("mailto:", "").strip()
                         if addr and "@" in addr and addr not in emails:
                             emails.append(addr)
+                    # Fallback within section: regex on plain text (covers profiles
+                    # where LinkedIn doesn't wrap email in a mailto: link)
+                    if not emails:
+                        try:
+                            ul_text = (container.first.inner_text() or "") if container.count() > 0 else ""
+                            for addr in _email_re.findall(ul_text):
+                                if addr not in emails:
+                                    emails.append(addr)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
+
+        # ── IM section: "Mensajería instantánea" / "Instant Messaging" ──────────────
+        # Emails in this section appear as plain text (no mailto: link), e.g.:
+        #   ant.peiro@gmail.com (Google Hangouts)
+        im_xpath = (
+            "//h3[contains(normalize-space(.), 'Mensajer') "
+            "or contains(normalize-space(.), 'Instant') "
+            "or contains(normalize-space(.), 'IM')]"
+        )
+        for h3 in (driver.locator(f"xpath={im_xpath}").all() or []):
+            try:
+                container = h3.locator("xpath=following-sibling::ul[1]")
+                if container.count() > 0:
+                    ul_text = (container.first.inner_text() or "").strip()
+                    for addr in _email_re.findall(ul_text):
+                        if addr not in emails:
+                            emails.append(addr)
+            except Exception:
+                pass
+
         # Fallback mailto: si el panel de contacto es plausible (URL, DOM, texto
         # típico del modal o secciones Email en h3). Evita solo la home sin contexto.
         mc = int(mailto_count or 0)
@@ -1959,6 +1990,19 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
             best = _pick_best_email(fallback_candidates, slug)
             if best:
                 emails.append(best)
+        # Ultimate fallback: regex over body text when no mailto links found but
+        # we're clearly in a contact-info overlay (handles plain-text emails anywhere)
+        if not emails and in_contact_context:
+            try:
+                body_txt = driver.evaluate(
+                    "() => document.body ? document.body.innerText : ''"
+                ) or ""
+                for addr in _email_re.findall(body_txt):
+                    if addr not in emails:
+                        emails.append(addr)
+                        break  # take first match to avoid false positives
+            except Exception:
+                pass
 
         # ── Teléfonos: XPath al h3 con texto "Teléfono"/"Phone" ──────────────────
         # La estructura del overlay tiene el h3 y la ul como HERMANOS dentro del mismo
