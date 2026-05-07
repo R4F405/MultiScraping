@@ -599,6 +599,11 @@ async def li_accounts_list(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)
 
 
+@app.get("/api/linkedin/accounts/login-status")
+async def li_accounts_login_status(request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/login-status", request)
+
+
 @app.post("/api/linkedin/accounts")
 async def li_accounts_add(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)
@@ -607,6 +612,11 @@ async def li_accounts_add(request: Request):
 @app.delete("/api/linkedin/accounts/{username}")
 async def li_accounts_delete(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}", request)
+
+
+@app.post("/api/linkedin/accounts/{username}/submit-code")
+async def li_accounts_submit_code(username: str, request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}/submit-code", request)
 
 
 @app.get("/api/linkedin/accounts/{username}/stats")
