@@ -9,6 +9,8 @@ import os
 import pickle
 import random
 import re
+import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -22,6 +24,14 @@ from urllib.parse import unquote
 # an Event.  The API endpoint calls submit_verification_code() to unblock it.
 _pending_codes: dict[str, threading.Event] = {}
 _submitted_codes: dict[str, str] = {}
+
+# ── VNC session state ──────────────────────────────────────────────────────────
+_vnc_lock = threading.Lock()
+_vnc_procs: dict[str, list] = {}
+_vnc_tokens: dict[str, str] = {}
+_VNC_DISPLAY = ":99"
+_VNC_PORT = 5900
+_VNC_WS_PORT = 6080
 
 
 def submit_verification_code(account: str, code: str) -> bool:
@@ -246,7 +256,7 @@ def _cleanup_pw() -> None:
 atexit.register(_cleanup_pw)
 
 
-def _new_page(headless: bool = True, proxy: Optional[str] = None) -> "Page":
+def _new_page(headless: bool = True, proxy: Optional[str] = None, display: Optional[str] = None) -> "Page":
     """
     Crea un nuevo browser Playwright + context + page.
     Parcha page.quit() para cerrar el browser al terminar.
@@ -255,7 +265,7 @@ def _new_page(headless: bool = True, proxy: Optional[str] = None) -> "Page":
     Playwright Chromium descargado, que puede crashear en algunos entornos.
     """
     pw = _get_pw()
-    launch_kwargs = _make_browser_launch_kwargs(headless=headless)
+    launch_kwargs = _make_browser_launch_kwargs(headless=headless, display=display)
     context_kwargs: dict = {"user_agent": _CHROME_UA, "viewport": {"width": 1280, "height": 800}}
     if proxy:
         p = _parse_proxy(proxy)
@@ -332,22 +342,18 @@ def _parse_proxy(proxy_str: str) -> dict:
     return {"host": host, "port": port, "user": user, "password": password}
 
 
-def _make_browser_launch_kwargs(headless: bool = True) -> dict:
+def _make_browser_launch_kwargs(headless: bool = True, display: Optional[str] = None) -> dict:
     """
     Devuelve kwargs para chromium.launch() con flags optimizados para RAM baja.
     El proxy se configura a nivel de contexto en _new_page() — no aquí.
+    Cuando display está presente (modo VNC/Xvfb), se omiten flags que rompen
+    el rendering visual (--disable-images, --no-zygote).
     """
     args = [
         "--no-sandbox",
         "--disable-dev-shm-usage",
         "--disable-blink-features=AutomationControlled",
         "--window-size=1280,800",
-        "--disable-gpu",
-        "--disable-software-rasterizer",
-        "--disable-extensions",
-        "--disable-plugins",
-        "--disable-images",
-        "--no-zygote",
         "--no-first-run",
         "--disable-background-networking",
         "--disable-sync",
@@ -355,11 +361,36 @@ def _make_browser_launch_kwargs(headless: bool = True) -> dict:
         "--hide-scrollbars",
         "--mute-audio",
         "--safebrowsing-disable-auto-update",
-        "--js-flags=--max-old-space-size=256",
         "--disk-cache-size=1",
         "--media-cache-size=1",
     ]
-    return {"headless": headless, "args": args}
+    if headless:
+        args += [
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--disable-extensions",
+            "--disable-plugins",
+            "--disable-images",
+            "--no-zygote",
+            "--js-flags=--max-old-space-size=256",
+        ]
+    else:
+        # Modo visual sobre Xvfb: --disable-images eliminaría el CAPTCHA iframe,
+        # --no-zygote causa crash en modo no-headless
+        args += [
+            "--disable-gpu",
+            "--use-gl=swiftshader",
+            "--js-flags=--max-old-space-size=384",
+        ]
+
+    env = None
+    if display:
+        env = {**os.environ, "DISPLAY": display}
+
+    result: dict = {"headless": headless, "args": args}
+    if env:
+        result["env"] = env
+    return result
 
 
 def _apply_stealth(page: "Page") -> None:
@@ -700,6 +731,75 @@ def _has_code_input_field(driver) -> bool:
     return False
 
 
+_CAPTCHA_SELECTORS = [
+    "iframe#captcha-internal",
+    "iframe[title*='Captcha']",
+    "iframe[title*='captcha']",
+    "#captcha-challenge",
+]
+
+
+def _has_captcha_iframe(driver) -> bool:
+    for sel in _CAPTCHA_SELECTORS:
+        try:
+            if driver.query_selector(sel):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _start_vnc_session(account: str) -> str:
+    with _vnc_lock:
+        if account in _vnc_procs:
+            return _vnc_tokens.get(account, "")
+        token = secrets.token_urlsafe(16)
+        _vnc_tokens[account] = token
+        procs = []
+        try:
+            procs.append(subprocess.Popen(
+                ["x11vnc", "-display", _VNC_DISPLAY, "-rfbport", str(_VNC_PORT),
+                 "-nopw", "-forever", "-shared", "-quiet", "-bg",
+                 "-o", "/tmp/x11vnc.log"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ))
+            time.sleep(1.0)
+            procs.append(subprocess.Popen(
+                ["websockify", "--web", "/usr/share/novnc/",
+                 f"0.0.0.0:{_VNC_WS_PORT}", f"127.0.0.1:{_VNC_PORT}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ))
+            time.sleep(0.5)
+            _vnc_procs[account] = procs
+            _log.info("[vnc] sesión arrancada para %s (token %s)", account, token)
+            return token
+        except Exception:
+            for p in procs:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            _vnc_tokens.pop(account, None)
+            raise
+
+
+def _stop_vnc_session(account: str) -> None:
+    with _vnc_lock:
+        procs = _vnc_procs.pop(account, [])
+        _vnc_tokens.pop(account, None)
+    for proc in procs:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    if procs:
+        _log.info("[vnc] sesión detenida para %s", account)
+
+
 def _type_verification_code(driver, code: str) -> None:
     for sel in _CODE_INPUT_SELECTORS:
         try:
@@ -732,7 +832,8 @@ def login_with_credentials(
     password: str,
     proxy: Optional[str] = None,
     headless: bool = False,
-    on_status_change: Optional[Callable[[str, str], None]] = None,
+    on_status_change: Optional[Callable[..., None]] = None,
+    use_xvfb: bool = False,
 ) -> dict:
     """
     Realiza el login automatizado en LinkedIn con email y contraseña.
@@ -751,8 +852,17 @@ def login_with_credentials(
     """
     session_path = session_file_for(account)
     driver = None
+    xvfb_proc = None
     try:
-        driver = _new_page(headless=headless, proxy=proxy)
+        if use_xvfb:
+            headless = False
+            xvfb_proc = subprocess.Popen(
+                ["Xvfb", _VNC_DISPLAY, "-screen", "0", "1280x800x24", "-ac"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            time.sleep(1.5)
+        driver = _new_page(headless=headless, proxy=proxy,
+                           display=_VNC_DISPLAY if use_xvfb else None)
         _apply_stealth(driver)
         driver.goto("https://www.linkedin.com/login")
         time.sleep(random.uniform(2.0, 3.5))
@@ -832,7 +942,24 @@ def login_with_credentials(
                             time.sleep(3)
                     continue
 
-                # No code field — try clicking continue (mobile notification flow)
+                # CAPTCHA iframe detected — start VNC so user can solve it visually
+                if _has_captcha_iframe(driver):
+                    if account not in _vnc_procs and use_xvfb:
+                        try:
+                            token = _start_vnc_session(account)
+                            deadline = time.time() + 600  # 10 min to solve
+                            print(f"[login] 🖥️  CAPTCHA detectado — VNC arrancado para {account}")
+                            if on_status_change:
+                                on_status_change(
+                                    "waiting_captcha",
+                                    "LinkedIn muestra un CAPTCHA. Resuélvelo en la ventana interactiva.",
+                                    vnc_token=token,
+                                )
+                        except Exception as exc:
+                            _log.error("[vnc] No se pudo arrancar VNC: %s", exc)
+                    continue
+
+                # No code field, no CAPTCHA — try clicking continue (mobile notification flow)
                 _try_click_challenge_continue(driver)
                 continue
 
@@ -852,11 +979,21 @@ def login_with_credentials(
         _log.error("Error en login_with_credentials para %s: %s", account, exc)
         return {"status": "error", "message": str(exc)}
     finally:
+        _stop_vnc_session(account)
         if driver:
             try:
                 driver.quit()
             except Exception:
                 pass
+        if xvfb_proc:
+            try:
+                xvfb_proc.terminate()
+                xvfb_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    xvfb_proc.kill()
+                except Exception:
+                    pass
 
 
 # ── Username ───────────────────────────────────────────────────────────────────

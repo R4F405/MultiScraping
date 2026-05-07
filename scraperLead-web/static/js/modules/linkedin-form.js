@@ -55,10 +55,12 @@ export function initLinkedInForm() {
   const addAlert    = $('li-add-alert');
   const addBtn      = $('li-add-btn');
   const addStatus   = $('li-add-status');
-  const codePanel   = $('li-code-panel');
-  const codeInput   = $('li-code-input');
-  const codeSubmit  = $('li-code-submit');
-  const codeStatus  = $('li-code-status');
+  const codePanel    = $('li-code-panel');
+  const codeInput    = $('li-code-input');
+  const codeSubmit   = $('li-code-submit');
+  const codeStatus   = $('li-code-status');
+  const captchaPanel = $('li-captcha-panel');
+  const captchaIframe= $('li-captcha-iframe');
   const accountsList= $('li-accounts-list');
 
   const historyBody  = $('li-history-body');
@@ -364,6 +366,10 @@ export function initLinkedInForm() {
     if (_loginPollTimer) { clearInterval(_loginPollTimer); _loginPollTimer = null; }
     _loginPollAccount = null;
     if (codePanel) codePanel.classList.add('hidden');
+    if (captchaPanel) {
+      captchaPanel.classList.add('hidden');
+      if (captchaIframe) captchaIframe.src = '';
+    }
   }
 
   function _startLoginPoll(accountKey) {
@@ -380,6 +386,17 @@ export function initLinkedInForm() {
           addStatus.classList.remove('hidden');
           if (codePanel) codePanel.classList.remove('hidden');
           if (codeInput) codeInput.focus();
+
+        } else if (status === 'waiting_captcha') {
+          addStatus.innerHTML = '⏳ LinkedIn muestra un CAPTCHA. Resuélvelo en la ventana de abajo.';
+          addStatus.classList.remove('hidden');
+          if (codePanel) codePanel.classList.add('hidden');
+          if (captchaPanel && captchaIframe) {
+            const token = d.vnc_token || Date.now();
+            const novncUrl = `${window.location.protocol}//${window.location.host}/novnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=novnc/websockify&_t=${encodeURIComponent(token)}`;
+            if (captchaIframe.src !== novncUrl) captchaIframe.src = novncUrl;
+            captchaPanel.classList.remove('hidden');
+          }
 
         } else if (status === 'success') {
           _stopLoginPoll();

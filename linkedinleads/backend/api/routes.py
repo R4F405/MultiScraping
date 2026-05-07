@@ -428,16 +428,17 @@ def _do_add_account(
 
         session_file = str(SESSIONS_DIR / f"{temp_slug}.pkl")
 
-        def _on_status(status: str, message: str) -> None:
-            _set_login_status(temp_slug, status, message)
+        def _on_status(status: str, message: str, **extra) -> None:
+            _set_login_status(temp_slug, status, message, **extra)
 
         result = login_with_credentials(
             temp_slug,
             email,
             password,
             proxy=proxy,
-            headless=True,
+            headless=False,
             on_status_change=_on_status,
+            use_xvfb=True,
         )
 
         if result.get("status") != "ok":
