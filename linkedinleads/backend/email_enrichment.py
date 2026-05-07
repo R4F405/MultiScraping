@@ -96,31 +96,53 @@ def get_company_domain(company_name: str) -> Optional[str]:
     return None
 
 
-# ── Hunter.io — busca emails por dominio ──────────────────────────────────────
+# ── Hunter.io — busca email de una persona específica ────────────────────────
 
-def _hunter_find_email(domain: str, session: Optional[requests.Session] = None) -> Optional[str]:
-    """Hunter.io domain-search. Requiere HUNTER_API_KEY. Límite: 25/mes free."""
+_HUNTER_MIN_SCORE = 50  # descarta resultados de baja confianza
+
+def _hunter_find_email(
+    domain: str,
+    first_name: str = "",
+    last_name: str = "",
+    session: Optional[requests.Session] = None,
+) -> Optional[str]:
+    """
+    Hunter.io email-finder (búsqueda por persona, no por dominio).
+    Requiere first_name + last_name para buscar el email específico del contacto.
+    Sin nombres cae a domain-search, que devuelve emails aleatorios del dominio
+    y provoca falsos positivos — por eso se desactiva sin nombres.
+    """
     api_key = os.getenv("HUNTER_API_KEY", "").strip()
     if not api_key:
         return None
     if not _can_use("hunter"):
         _log.debug("Hunter: cuota mensual agotada")
         return None
+    if not first_name or not last_name:
+        _log.debug("Hunter: sin nombre/apellido para %s, se omite para evitar falsos positivos", domain)
+        return None
     client = session or requests
     try:
         resp = client.get(
-            "https://api.hunter.io/v2/domain-search",
-            params={"domain": domain, "api_key": api_key, "limit": 1},
+            "https://api.hunter.io/v2/email-finder",
+            params={
+                "domain": domain,
+                "first_name": first_name.strip(),
+                "last_name": last_name.strip(),
+                "api_key": api_key,
+            },
             timeout=10,
         )
         if resp.status_code == 200:
-            emails = resp.json().get("data", {}).get("emails", [])
-            if emails:
-                email = emails[0].get("value")
-                if email:
-                    _increment_usage("hunter")
-                    _log.debug("Hunter: encontrado %s para %s", email, domain)
-                    return email
+            data = resp.json().get("data", {})
+            email = data.get("email")
+            score = data.get("score", 0)
+            if email and score >= _HUNTER_MIN_SCORE:
+                _increment_usage("hunter")
+                _log.debug("Hunter: %s %s → %s (score %d)", first_name, last_name, email, score)
+                return email
+            elif email:
+                _log.debug("Hunter: descartado %s (score %d < %d)", email, score, _HUNTER_MIN_SCORE)
         elif resp.status_code == 401:
             _log.warning("Hunter: API key inválida")
         elif resp.status_code == 429:
@@ -207,7 +229,12 @@ def enrich_email_if_missing(
         _log.debug("enrich_email: no se encontró dominio para '%s'", company)
         return None
 
-    email = _hunter_find_email(domain) or _snov_find_email(domain)
+    email = _hunter_find_email(domain, first_name=first_name, last_name=last_name)
+    if not email:
+        # Snov also does domain-level search — only use it when names are available
+        # so we don't store emails that belong to other people at the same company.
+        if first_name and last_name:
+            email = _snov_find_email(domain)
     if email:
-        _log.info("enrich_email: '%s' (%s) → %s", company, domain, email)
+        _log.info("enrich_email: '%s %s' @ %s (%s) → %s", first_name, last_name, company, domain, email)
     return email
