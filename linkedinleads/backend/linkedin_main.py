@@ -750,28 +750,36 @@ def run_enrich(
                 "timed out",
             )
 
-            # Watchdog: if a single profile takes longer than 120s, close the
-            # driver so all pending Playwright calls raise immediately instead
-            # of each waiting up to 14s (up to ~5 min total per profile).
-            _PROFILE_TIMEOUT_S = 120
+            # Watchdog: per-attempt timer that closes the driver page so pending
+            # Playwright calls raise an exception instead of silently blocking.
+            # Note: page.close() is queued in Playwright's internal event loop, so
+            # it takes effect after the CURRENT blocking call (e.g. goto) completes.
+            # Worst-case per attempt: watchdog_s + remaining_current_call_timeout.
+            _PROFILE_TIMEOUT_S = 90
             _watchdog_driver_ref = [driver]
+            _wdog: threading.Timer | None = None
 
-            def _watchdog_close():
-                d = _watchdog_driver_ref[0]
-                if d:
-                    logger.warning("run_enrich: watchdog — %s tardó >%ds, cerrando driver", slug, _PROFILE_TIMEOUT_S)
-                    try:
-                        d.close()
-                    except Exception:
-                        pass
-
-            _wdog = threading.Timer(_PROFILE_TIMEOUT_S, _watchdog_close)
-            _wdog.daemon = True
-            _wdog.start()
+            def _start_watchdog(attempt_num: int) -> threading.Timer:
+                def _fire():
+                    d = _watchdog_driver_ref[0]
+                    if d:
+                        logger.warning(
+                            "run_enrich: watchdog attempt=%d — %s tardó >%ds",
+                            attempt_num, slug, _PROFILE_TIMEOUT_S,
+                        )
+                        try:
+                            d.close()
+                        except Exception:
+                            pass
+                t = threading.Timer(_PROFILE_TIMEOUT_S, _fire)
+                t.daemon = True
+                t.start()
+                return t
 
             last_exc: Exception | None = None
             succeeded = False
             for attempt in (1, 2):
+                _wdog = _start_watchdog(attempt)
                 try:
                     data = _enrich_connection_from_profile(driver, slug, session=session)
                     if data.get("_meta_contact_source") == "overlay":
@@ -802,6 +810,7 @@ def run_enrich(
                     succeeded = True
                     break
                 except Exception as exc:
+                    _wdog.cancel()
                     last_exc = exc
                     exc_str = str(exc).lower()
                     is_retryable = any(token in exc_str for token in retryable_error_tokens)

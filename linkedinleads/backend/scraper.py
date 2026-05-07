@@ -1788,116 +1788,52 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                 return False
             return True
 
-        # 1) Intento rápido de URL directa del overlay.
+        # 1) Fast path: navigate directly to the overlay URL.
         try:
-            driver.goto(overlay_url, wait_until="domcontentloaded", timeout=18000)
+            driver.goto(overlay_url, wait_until="domcontentloaded", timeout=15000)
             time.sleep(1.5)
         except Exception:
             pass
 
         if _needs_profile_flow():
+            # 2) Redirect path: load the profile page, then click the contact-info link.
+            # Kept minimal (1 goto + 1 click attempt) to avoid chaining many timeouts.
             try:
-                driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
+                driver.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
+                time.sleep(2.0)
             except Exception:
                 pass
-            try:
-                driver.wait_for_selector("body", timeout=15000)
-            except Exception:
-                pass
-            time.sleep(2.5)
 
-            # Primero resolver el href real del link "Información de contacto" en DOM.
+            # Try to navigate directly via the href found in the DOM first (fastest).
             try:
                 contact_href = driver.evaluate(
                     "() => {"
-                    " const a = document.querySelector(\"a[href*='/overlay/contact-info/']\")"
-                    "        || document.querySelector(\"a[href*='overlay/contact-info']\")"
-                    "        || Array.from(document.querySelectorAll('a')).find(x => /información de contacto|informacion de contacto|contact info/i.test((x.innerText||'').trim()));"
+                    " const a = document.querySelector(\"a[href*='overlay/contact-info']\");"
                     " return a ? a.href : null;"
                     "}"
                 )
             except Exception:
                 contact_href = None
+
             if isinstance(contact_href, str) and contact_href:
                 try:
-                    driver.goto(contact_href, wait_until="domcontentloaded", timeout=20000)
-                    time.sleep(2)
+                    driver.goto(contact_href, wait_until="domcontentloaded", timeout=15000)
+                    time.sleep(1.5)
                 except Exception:
                     pass
-
-            try:
-                contact_open_selectors = (
-                    "a[href*='/overlay/contact-info/']",
-                    "a[href*='overlay/contact-info']",
-                    "a:has-text('Información de contacto')",
-                    "a:has-text('Informacion de contacto')",
-                    "a:has-text('Contact info')",
-                    "a[href*='/details/contact-info/']",
-                    "a[href*='contact-info']",
-                    "[data-view-name='profile-contact-info']",
-                    "button[aria-label*='Contact info']",
-                    "button[aria-label*='Información de contacto']",
-                    "a[aria-label*='Contact info']",
-                    "a[aria-label*='Información de contacto']",
-                )
-                for sel in contact_open_selectors:
-                    try:
-                        loc = driver.locator(sel)
-                        total = loc.count()
-                        if total <= 0:
-                            continue
-                        clicked = False
-                        for i in range(min(total, 4)):
-                            item = loc.nth(i)
-                            try:
-                                if item.is_visible():
-                                    item.click(timeout=8000)
-                                    time.sleep(2)
-                                    clicked = True
-                                    break
-                            except Exception:
-                                continue
-                        if clicked:
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-            try:
-                driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
-            except Exception:
+            else:
+                # Fallback: click "Información de contacto" text link (1 attempt only).
                 try:
-                    driver.goto(details_url, wait_until="domcontentloaded", timeout=20000)
-                    time.sleep(2)
+                    driver.evaluate(
+                        "() => {"
+                        " const a = Array.from(document.querySelectorAll('a,button')).find("
+                        "   el => /información de contacto|contact info/i.test((el.innerText||el.getAttribute('aria-label')||'').trim()));"
+                        " if (a) a.click();"
+                        "}"
+                    )
+                    time.sleep(2.0)
                 except Exception:
                     pass
-                if "details/contact-info" not in _url() and "overlay/contact-info" not in _url():
-                    try:
-                        driver.goto(overlay_url, wait_until="domcontentloaded", timeout=20000)
-                        time.sleep(2)
-                    except Exception:
-                        try:
-                            driver.goto(details_url, wait_until="domcontentloaded", timeout=20000)
-                            time.sleep(2)
-                        except Exception:
-                            pass
-
-        # Último intento: abrir el panel desde el CTA visible en el perfil.
-        if "contact-info" not in _url():
-            try:
-                clicked = driver.evaluate(
-                    "() => {"
-                    " const a = Array.from(document.querySelectorAll('a,button')).find(el => /información de contacto|informacion de contacto|contact info/i.test((el.innerText||el.getAttribute('aria-label')||'').trim()));"
-                    " if (!a) return false;"
-                    " a.click();"
-                    " return true;"
-                    "}"
-                )
-                if clicked:
-                    time.sleep(2.0)
-            except Exception:
-                pass
 
         # Wait for the React modal to finish rendering before reading the DOM.
         # The goto + sleep(1.5) fires after domcontentloaded, but the overlay modal
