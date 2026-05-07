@@ -240,46 +240,6 @@
       </div>
     </div>
 
-    <!-- Import session from cookies -->
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-      <button id="li-import-toggle" class="w-full flex items-center justify-between text-left">
-        <div>
-          <h2 class="text-sm font-semibold text-slate-700">Importar sesión desde el navegador</h2>
-          <p class="text-xs text-slate-400 mt-0.5">Alternativa si el login falla desde el servidor (IP de datacenter)</p>
-        </div>
-        <span id="li-import-chevron" class="text-slate-400 text-xs transition-transform">▼</span>
-      </button>
-      <div id="li-import-body" class="hidden mt-4">
-        <ol class="text-xs text-slate-600 space-y-2 mb-4 list-decimal list-inside leading-relaxed">
-          <li>Instala la extensión gratuita <strong>Cookie-Editor</strong> en Chrome o Firefox.</li>
-          <li>Ve a <strong>linkedin.com</strong> en tu navegador e inicia sesión normalmente.</li>
-          <li>Haz clic en el icono de Cookie-Editor → botón <strong>Export</strong> → <strong>Export as JSON</strong>.</li>
-          <li>Pega el JSON copiado en el campo de abajo y pulsa Importar.</li>
-        </ol>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Nombre de cuenta *</label>
-            <input id="li-import-username" type="text" placeholder="mi-cuenta"
-                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Nombre visible (opcional)</label>
-            <input id="li-import-name" type="text" placeholder="Mi cuenta personal"
-                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
-          </div>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-slate-500 mb-1">JSON de cookies *</label>
-          <textarea id="li-import-cookies" rows="5" placeholder='[{"name":"li_at","value":"AQ...","domain":".linkedin.com",...}]'
-                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30 resize-none"></textarea>
-        </div>
-        <div id="li-import-alert" class="hidden rounded-xl px-4 py-3 text-sm mt-3"></div>
-        <button id="li-import-btn"
-                class="mt-3 px-5 py-2.5 rounded-xl bg-[#0077B5] hover:bg-[#006099] text-white text-sm font-semibold transition disabled:opacity-50">
-          Importar sesión
-        </button>
-      </div>
-    </div>
 
     <!-- Reset scraping data -->
     <div class="bg-amber-50/80 rounded-2xl border border-amber-200 shadow-sm p-6 mb-4">
