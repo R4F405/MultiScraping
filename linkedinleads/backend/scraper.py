@@ -99,10 +99,15 @@ INDEX_ENV_MAX_SCROLL_ROUNDS = "INDEX_MAX_SCROLL_ROUNDS"
 INDEX_ENV_NO_PROGRESS_LIMIT = "INDEX_NO_PROGRESS_LIMIT"
 INDEX_ENV_USE_RECENTLY_ADDED = "INDEX_USE_RECENTLY_ADDED"
 
+# Selectors that confirm the contact-info MODAL has rendered.
+# Do NOT include a[href^='mailto:'] here: some profiles have mailto links
+# directly on the profile page (inline email), which would cause this selector
+# to resolve immediately — before the modal finishes rendering — and we'd read
+# the DOM too early and miss all the modal content.
 CONTACT_OVERLAY_WAIT_SELECTOR = (
     "section.contact-info, div.contact-info, "
     "div.pv-contact-info, h3.pv-contact-info__header, "
-    "a[href^='mailto:'], [data-view-name='contact-info']"
+    "[data-view-name='contact-info']"
 )
 
 
@@ -1766,37 +1771,42 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
         # so the SPA router handles navigation without a page reload.
         #
         # Strategy:
-        #   1. Load the profile page (wait for networkidle so React renders).
-        #   2. Wait for the "Información de contacto" link to appear in the DOM.
-        #   3. Click it via Playwright element handle (not JS evaluate) so the browser
-        #      dispatches a trusted click event through the SPA router.
-        #   4. Wait for the modal to render before reading the DOM.
+        #   1. Load the profile page (domcontentloaded + sleep so React renders).
+        #   2. Wait up to 12s for the "Información de contacto" link (React async).
+        #   3. Click via Playwright element handle → SPA router opens modal without reload.
+        #   4. Wait for URL to contain "overlay/contact-info" (confirms SPA navigation).
+        #   5. Wait for modal-specific DOM selectors before reading.
         _CONTACT_LINK_SEL = "a[href*='overlay/contact-info']"
         _clicked_link = False
         try:
             driver.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
-            time.sleep(3.0)
+            time.sleep(2.5)  # Let React render profile content
         except Exception:
             pass
 
         try:
-            # Wait up to 8s for React to render the contact-info link.
-            driver.wait_for_selector(_CONTACT_LINK_SEL, timeout=8000)
+            # Wait up to 12s for React to render the contact-info link.
+            driver.wait_for_selector(_CONTACT_LINK_SEL, timeout=12000)
             contact_link = driver.query_selector(_CONTACT_LINK_SEL)
             if contact_link:
                 contact_link.click()
                 _clicked_link = True
                 _log.debug("overlay %s: click SPA en enlace contacto", slug)
+                # Confirm SPA navigation: wait for URL to change to overlay.
+                # If this times out the click still fired — just give React time.
+                try:
+                    driver.wait_for_url("**/overlay/contact-info/**", timeout=6000)
+                except Exception:
+                    time.sleep(2.0)
         except Exception as _click_exc:
             _log.debug("overlay %s: no se pudo hacer click en contacto: %s", slug, _click_exc)
 
-        # Wait for the React modal to finish rendering before reading the DOM.
+        # Wait for modal-specific DOM selectors (mailto excluded — see constant comment).
         try:
-            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=8000)
+            driver.wait_for_selector(CONTACT_OVERLAY_WAIT_SELECTOR, timeout=6000)
         except Exception:
             pass
-        if _clicked_link:
-            time.sleep(0.5)  # extra settle after click
+        time.sleep(0.5)  # Final settle for React to flush remaining renders
 
         # Log how many h3 headers are visible to diagnose structure
         h3_texts = driver.evaluate(
