@@ -5,6 +5,7 @@ import re
 from typing import AsyncGenerator
 
 import httpx
+from bs4 import BeautifulSoup
 
 from backend.config.settings import Settings
 from backend.scraper.ig_deduplicator import Deduplicator
@@ -30,7 +31,7 @@ _BASE_UA = (
     "Chrome/131.0.0.0 Safari/537.36"
 )
 
-# --- Search engine ---
+# --- Search engines ---
 
 STARTPAGE_URL = "https://www.startpage.com/do/search"
 STARTPAGE_HEADERS = {
@@ -38,6 +39,15 @@ STARTPAGE_HEADERS = {
     "Accept-Language": "es-ES,es;q=0.9",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate",
+}
+
+DUCKDUCKGO_URL = "https://html.duckduckgo.com/html/"
+DUCKDUCKGO_HEADERS = {
+    "User-Agent": _BASE_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate",
+    "Referer": "https://html.duckduckgo.com/",
 }
 
 # Round-robin iterator over configured proxies (reused across requests)
@@ -219,16 +229,12 @@ async def _scrape_startpage(query: str, page: int = 1) -> list[str]:
     return usernames
 
 
-async def _scrape_serp_all_pages(query: str, max_pages: int = 5) -> list[str]:
-    """Scrape Startpage pages 1-3 per query via httpx with proxy rotation.
-
-    If Startpage returns a captcha, the page is skipped (returns empty list).
-    ~8-12 unique usernames per page when not blocked.
-    """
+async def _scrape_startpage_all_pages(query: str, max_pages: int = 5) -> list[str]:
+    """Scrape Startpage pages 1-3 per query. Works best with residential IPs."""
     seen: set[str] = set()
     all_usernames: list[str] = []
 
-    for page in range(1, min(max_pages, 4)):  # max 3 pages from Startpage
+    for page in range(1, min(max_pages, 4)):
         if page > 1:
             await asyncio.sleep(1.5)
         results = await _scrape_startpage(query, page)
@@ -241,7 +247,97 @@ async def _scrape_serp_all_pages(query: str, max_pages: int = 5) -> list[str]:
         if not results or new_count == 0:
             break
 
-    logger.debug("SERP '%s' total unique: %d", query[:50], len(all_usernames))
+    logger.debug("Startpage '%s' total unique: %d", query[:50], len(all_usernames))
+    return all_usernames
+
+
+def _extract_ddg_next_params(html: str) -> dict:
+    """Extract hidden form fields from DuckDuckGo's next-page navigation form."""
+    soup = BeautifulSoup(html, "lxml")
+    form = soup.select_one("div.nav-link form")
+    if not form:
+        return {}
+    return {
+        inp["name"]: inp.get("value", "")
+        for inp in form.find_all("input")
+        if inp.get("name")
+    }
+
+
+def _duckduckgo_request(query: str, page_params: dict | None = None) -> str:
+    proxy_url = next(_proxy_cycle) if _proxy_cycle else None
+    data = page_params if page_params else {"q": query}
+    with httpx.Client(proxy=proxy_url, follow_redirects=True, timeout=15) as client:
+        r = client.post(DUCKDUCKGO_URL, data=data, headers=DUCKDUCKGO_HEADERS)
+    if r.status_code != 200:
+        raise RuntimeError(f"duckduckgo_blocked_{r.status_code}")
+    if "please try again" in r.text[:1000].lower():
+        raise RuntimeError("duckduckgo_captcha")
+    return r.text
+
+
+async def _scrape_duckduckgo_all_pages(query: str, max_pages: int = 3) -> list[str]:
+    """Scrape DuckDuckGo HTML endpoint. More lenient with datacenter IPs than Startpage."""
+    seen: set[str] = set()
+    all_usernames: list[str] = []
+    loop = asyncio.get_running_loop()
+    page_params: dict | None = None
+
+    for page in range(max_pages):
+        if page > 0:
+            await asyncio.sleep(2.0)
+        try:
+            html = await loop.run_in_executor(
+                None, _duckduckgo_request, query, page_params
+            )
+        except Exception as e:
+            logger.warning("DuckDuckGo scrape failed (page=%d): %s", page + 1, e)
+            break
+
+        usernames = _parse_usernames(html)
+        new_count = 0
+        for u in usernames:
+            if u not in seen:
+                seen.add(u)
+                all_usernames.append(u)
+                new_count += 1
+
+        logger.debug("DuckDuckGo '%s' p%d → %d usernames", query[:50], page + 1, len(usernames))
+
+        if not usernames or new_count == 0:
+            break
+
+        page_params = _extract_ddg_next_params(html)
+        if not page_params:
+            break
+
+    logger.debug("DuckDuckGo '%s' total unique: %d", query[:50], len(all_usernames))
+    return all_usernames
+
+
+async def _scrape_serp_all_pages(query: str, max_pages: int = 5) -> list[str]:
+    """Run Startpage and DuckDuckGo in parallel, merge deduplicated results.
+
+    DuckDuckGo handles datacenter IPs better; Startpage yields more when residential.
+    Combined coverage maximises username discovery per query.
+    """
+    startpage_task = _scrape_startpage_all_pages(query, max_pages)
+    ddg_task = _scrape_duckduckgo_all_pages(query, min(max_pages, 3))
+
+    results = await asyncio.gather(startpage_task, ddg_task, return_exceptions=True)
+
+    seen: set[str] = set()
+    all_usernames: list[str] = []
+    for engine_results in results:
+        if isinstance(engine_results, Exception):
+            logger.warning("Search engine error: %s", engine_results)
+            continue
+        for u in engine_results:
+            if u not in seen:
+                seen.add(u)
+                all_usernames.append(u)
+
+    logger.debug("SERP (multi-engine) '%s' total unique: %d", query[:50], len(all_usernames))
     return all_usernames
 
 
