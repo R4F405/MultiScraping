@@ -1997,10 +1997,11 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
                         if _is_valid_phone(cand) and cand not in phones:
                             phones.append(cand)
 
-        # Second-chance mailto fallback: if a phone was found (modal was open) but no
-        # email was captured yet (e.g. "Email" h3 absent or CSS changed), scan mailto
-        # links — they belong to the modal when we know the modal rendered.
-        if not emails and bool(phones) and mc >= 1:
+        # Second-chance mailto fallback: if the contact-info link was clicked (_clicked_link)
+        # OR a phone was found — both confirm the modal rendered — scan mailto links.
+        # LinkedIn profile pages don't have mailto links outside the contact-info modal,
+        # so mc >= 1 here is a strong signal that the modal's email is accessible.
+        if not emails and (_clicked_link or bool(phones)) and mc >= 1:
             fallback2: List[str] = []
             for a in (driver.query_selector_all("a[href^='mailto:']") or [])[:8]:
                 href = a.get_attribute("href") or ""
@@ -2916,14 +2917,8 @@ def _fetch_contact_info(driver, slug: str, session: Optional["LinkedInSession"],
         _log.debug("enrich %s: sin driver, se omite fallback overlay", slug)
         return contact, "voyager"
 
-    if not used_chrome_for_profile:
-        url = f"https://www.linkedin.com/in/{slug}/"
-        driver.goto(url)
-        try:
-            driver.wait_for_selector("body", timeout=15000)
-        except Exception as e:
-            _log.warning("enrich %s: timeout cargando perfil para overlay: %s", slug, e)
-    time.sleep(random.uniform(1.0, 2.0))
+    # Navigation is handled inside _extract_contact_info_from_overlay (goto profile_url
+    # + wait for contact-info link + SPA click). No pre-navigation needed here.
     contact = _extract_contact_info_from_overlay(driver, slug)
     if contact.get("emails") or contact.get("phones"):
         _log.debug("enrich %s: strategy=overlay success", slug)
