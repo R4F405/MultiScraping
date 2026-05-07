@@ -398,7 +398,7 @@ async def add_account(body: AccountAddRequest) -> Any:
 
     account_key = username or email.split("@")[0].replace(".", "-")
 
-    # Reject duplicate concurrent logins for the same account
+    # Atomic check-and-set to reject duplicate concurrent logins for the same account
     with _login_status_lock:
         existing = _login_status.get(account_key, {})
         if existing.get("status") in ("started", "running", "waiting_captcha", "waiting_code"):
@@ -406,8 +406,13 @@ async def add_account(body: AccountAddRequest) -> Any:
                 status_code=409,
                 detail=f"Ya hay un login en curso para la cuenta '{account_key}'. Espera a que termine.",
             )
-
-    _set_login_status(account_key, "started", "Login iniciado en background.")
+        # Set status inside the same lock acquisition to prevent TOCTOU race
+        _login_status[account_key] = {
+            "account": account_key,
+            "status": "started",
+            "message": "Login iniciado en background.",
+            "updated_at": _utc_now_iso(),
+        }
     t = threading.Thread(target=_do_add_account, args=(username, email, password, display_name, proxy), daemon=True)
     t.start()
     return {"status": "login_started", "message": "Login iniciado en background.", "account": account_key}
