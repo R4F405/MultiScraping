@@ -428,12 +428,16 @@ def _do_add_account(
 
         session_file = str(SESSIONS_DIR / f"{temp_slug}.pkl")
 
+        def _on_status(status: str, message: str) -> None:
+            _set_login_status(temp_slug, status, message)
+
         result = login_with_credentials(
             temp_slug,
             email,
             password,
             proxy=proxy,
             headless=True,
+            on_status_change=_on_status,
         )
 
         if result.get("status") != "ok":
@@ -565,6 +569,31 @@ async def import_session(body: ImportSessionRequest) -> Any:
         "username": safe,
         "cookies_imported": len(normalized),
     }
+
+
+@router.post("/accounts/{username}/submit-code")
+async def submit_verification_code(username: str, body: dict) -> Any:
+    """
+    Recibe el código de verificación que LinkedIn envió por email/SMS y lo
+    entrega al hilo de login que está esperando en scraper.py.
+    """
+    from backend.scraper import submit_verification_code as _submit, has_pending_verification
+
+    code = (body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="El campo 'code' es obligatorio.")
+
+    if not has_pending_verification(username):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay ningún login esperando código para '{username}'.",
+        )
+
+    ok = _submit(username, code)
+    if not ok:
+        raise HTTPException(status_code=500, detail="No se pudo entregar el código.")
+
+    return {"status": "ok", "message": "Código enviado. Esperando confirmación de LinkedIn..."}
 
 
 @router.delete("/accounts/{username}")

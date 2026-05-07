@@ -13,8 +13,29 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import unquote
+
+# ── Verification-code handshake ────────────────────────────────────────────────
+# When LinkedIn shows a code-input challenge, login_with_credentials signals the
+# UI by calling the on_status_change callback with "waiting_code", then blocks on
+# an Event.  The API endpoint calls submit_verification_code() to unblock it.
+_pending_codes: dict[str, threading.Event] = {}
+_submitted_codes: dict[str, str] = {}
+
+
+def submit_verification_code(account: str, code: str) -> bool:
+    """Called from the API when the user submits a verification code.
+    Returns True if there was a pending login waiting for this code."""
+    if account not in _pending_codes:
+        return False
+    _submitted_codes[account] = code
+    _pending_codes[account].set()
+    return True
+
+
+def has_pending_verification(account: str) -> bool:
+    return account in _pending_codes
 
 import requests as _requests
 
@@ -651,6 +672,58 @@ def _try_click_challenge_continue(driver) -> None:
             continue
 
 
+_CODE_INPUT_SELECTORS = [
+    "input#input__email_verification_pin",
+    "input[name='pin']",
+    "input[autocomplete='one-time-code']",
+    "input[id*='pin']",
+    "input[id*='code'][type='text']",
+    "input[id*='verification'][type='text']",
+]
+
+_CODE_SUBMIT_SELECTORS = [
+    "button#email-pin-submit-button",
+    "button[type='submit']",
+    "button[data-litms-control-urn*='challenge']",
+    "button.btn__primary--large",
+]
+
+
+def _has_code_input_field(driver) -> bool:
+    for sel in _CODE_INPUT_SELECTORS:
+        try:
+            el = driver.query_selector(sel)
+            if el and el.is_visible():
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _type_verification_code(driver, code: str) -> None:
+    for sel in _CODE_INPUT_SELECTORS:
+        try:
+            el = driver.query_selector(sel)
+            if el and el.is_visible():
+                driver.click(sel)
+                driver.fill(sel, code)
+                time.sleep(0.5)
+                for s_sel in _CODE_SUBMIT_SELECTORS:
+                    try:
+                        btn = driver.query_selector(s_sel)
+                        if btn and btn.is_visible():
+                            btn.click()
+                            print(f"[login] ✅ Código introducido y formulario enviado")
+                            return
+                    except Exception:
+                        pass
+                driver.keyboard.press("Enter")
+                return
+        except Exception:
+            pass
+    print(f"[login] ⚠️  No se encontró campo de código para introducirlo")
+
+
 # ── Login automático con credenciales ─────────────────────────────────────────
 
 def login_with_credentials(
@@ -659,6 +732,7 @@ def login_with_credentials(
     password: str,
     proxy: Optional[str] = None,
     headless: bool = False,
+    on_status_change: Optional[Callable[[str, str], None]] = None,
 ) -> dict:
     """
     Realiza el login automatizado en LinkedIn con email y contraseña.
@@ -737,21 +811,40 @@ def login_with_credentials(
             # LinkedIn pide verificación (checkpoint, código por email, notificación móvil…).
             verification_keywords = ("checkpoint", "verification", "challenge", "captcha", "pin")
             if any(kw in current_url.lower() for kw in verification_keywords):
-                # En la primera detección, volcar HTML + screenshot para diagnóstico
                 if elapsed == 2:
                     _dump_challenge_page(driver, account)
-                # Intentar clicar cualquier botón "Continuar/Submit" que aparezca tras aceptar en móvil
+
+                # If there's a code input field, wait for the user to supply it via the API
+                if _has_code_input_field(driver):
+                    if account not in _pending_codes:
+                        _pending_codes[account] = threading.Event()
+                        deadline = time.time() + 300  # 5 min for user to enter code
+                        print(f"[login] 🔢 Campo de código detectado — esperando código del usuario para {account}")
+                        if on_status_change:
+                            on_status_change("waiting_code", "LinkedIn requiere un código de verificación. Introdúcelo en el campo que aparece en la pantalla.")
+
+                    event = _pending_codes.get(account)
+                    if event and event.wait(timeout=2):
+                        code = _submitted_codes.pop(account, "")
+                        _pending_codes.pop(account, None)
+                        if code:
+                            _type_verification_code(driver, code)
+                            time.sleep(3)
+                    continue
+
+                # No code field — try clicking continue (mobile notification flow)
                 _try_click_challenge_continue(driver)
                 continue
 
-        # Se agotó el tiempo de espera sin detectar éxito ni error claro
-        _log.warning("Login: timeout 90s para %s. URL final: %s", account, current_url)
+        # Timed out without detecting success or clear error
+        _pending_codes.pop(account, None)
+        _submitted_codes.pop(account, None)
+        _log.warning("Login: timeout para %s. URL final: %s", account, current_url)
         return {
             "status": "needs_verification",
             "message": (
-                f"LinkedIn no completó el login en 90s (URL final: {current_url}). "
-                "Si LinkedIn pidió un código por email/SMS, introdúcelo y vuelve a intentarlo. "
-                "Si enviaron notificación al móvil, acepta y vuelve a añadir la cuenta."
+                f"LinkedIn no completó el login en el tiempo esperado (URL final: {current_url}). "
+                "Si LinkedIn envió notificación al móvil, acéptala y vuelve a añadir la cuenta."
             ),
         }
 

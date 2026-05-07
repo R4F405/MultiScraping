@@ -55,6 +55,10 @@ export function initLinkedInForm() {
   const addAlert    = $('li-add-alert');
   const addBtn      = $('li-add-btn');
   const addStatus   = $('li-add-status');
+  const codePanel   = $('li-code-panel');
+  const codeInput   = $('li-code-input');
+  const codeSubmit  = $('li-code-submit');
+  const codeStatus  = $('li-code-status');
   const accountsList= $('li-accounts-list');
 
   // Import session from cookies
@@ -424,6 +428,48 @@ export function initLinkedInForm() {
   }
 
   // ── Add account ───────────────────────────────────────────────────────
+  let _loginPollTimer = null;
+  let _loginPollAccount = null;
+
+  function _stopLoginPoll() {
+    if (_loginPollTimer) { clearInterval(_loginPollTimer); _loginPollTimer = null; }
+    _loginPollAccount = null;
+    if (codePanel) codePanel.classList.add('hidden');
+  }
+
+  function _startLoginPoll(accountKey) {
+    _loginPollAccount = accountKey;
+    _loginPollTimer = setInterval(async () => {
+      try {
+        const r = await fetch(`${window.__BASE__}/api/linkedin/accounts/login-status?account=${encodeURIComponent(accountKey)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const status = d.status;
+
+        if (status === 'waiting_code') {
+          addStatus.innerHTML = '⏳ LinkedIn solicita un código de verificación. Introdúcelo abajo.';
+          addStatus.classList.remove('hidden');
+          if (codePanel) codePanel.classList.remove('hidden');
+          if (codeInput) codeInput.focus();
+
+        } else if (status === 'success') {
+          _stopLoginPoll();
+          addStatus.innerHTML = '✅ Cuenta añadida correctamente.';
+          addStatus.classList.remove('hidden');
+          setTimeout(() => { loadAccounts(); checkHealth(); }, 1500);
+
+        } else if (status === 'failed') {
+          _stopLoginPoll();
+          addStatus.innerHTML = '';
+          addStatus.classList.add('hidden');
+          showAddAlert(d.message || 'Login fallido. Revisa las credenciales.');
+          addBtn.disabled = false;
+          addBtn.textContent = 'Iniciar sesión';
+        }
+      } catch { /* network blip — keep polling */ }
+    }, 3000);
+  }
+
   addBtn.addEventListener('click', async () => {
     hideAddAlert();
     const email = addEmail.value.trim();
@@ -434,6 +480,7 @@ export function initLinkedInForm() {
     }
     addBtn.disabled = true;
     addBtn.textContent = 'Iniciando sesión…';
+    if (codePanel) codePanel.classList.add('hidden');
     try {
       const r = await fetch(window.__BASE__ + '/api/linkedin/accounts', {
         method: 'POST',
@@ -448,18 +495,60 @@ export function initLinkedInForm() {
       const data = await r.json();
       if (!r.ok) {
         showAddAlert(data.detail || 'Error al iniciar sesión.');
+        addBtn.disabled = false;
+        addBtn.textContent = 'Iniciar sesión';
       } else {
-        addStatus.innerHTML = '✅ Login iniciado en background. Puede tardar 1-2 minutos.<br><span style="color:#b45309">📱 Revisa tu móvil o correo — LinkedIn puede pedir verificación para confirmar el inicio de sesión.</span>';
+        addStatus.innerHTML = '⏳ Login iniciado. Esperando respuesta de LinkedIn (puede tardar 1-2 min)…';
         addStatus.classList.remove('hidden');
         addEmail.value = addPassword.value = addName.value = addProxy.value = '';
-        setTimeout(() => { loadAccounts(); checkHealth(); }, 5000);
+        _startLoginPoll(data.account || email.split('@')[0].replace(/\./g, '-'));
       }
     } catch {
       showAddAlert('Error de red al conectar con el backend.');
+      addBtn.disabled = false;
+      addBtn.textContent = 'Iniciar sesión';
     }
-    addBtn.disabled = false;
-    addBtn.textContent = 'Iniciar sesión';
   });
+
+  if (codeSubmit) {
+    codeSubmit.addEventListener('click', async () => {
+      const code = codeInput ? codeInput.value.trim() : '';
+      if (!code || !_loginPollAccount) return;
+      codeSubmit.disabled = true;
+      codeSubmit.textContent = 'Enviando…';
+      if (codeStatus) { codeStatus.textContent = ''; codeStatus.classList.add('hidden'); }
+      try {
+        const r = await fetch(`${window.__BASE__}/api/linkedin/accounts/${encodeURIComponent(_loginPollAccount)}/submit-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          if (codeStatus) {
+            codeStatus.textContent = d.detail || 'Error al enviar el código.';
+            codeStatus.className = 'mt-2 text-xs text-red-600';
+            codeStatus.classList.remove('hidden');
+          }
+        } else {
+          if (codeInput) codeInput.value = '';
+          if (codeStatus) {
+            codeStatus.textContent = 'Código enviado. Esperando confirmación de LinkedIn…';
+            codeStatus.className = 'mt-2 text-xs text-blue-700';
+            codeStatus.classList.remove('hidden');
+          }
+        }
+      } catch {
+        if (codeStatus) {
+          codeStatus.textContent = 'Error de red.';
+          codeStatus.className = 'mt-2 text-xs text-red-600';
+          codeStatus.classList.remove('hidden');
+        }
+      }
+      codeSubmit.disabled = false;
+      codeSubmit.textContent = 'Enviar';
+    });
+  }
 
   // ── Reinicio de datos (contactos + cola + runs) ─────────────────────────
   if (resetDataBtn) {
