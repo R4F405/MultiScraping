@@ -99,6 +99,12 @@ class AccountAddRequest(BaseModel):
     proxy: Optional[str] = ""
 
 
+class ImportSessionRequest(BaseModel):
+    username: str
+    cookies_json: str
+    display_name: Optional[str] = ""
+
+
 class JobStatusResponse(BaseModel):
     running: bool
     mode: Optional[str] = None

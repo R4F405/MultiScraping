@@ -34,6 +34,7 @@ from backend.api.schemas import (
     AccountResponse,
     DataResetRequest,
     HealthResponse,
+    ImportSessionRequest,
     JobResponse,
     JobStatusResponse,
     LeadResponse,
@@ -493,6 +494,77 @@ def _do_add_account(
             _cleanup_pw()
         except Exception:
             pass
+
+
+@router.post("/accounts/import-session")
+async def import_session(body: ImportSessionRequest) -> Any:
+    """
+    Importa una sesión de LinkedIn desde cookies exportadas con Cookie-Editor.
+    Acepta JSON array de cookies (formato Cookie-Editor / EditThisCookie).
+    No requiere Playwright ni login — útil cuando el servidor está en un datacenter.
+    """
+    import json
+    import pickle
+    import re as _re
+
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="El campo 'username' es obligatorio.")
+
+    try:
+        raw_cookies = json.loads(body.cookies_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON inválido: {e}")
+
+    if not isinstance(raw_cookies, list) or not raw_cookies:
+        raise HTTPException(status_code=400, detail="El JSON debe ser una lista de cookies no vacía.")
+
+    # Normalise to the format _save_cookies expects
+    normalized = []
+    for c in raw_cookies:
+        if not isinstance(c, dict) or "name" not in c or "value" not in c:
+            continue
+        normalized.append({
+            "name": c["name"],
+            "value": c["value"],
+            "domain": c.get("domain", ".linkedin.com"),
+            "path": c.get("path", "/"),
+        })
+
+    li_at = next((c for c in normalized if c["name"] == "li_at"), None)
+    if li_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró la cookie 'li_at'. Asegúrate de exportar todas las cookies de linkedin.com estando logueado.",
+        )
+
+    from backend.scraper import session_file_for, SESSIONS_DIR
+    from backend.db import register_account, ensure_tables
+    import os
+
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    safe = _re.sub(r"[^a-zA-Z0-9_\-]", "_", username)
+    session_path = session_file_for(safe)
+
+    try:
+        with open(session_path, "wb") as f:
+            pickle.dump({"cookies": normalized}, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error guardando sesión: {e}")
+
+    ensure_tables()
+    register_account(
+        username=safe,
+        session_file=session_path,
+        display_name=body.display_name or safe,
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Sesión importada correctamente para '{safe}'. Ya puedes iniciar scraping.",
+        "username": safe,
+        "cookies_imported": len(normalized),
+    }
 
 
 @router.delete("/accounts/{username}")
