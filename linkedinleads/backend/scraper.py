@@ -1725,6 +1725,15 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
     """
     result: Dict = {"emails": None, "phones": None}
     try:
+        # Lower the per-call timeout during extraction so a sluggish Chrome
+        # (after multiple profile visits) doesn't block for 45s per Playwright
+        # call — with 20+ calls that could mean 15 min per profile.
+        _original_timeout = 45000
+        try:
+            driver.set_default_timeout(14000)
+        except Exception:
+            pass
+
         def _pick_best_email(candidates: List[str], slug_hint: str) -> Optional[str]:
             if not candidates:
                 return None
@@ -2100,6 +2109,11 @@ def _extract_contact_info_from_overlay(driver, slug: str) -> Dict:
 
     except Exception as e:
         _log.debug("_extract_contact_info_from_overlay (%s) falló: %s", slug, e)
+    finally:
+        try:
+            driver.set_default_timeout(_original_timeout)
+        except Exception:
+            pass
 
     return result
 

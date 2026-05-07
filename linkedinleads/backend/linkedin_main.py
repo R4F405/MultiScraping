@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -749,6 +750,25 @@ def run_enrich(
                 "timed out",
             )
 
+            # Watchdog: if a single profile takes longer than 120s, close the
+            # driver so all pending Playwright calls raise immediately instead
+            # of each waiting up to 14s (up to ~5 min total per profile).
+            _PROFILE_TIMEOUT_S = 120
+            _watchdog_driver_ref = [driver]
+
+            def _watchdog_close():
+                d = _watchdog_driver_ref[0]
+                if d:
+                    logger.warning("run_enrich: watchdog — %s tardó >%ds, cerrando driver", slug, _PROFILE_TIMEOUT_S)
+                    try:
+                        d.close()
+                    except Exception:
+                        pass
+
+            _wdog = threading.Timer(_PROFILE_TIMEOUT_S, _watchdog_close)
+            _wdog.daemon = True
+            _wdog.start()
+
             last_exc: Exception | None = None
             succeeded = False
             for attempt in (1, 2):
@@ -778,6 +798,7 @@ def run_enrich(
                             "strategy_errors": strategy_errors,
                             "eta_seconds": int(max(0, (effective_total - visited) * 6.5)),
                         })
+                    _wdog.cancel()
                     succeeded = True
                     break
                 except Exception as exc:
@@ -800,8 +821,10 @@ def run_enrich(
                                 pass
                         time.sleep(3)
                         driver = _make_fresh_driver()
+                        _watchdog_driver_ref[0] = driver
                         continue
                     break
+            _wdog.cancel()
 
             if not succeeded and last_exc is not None:
                 logger.warning("run_enrich: error en %s: %s", slug, last_exc)
