@@ -373,6 +373,8 @@ export function initLinkedInForm() {
   }
 
   function _startLoginPoll(accountKey) {
+    // Stop any existing poll before starting a new one to avoid duplicate timers
+    if (_loginPollTimer) { clearInterval(_loginPollTimer); _loginPollTimer = null; }
     _loginPollAccount = accountKey;
     _loginPollTimer = setInterval(async () => {
       try {

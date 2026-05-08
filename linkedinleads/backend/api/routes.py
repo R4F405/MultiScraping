@@ -73,6 +73,9 @@ _job_progress: dict[str, Any] = {}
 
 _login_status_lock = threading.Lock()
 _login_status: dict[str, dict[str, Any]] = {}
+_cancelled_logins: set[str] = set()  # accounts cancelled by the user mid-login
+
+_LOGIN_STATUS_TTL_SEC = 900  # 15 min — stale blocking statuses are auto-cleared
 
 # Control de cadencia: evita spam de ejecuciones y reduce riesgo de ban.
 # Index: 1 h por defecto entre disparos del mismo usuario. Override: LINKEDIN_INDEX_MIN_INTERVAL_SECONDS=0 (solo dev).
@@ -164,6 +167,19 @@ def _update_job_progress(
             p["percent"] = _safe_percent(cur, tot)
         _job_state.progress = p
         _sync_legacy_job_globals()
+
+
+def _is_login_status_stale(entry: dict) -> bool:
+    """Returns True when the entry is older than _LOGIN_STATUS_TTL_SEC."""
+    updated_at = entry.get("updated_at", "")
+    if not updated_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - dt).total_seconds()
+        return age > _LOGIN_STATUS_TTL_SEC
+    except Exception:
+        return False
 
 
 def _set_login_status(account_key: str, status: str, message: str, **extra: Any) -> None:
@@ -373,9 +389,10 @@ async def login_status(account: Optional[str] = Query(default=None)) -> Any:
 
 @router.delete("/accounts/login-status")
 async def cancel_login(account: str = Query(...)) -> Any:
-    """Clear a stuck login status so the user can retry."""
+    """Clear a stuck login status so the user can retry. Also signals the background thread to stop."""
     with _login_status_lock:
         removed = _login_status.pop(account, None)
+        _cancelled_logins.add(account)
     if removed is None:
         raise HTTPException(status_code=404, detail=f"No hay login en curso para '{account}'.")
     return {"status": "cancelled", "account": account}
@@ -412,10 +429,15 @@ async def add_account(body: AccountAddRequest) -> Any:
     with _login_status_lock:
         existing = _login_status.get(account_key, {})
         if existing.get("status") in ("started", "running", "waiting_captcha", "waiting_code"):
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ya hay un login en curso para la cuenta '{account_key}'. Espera a que termine.",
-            )
+            if _is_login_status_stale(existing):
+                # Previous attempt timed out without cleanup — clear it and allow retry
+                logger.warning("login_status stale (>%ds) for %s, clearing", _LOGIN_STATUS_TTL_SEC, account_key)
+                _login_status.pop(account_key, None)
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Ya hay un login en curso para la cuenta '{account_key}'. Espera a que termine.",
+                )
         # Set status inside the same lock acquisition to prevent TOCTOU race
         _login_status[account_key] = {
             "account": account_key,
@@ -462,6 +484,10 @@ def _do_add_account(
         session_file = str(SESSIONS_DIR / f"{temp_slug}.pkl")
 
         def _on_status(status: str, message: str, **extra) -> None:
+            # If the user cancelled, discard the flag and abort the thread
+            if temp_slug in _cancelled_logins:
+                _cancelled_logins.discard(temp_slug)
+                raise RuntimeError(f"Login cancelado por el usuario para '{temp_slug}'")
             _set_login_status(temp_slug, status, message, **extra)
 
         result = login_with_credentials(
