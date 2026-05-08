@@ -642,7 +642,17 @@ async def delete_account(username: str) -> Any:
     try:
         from backend.db import deactivate_account
         deactivate_account(username)
-        return {"status": "deactivated", "username": username}
+        # Also remove the session file so the next login starts fresh (no cached cookies).
+        session_file = SESSIONS_DIR / f"{username}.pkl"
+        deleted_session = False
+        try:
+            if session_file.exists():
+                session_file.unlink()
+                deleted_session = True
+                logger.info("delete_account: sesión eliminada %s", session_file)
+        except Exception as e:
+            logger.warning("delete_account: no se pudo borrar sesión %s: %s", session_file, e)
+        return {"status": "deactivated", "username": username, "session_deleted": deleted_session}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
