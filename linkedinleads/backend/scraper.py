@@ -865,19 +865,37 @@ def login_with_credentials(
         driver.goto("https://www.linkedin.com/login")
         time.sleep(random.uniform(2.0, 3.5))
 
-        # Rellenar email tecla a tecla (delay en ms por carácter)
-        driver.click("#username")
-        driver.type("#username", email, delay=random.randint(40, 110))
-        time.sleep(random.uniform(0.4, 0.9))
-
-        # Rellenar contraseña tecla a tecla
-        driver.click("#password")
-        driver.type("#password", password, delay=random.randint(40, 100))
-        time.sleep(random.uniform(0.4, 0.8))
-
-        # Clic en "Sign in"
-        driver.click("button[type='submit']")
-        print(f"[login] Clic en submit enviado para {account}")
+        # On datacenter IPs (e.g. OVH) LinkedIn may redirect straight to a CAPTCHA/checkpoint
+        # page before showing the login form. In that case #username never appears and the
+        # click would time out (45s) without ever reaching the CAPTCHA-handling polling loop.
+        # We detect this early and fall through to the polling loop which handles it properly.
+        _pre_url = (driver.url or "").lower()
+        _form_filled = False
+        _checkpoint_early = any(kw in _pre_url for kw in ("checkpoint", "captcha", "challenge", "verification"))
+        if not _checkpoint_early:
+            try:
+                driver.wait_for_selector("#username", timeout=12000)
+                # Rellenar email tecla a tecla (delay en ms por carácter)
+                driver.click("#username")
+                driver.type("#username", email, delay=random.randint(40, 110))
+                time.sleep(random.uniform(0.4, 0.9))
+                # Rellenar contraseña tecla a tecla
+                driver.click("#password")
+                driver.type("#password", password, delay=random.randint(40, 100))
+                time.sleep(random.uniform(0.4, 0.8))
+                # Clic en "Sign in"
+                driver.click("button[type='submit']")
+                _form_filled = True
+                print(f"[login] Clic en submit enviado para {account}")
+            except Exception as _form_exc:
+                _post_url = (driver.url or "").lower()
+                if any(kw in _post_url for kw in ("checkpoint", "captcha", "challenge", "verification")):
+                    print(f"[login] Formulario no encontrado — ya en checkpoint: {_post_url}")
+                else:
+                    _log.error("[login] Error rellenando formulario para %s: %s", account, _form_exc)
+                    raise
+        else:
+            print(f"[login] Checkpoint detectado antes del formulario: {_pre_url}")
 
         # Polling de hasta 90 segundos esperando que el login se complete.
         # Necesario porque LinkedIn puede pedir verificación por notificación móvil

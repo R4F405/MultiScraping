@@ -520,6 +520,13 @@ def _do_add_account(
             "Cuenta registrada y sesión guardada.",
             session_file=session_file,
         )
+        # Clear temp_slug entry so a future login attempt isn't blocked by a stale "running" status.
+        # Without this, _login_status["miquel1818"] stays as {status:"running"} after the login
+        # registers under the real LinkedIn username (e.g. "miquel-roca-mascaros"), causing
+        # all subsequent POST /accounts to return 409.
+        if real_username != temp_slug:
+            with _login_status_lock:
+                _login_status.pop(temp_slug, None)
         print(f"[add_account] ✅ Cuenta '{real_username}' registrada en DB correctamente")
 
     except Exception as exc:
