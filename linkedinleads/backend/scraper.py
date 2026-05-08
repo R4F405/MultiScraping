@@ -888,14 +888,14 @@ def login_with_credentials(
                 _form_filled = True
                 print(f"[login] Clic en submit enviado para {account}")
             except Exception as _form_exc:
+                # #username not found — LinkedIn may be showing a CAPTCHA iframe inside
+                # the /login page (URL stays as /login, no redirect). Always fall through
+                # to the polling loop which handles checkpoint, authwall, and CAPTCHA.
                 _post_url = (driver.url or "").lower()
-                if any(kw in _post_url for kw in ("checkpoint", "captcha", "challenge", "verification")):
-                    print(f"[login] Formulario no encontrado — ya en checkpoint: {_post_url}")
-                else:
-                    _log.error("[login] Error rellenando formulario para %s: %s", account, _form_exc)
-                    raise
+                _log.warning("[login] No se pudo rellenar formulario para %s (url=%s): %s", account, _post_url, _form_exc)
+                print(f"[login] Formulario no disponible — continuando al polling loop (url={_post_url})")
         else:
-            print(f"[login] Checkpoint detectado antes del formulario: {_pre_url}")
+            print(f"[login] Checkpoint/authwall detectado antes del formulario: {_pre_url}")
 
         # Polling de hasta 90 segundos esperando que el login se complete.
         # Necesario porque LinkedIn puede pedir verificación por notificación móvil
