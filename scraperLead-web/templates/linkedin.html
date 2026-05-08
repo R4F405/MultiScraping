@@ -383,8 +383,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module">
-  import { initLinkedInForm } from '{{ url_for("static", path="js/modules/linkedin-form.js") }}?v=7';
-  initLinkedInForm();
-</script>
+{# initLinkedInForm() is called from app.js which is loaded on every page. #}
+{# Calling it again here would duplicate all event listeners (every click would #}
+{# trigger two POSTs → first 200, second 409 → contradictory UI messages). #}
 {% endblock %}
