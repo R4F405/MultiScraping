@@ -831,6 +831,7 @@ def login_with_credentials(
     headless: bool = False,
     on_status_change: Optional[Callable[..., None]] = None,
     use_xvfb: bool = False,
+    cancel_event=None,  # threading.Event — set to abort the login mid-flight
 ) -> dict:
     """
     Realiza el login automatizado en LinkedIn con email y contraseña.
@@ -906,6 +907,9 @@ def login_with_credentials(
         elapsed = 0
         while time.time() < deadline:
             time.sleep(2)
+            if cancel_event and cancel_event.is_set():
+                _log.info("[login] Cancelado por el usuario para %s", account)
+                return {"status": "cancelled", "message": "Login cancelado por el usuario."}
             elapsed += 2
             current_url = driver.url
             print(f"[login] t={elapsed}s  URL={current_url}")

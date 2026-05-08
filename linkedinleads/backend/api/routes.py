@@ -73,7 +73,7 @@ _job_progress: dict[str, Any] = {}
 
 _login_status_lock = threading.Lock()
 _login_status: dict[str, dict[str, Any]] = {}
-_cancelled_logins: set[str] = set()  # accounts cancelled by the user mid-login
+_login_cancel_events: dict[str, threading.Event] = {}  # per-login cancellation events
 
 _LOGIN_STATUS_TTL_SEC = 900  # 15 min — stale blocking statuses are auto-cleared
 
@@ -389,10 +389,12 @@ async def login_status(account: Optional[str] = Query(default=None)) -> Any:
 
 @router.delete("/accounts/login-status")
 async def cancel_login(account: str = Query(...)) -> Any:
-    """Clear a stuck login status so the user can retry. Also signals the background thread to stop."""
+    """Clear a stuck login status and signal the background thread to stop within 2 s."""
     with _login_status_lock:
         removed = _login_status.pop(account, None)
-        _cancelled_logins.add(account)
+        cancel_event = _login_cancel_events.get(account)
+    if cancel_event:
+        cancel_event.set()
     if removed is None:
         raise HTTPException(status_code=404, detail=f"No hay login en curso para '{account}'.")
     return {"status": "cancelled", "account": account}
@@ -438,6 +440,12 @@ async def add_account(body: AccountAddRequest) -> Any:
                     status_code=409,
                     detail=f"Ya hay un login en curso para la cuenta '{account_key}'. Espera a que termine.",
                 )
+        # Signal any previous login for this account to stop, then create a fresh event
+        old_event = _login_cancel_events.get(account_key)
+        if old_event:
+            old_event.set()
+        cancel_event = threading.Event()
+        _login_cancel_events[account_key] = cancel_event
         # Set status inside the same lock acquisition to prevent TOCTOU race
         _login_status[account_key] = {
             "account": account_key,
@@ -445,7 +453,7 @@ async def add_account(body: AccountAddRequest) -> Any:
             "message": "Login iniciado en background.",
             "updated_at": _utc_now_iso(),
         }
-    t = threading.Thread(target=_do_add_account, args=(username, email, password, display_name, proxy), daemon=True)
+    t = threading.Thread(target=_do_add_account, args=(username, email, password, display_name, proxy, cancel_event), daemon=True)
     t.start()
     return {"status": "login_started", "message": "Login iniciado en background.", "account": account_key}
 
@@ -456,6 +464,7 @@ def _do_add_account(
     password: str,
     display_name: str,
     proxy: Optional[str],
+    cancel_event: Optional[threading.Event] = None,
 ) -> None:
     """Ejecuta el login de LinkedIn en un hilo separado."""
     import sys
@@ -484,10 +493,6 @@ def _do_add_account(
         session_file = str(SESSIONS_DIR / f"{temp_slug}.pkl")
 
         def _on_status(status: str, message: str, **extra) -> None:
-            # If the user cancelled, discard the flag and abort the thread
-            if temp_slug in _cancelled_logins:
-                _cancelled_logins.discard(temp_slug)
-                raise RuntimeError(f"Login cancelado por el usuario para '{temp_slug}'")
             _set_login_status(temp_slug, status, message, **extra)
 
         result = login_with_credentials(
@@ -498,6 +503,7 @@ def _do_add_account(
             headless=False,
             on_status_change=_on_status,
             use_xvfb=True,
+            cancel_event=cancel_event,
         )
 
         if result.get("status") != "ok":
@@ -560,6 +566,10 @@ def _do_add_account(
         _set_login_status(temp_slug, "failed", str(exc))
         logger.exception("add_account background error: %s", exc)
     finally:
+        # Remove the cancel event so the slot is free for future logins
+        with _login_status_lock:
+            if _login_cancel_events.get(temp_slug) is cancel_event:
+                _login_cancel_events.pop(temp_slug, None)
         try:
             from backend.scraper import _cleanup_pw
             _cleanup_pw()
