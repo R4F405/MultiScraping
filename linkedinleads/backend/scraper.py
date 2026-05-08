@@ -851,6 +851,10 @@ def login_with_credentials(
     session_path = session_file_for(account)
     driver = None
     xvfb_proc = None
+    # Snapshot the original DISPLAY so we can restore it after the Xvfb session.
+    # Otherwise subsequent jobs (enrich, index) in the same process inherit DISPLAY=:99
+    # and Chrome tries to connect to a dead X server, failing to launch.
+    _orig_display = os.environ.get("DISPLAY")
     try:
         if use_xvfb:
             headless = False
@@ -1031,6 +1035,13 @@ def login_with_credentials(
                     xvfb_proc.kill()
                 except Exception:
                     pass
+        # Restore the original DISPLAY so the next browser launch (enrich/index)
+        # doesn't try to connect to the now-dead Xvfb server.
+        if use_xvfb:
+            if _orig_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = _orig_display
 
 
 # ── Username ───────────────────────────────────────────────────────────────────
