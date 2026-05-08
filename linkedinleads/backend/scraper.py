@@ -919,7 +919,7 @@ def login_with_credentials(
                 _log.info("Login OK para cuenta %s → %s", account, session_path)
                 return {"status": "ok", "detected_username": username or account}
 
-            # Error inmediato: credenciales incorrectas (sigue en /login con mensaje de error)
+            # Still on login page — check for wrong credentials OR CAPTCHA embedded in /login
             if "/login" in current_url or "uas/login" in current_url:
                 try:
                     page_src = driver.content().lower()
@@ -931,7 +931,24 @@ def login_with_credentials(
                         "status": "wrong_credentials",
                         "message": "Email o contraseña incorrectos. Revisa los datos e inténtalo de nuevo.",
                     }
-                # Sigue en login sin mensaje de error: esperamos más
+                # On datacenter IPs LinkedIn can embed a reCAPTCHA iframe inside /login itself
+                # without redirecting to a checkpoint URL. Detect it here too.
+                if not _form_filled and _has_captcha_iframe(driver):
+                    if account not in _vnc_procs and use_xvfb:
+                        try:
+                            token = _start_vnc_session(account)
+                            deadline = time.time() + 600
+                            print(f"[login] 🖥️  CAPTCHA en /login detectado — VNC arrancado para {account}")
+                            if on_status_change:
+                                on_status_change(
+                                    "waiting_captcha",
+                                    "LinkedIn muestra un CAPTCHA antes del login. Resuélvelo en la ventana interactiva.",
+                                    vnc_token=token,
+                                )
+                        except Exception as exc:
+                            _log.error("[vnc] No se pudo arrancar VNC: %s", exc)
+                    continue
+                # Still on login without form or CAPTCHA: keep waiting
                 continue
 
             # LinkedIn pide verificación (checkpoint, código por email, notificación móvil…).

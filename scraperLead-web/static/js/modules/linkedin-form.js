@@ -388,13 +388,18 @@ export function initLinkedInForm() {
           if (codeInput) codeInput.focus();
 
         } else if (status === 'waiting_captcha') {
-          addStatus.innerHTML = '⏳ LinkedIn muestra un CAPTCHA. Resuélvelo en la ventana de abajo.';
+          addStatus.innerHTML = '🖥️ Abriendo ventana de verificación… espera unos segundos.';
           addStatus.classList.remove('hidden');
           if (codePanel) codePanel.classList.add('hidden');
           if (captchaPanel && captchaIframe) {
             const token = d.vnc_token || Date.now();
             const novncUrl = `${window.location.protocol}//${window.location.host}/novnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=novnc/websockify&_t=${encodeURIComponent(token)}`;
-            if (captchaIframe.src !== novncUrl) captchaIframe.src = novncUrl;
+            if (captchaIframe.src !== novncUrl) {
+              // Reset loading spinner each time we (re-)open the VNC panel
+              const loadingEl = document.getElementById('li-captcha-loading');
+              if (loadingEl) loadingEl.classList.remove('hidden');
+              captchaIframe.src = novncUrl;
+            }
             captchaPanel.classList.remove('hidden');
           }
 
