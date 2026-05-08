@@ -405,6 +405,9 @@ export function initLinkedInForm() {
 
         } else if (status === 'success') {
           _stopLoginPoll();
+          hideAddAlert();  // dismiss any stale 409 alert
+          addBtn.disabled = false;
+          addBtn.textContent = 'Iniciar sesión';
           addStatus.innerHTML = '✅ Cuenta añadida correctamente.';
           addStatus.classList.remove('hidden');
           setTimeout(() => { loadAccounts(); checkHealth(); }, 1500);
@@ -446,11 +449,18 @@ export function initLinkedInForm() {
       const data = await r.json();
       if (r.status === 409) {
         const accountKey = email.split('@')[0].replace(/\./g, '-');
+        // Clear stale status message — the 409 means a previous attempt is ongoing,
+        // the old "⏳ Login iniciado..." would otherwise show alongside the error.
+        addStatus.innerHTML = '';
+        addStatus.classList.add('hidden');
         addAlert.innerHTML = `${data.detail} <button id="li-cancel-login-btn" class="ml-2 underline text-red-700 font-semibold">Cancelar login anterior</button>`;
         addAlert.classList.remove('hidden');
         addBtn.disabled = false;
         addBtn.textContent = 'Iniciar sesión';
+        // Start polling so the user can follow the ongoing login that blocked them.
+        _startLoginPoll(accountKey);
         document.getElementById('li-cancel-login-btn')?.addEventListener('click', async () => {
+          _stopLoginPoll();
           await fetch(`${window.__BASE__}/api/linkedin/accounts/login-status?account=${encodeURIComponent(accountKey)}`, { method: 'DELETE' });
           hideAddAlert();
         });
