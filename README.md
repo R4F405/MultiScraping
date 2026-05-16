@@ -1,323 +1,329 @@
-# MultiScraper
+<div align="center">
 
-Suite para captar leads desde Google Maps, Instagram y LinkedIn, con panel web unificado.
+# 🕸️ MultiScraping
 
-## Arranque rapido
+**Suite de captación de leads desde Google Maps, Instagram y LinkedIn con panel web unificado.**
 
-Si es tu primera vez, pasa al siguiente punto y sigue la instalación completa (entornos virtuales + `.env`).
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-#### macOS / Linux
+[🚀 Inicio rápido](#-arranque-rápido) · [📦 Instalación completa](#-instalación-completa) · [🐳 Docker](#-despliegue-con-docker) · [⚙️ Variables de entorno](#️-variables-de-entorno)
+
+</div>
+
+---
+
+## ¿Qué es MultiScraping?
+
+MultiScraping es una plataforma modular de scraping con **3 backends independientes** y **1 panel web unificado** para generar bases de datos de contactos (emails, teléfonos y metadatos) exportables a CSV.
+
+| Módulo | Puerto | Fuente |
+|---|---|---|
+| `mapleads` | `8001` | Google Maps |
+| `instaleads` | `8002` | Instagram |
+| `linkedinleads` | `8003` | LinkedIn |
+| `scraperLead-web` | `8081` | Panel unificado |
+
+---
+
+## 🚀 Arranque rápido
+
+> Si es tu primera vez, ve directamente a la [instalación completa](#-instalación-completa).
+
+### macOS / Linux
 
 ```bash
 git clone https://github.com/R4F405/MultiScraping
-cd multiScraping
+cd MultiScraping
 ./start_all.sh
 ```
 
-#### Windows (manual rápido)
+### Windows (manual)
 
 ```cmd
 git clone https://github.com/R4F405/MultiScraping
-cd multiScraping
-./start_all.sh
+cd MultiScraping
 ```
 
-Luego abre 4 terminales (una por módulo), activa su `venv` y arranca:
+Abre 4 terminales (una por módulo), activa su `venv` y arranca cada servicio:
 
-- `mapleads`: `uvicorn backend.main:app --host 0.0.0.0 --port 8001`
-- `instaleads`: `uvicorn backend.main:app --host 0.0.0.0 --port 8002`
-- `linkedinleads`: `uvicorn backend.main:app --host 0.0.0.0 --port 8003`
-- `scraperLead-web`: `python main.py`
+```bash
+# Terminal 1 — MapLeads
+cd mapleads && uvicorn backend.main:app --host 0.0.0.0 --port 8001
 
-URL del panel:
+# Terminal 2 — InstaLeads
+cd instaleads && uvicorn backend.main:app --host 0.0.0.0 --port 8002
 
-- `http://localhost:8081`
+# Terminal 3 — LinkedInLeads
+cd linkedinleads && uvicorn backend.main:app --host 0.0.0.0 --port 8003
 
-### Instalación completa (macOS)
+# Terminal 4 — Frontend
+cd scraperLead-web && python main.py
+```
 
-#### 1) Clonar y entrar al repo
+Panel disponible en → **`http://localhost:8081`**
+
+---
+
+## 📦 Instalación completa
+
+### Paso 1 · Clonar el repositorio
 
 ```bash
 git clone https://github.com/R4F405/MultiScraping
-cd multiScraping
+cd MultiScraping
 ```
 
-#### 2) Crear entorno e instalar dependencias por módulo
+### Paso 2 · Crear entornos e instalar dependencias
+
+<details>
+<summary><b>macOS / Linux</b></summary>
 
 ```bash
 # mapleads
-cd mapleads
-python3 -m venv venv
-source venv/bin/activate
-cp .env.example .env
-pip install -r requirements.txt
-deactivate
+cd mapleads && python3 -m venv venv && source venv/bin/activate
+cp .env.example .env && pip install -r requirements.txt && deactivate
 
 # instaleads
-cd ../instaleads
-python3 -m venv venv
-source venv/bin/activate
-cp env.example .env
-pip install -r requirements.txt
-deactivate
+cd ../instaleads && python3 -m venv venv && source venv/bin/activate
+cp env.example .env && pip install -r requirements.txt && deactivate
 
 # linkedinleads
-cd ../linkedinleads
-python3 -m venv venv
-source venv/bin/activate
-cp .env.example .env
-pip install -r requirements.txt
-python -m playwright install chromium
-deactivate
+cd ../linkedinleads && python3 -m venv venv && source venv/bin/activate
+cp .env.example .env && pip install -r requirements.txt
+python -m playwright install chromium && deactivate
 
 # frontend
-cd ../scraperLead-web
-python3 -m venv venv
-source venv/bin/activate
-cp .env.example .env
-pip install -r requirements.txt
-deactivate
+cd ../scraperLead-web && python3 -m venv venv && source venv/bin/activate
+cp .env.example .env && pip install -r requirements.txt && deactivate
 cd ..
 ```
 
-### Instalación completa (Windows - CMD)
+</details>
 
-#### 1) Clonar y entrar al repo
-
-```cmd
-git clone https://github.com/R4F405/MultiScraping
-cd multiScraping
-```
-
-#### 2) Crear entorno e instalar dependencias por módulo
+<details>
+<summary><b>Windows (CMD)</b></summary>
 
 ```cmd
 REM mapleads
-cd mapleads
-python -m venv venv
-venv\Scripts\activate
-copy .env.example .env
-pip install -r requirements.txt
-deactivate
+cd mapleads && python -m venv venv && venv\Scripts\activate
+copy .env.example .env && pip install -r requirements.txt && deactivate
 
 REM instaleads
-cd ..\instaleads
-python -m venv venv
-venv\Scripts\activate
-copy env.example .env
-pip install -r requirements.txt
-deactivate
+cd ..\instaleads && python -m venv venv && venv\Scripts\activate
+copy env.example .env && pip install -r requirements.txt && deactivate
 
 REM linkedinleads
-cd ..\linkedinleads
-python -m venv venv
-venv\Scripts\activate
-copy .env.example .env
-pip install -r requirements.txt
-python -m playwright install chromium
-deactivate
+cd ..\linkedinleads && python -m venv venv && venv\Scripts\activate
+copy .env.example .env && pip install -r requirements.txt
+python -m playwright install chromium && deactivate
 
 REM frontend
-cd ..\scraperLead-web
-python -m venv venv
-venv\Scripts\activate
-copy .env.example .env
-pip install -r requirements.txt
-deactivate
+cd ..\scraperLead-web && python -m venv venv && venv\Scripts\activate
+copy .env.example .env && pip install -r requirements.txt && deactivate
 cd ..
 ```
 
-## Cómo arrancar todo
+</details>
 
-### Opción A (recomendada en macOS/Linux): todo con un comando
+---
+
+## ▶️ Cómo arrancar todo
+
+### Opción A — Script automático (macOS/Linux, recomendado)
 
 ```bash
 ./start_all.sh
 ```
 
-URLs:
+> El script libera automáticamente los puertos 8001–8003 y 8081 si estuvieran ocupados.
 
-- Frontend: `http://localhost:8081`
-- MapLeads API: `http://localhost:8001`
-- InstaLeads API: `http://localhost:8002`
-- LinkedIn API: `http://localhost:8003`
+### Opción B — Manual (macOS, Linux y Windows)
 
-El script libera los puertos 8001–8003 y 8081 si estaban ocupados. El frontend usa el `venv` de `scraperLead-web` si existe; si no, reutiliza el de `mapleads`.
+| # | Módulo | Comando |
+|---|---|---|
+| 1 | MapLeads | `cd mapleads` → activar venv → `uvicorn backend.main:app --host 0.0.0.0 --port 8001` |
+| 2 | InstaLeads | `cd instaleads` → activar venv → `uvicorn backend.main:app --host 0.0.0.0 --port 8002` |
+| 3 | LinkedInLeads | `cd linkedinleads` → activar venv → `uvicorn backend.main:app --host 0.0.0.0 --port 8003` |
+| 4 | Frontend | `cd scraperLead-web` → activar venv → `python main.py` |
 
-### Opción B (manual, sirve en macOS y Windows)
+---
 
-Arranca cada proceso en su terminal:
+## 🐳 Despliegue con Docker
 
-1. MapLeads:
-   - `cd mapleads`
-   - activar venv
-   - `uvicorn backend.main:app --host 0.0.0.0 --port 8001`
-2. InstaLeads:
-   - `cd instaleads`
-   - activar venv
-   - `uvicorn backend.main:app --host 0.0.0.0 --port 8002`
-3. LinkedInLeads:
-   - `cd linkedinleads`
-   - activar venv
-   - `uvicorn backend.main:app --host 0.0.0.0 --port 8003`
-4. Frontend:
-   - `cd scraperLead-web`
-   - activar venv
-   - `python main.py`
+Opción recomendada para VPS. No requiere Python ni entornos virtuales.
 
-## Despliegue con Docker
-
-Opción recomendada para VPS o cualquier servidor Linux. No requiere instalar Python ni venvs.
-
-### 1. Crear el archivo de entorno
+### 1 · Configurar variables de entorno
 
 ```bash
 cp docker-env.example .env
 ```
 
-Edita `.env` y rellena obligatoriamente estos valores:
+Edita `.env` con estos valores obligatorios:
 
-| Variable | Qué es | Cómo generarla |
+| Variable | Descripción | Cómo generarla |
 |---|---|---|
 | `SESSION_SECRET` | Clave que firma las cookies de sesión | `openssl rand -hex 32` |
-| `AUTH_USERS` | Usuarios y contraseñas del panel web | Formato: `admin:password,user2:pass2` (texto plano) o con hash bcrypt |
-| `MAPLEADS_API_URL` | URL interna de mapleads | Dejar `http://mapleads:8001` (Docker lo resuelve) |
-| `INSTALEADS_API_URL` | URL interna de instaleads | Dejar `http://instaleads:8002` |
-| `LINKEDINLEADS_API_URL` | URL interna de linkedinleads | Dejar `http://linkedinleads:8003` |
+| `AUTH_USERS` | Usuarios y contraseñas del panel | `admin:password,user2:pass2` o hash bcrypt |
+| `MAPLEADS_API_URL` | URL interna de MapLeads | `http://mapleads:8001` |
+| `INSTALEADS_API_URL` | URL interna de InstaLeads | `http://instaleads:8002` |
+| `LINKEDINLEADS_API_URL` | URL interna de LinkedInLeads | `http://linkedinleads:8003` |
 
-El resto de variables son opcionales (proxies, Telegram, etc.). El `.env` **nunca se sube a GitHub** — está en el `.gitignore`.
+> ⚠️ El `.env` **nunca se sube a GitHub** — está en el `.gitignore`.
 
-### 2. Construir y arrancar
+### 2 · Construir y arrancar
 
 ```bash
 docker compose build
 docker compose up -d
 ```
 
-El panel queda disponible en `http://localhost` (puerto 80 via Nginx).
+Panel disponible en → **`http://localhost`** (puerto 80 vía Nginx)
 
-### 3. Ver logs
-
-```bash
-docker compose logs -f
-docker compose logs scraperleadweb   # solo el frontend
-```
-
-### 4. Parar / reiniciar
+### 3 · Gestión de contenedores
 
 ```bash
-docker compose down        # para (los datos en volúmenes persisten)
-docker compose restart     # reinicia sin reconstruir
-docker compose up -d --build  # reconstruye y arranca
+docker compose logs -f                 # Ver todos los logs
+docker compose logs scraperleadweb    # Solo el frontend
+docker compose down                    # Parar (los datos persisten)
+docker compose restart                 # Reiniciar sin reconstruir
+docker compose up -d --build          # Reconstruir y arrancar
 ```
 
-### Despliegue en VPS con dominio y HTTPS
+### 4 · VPS con dominio y HTTPS
 
-Una vez en el servidor:
+```bash
+# 1. Obtener certificado SSL
+certbot certonly --standalone -d tudominio.com
 
-1. Obtener certificado SSL con Let's Encrypt:
-   ```bash
-   certbot certonly --standalone -d tudominio.com
-   ```
-2. Copiar los certificados:
-   ```bash
-   cp /etc/letsencrypt/live/tudominio.com/fullchain.pem nginx/certs/
-   cp /etc/letsencrypt/live/tudominio.com/privkey.pem   nginx/certs/
-   ```
-3. Descomentar el bloque HTTPS en `nginx/nginx.conf` y poner el dominio real.
-4. Cambiar `HTTPS_ONLY=true` en `.env`.
-5. `docker compose up -d --build`
+# 2. Copiar certificados
+cp /etc/letsencrypt/live/tudominio.com/fullchain.pem nginx/certs/
+cp /etc/letsencrypt/live/tudominio.com/privkey.pem   nginx/certs/
+
+# 3. Descomentar bloque HTTPS en nginx/nginx.conf y configurar el dominio
+# 4. Activar HTTPS en .env
+echo "HTTPS_ONLY=true" >> .env
+
+# 5. Reconstruir
+docker compose up -d --build
+```
 
 ---
 
-## Qué es, cómo funciona y para qué sirve
+## ⚙️ Variables de entorno
 
-- **Qué es:** una plataforma con 3 backends (`mapleads`, `instaleads`, `linkedinleads`) y 1 frontend (`scraperLead-web`).
-- **Cómo funciona:** el frontend (FastAPI + Jinja + estáticos) llama a cada API, lanza jobs de scraping en segundo plano y muestra progreso y resultados.
-- **Para qué sirve:** generar bases de datos de contactos (emails, teléfonos y metadatos) y exportarlas a CSV.
+<details>
+<summary><b>mapleads/.env</b></summary>
 
-El frontend incluye rutas de interfaz para TikTok (`/tiktok`, etc.); en este repositorio no hay backend TikTok — esas secciones quedan sin servicio activo salvo que integres uno por tu cuenta.
+| Variable | Descripción |
+|---|---|
+| `WEBSHARE_PROXY_USER/PASS/HOST/PORT` | Credenciales del proxy rotativo |
+| `PROXY_LIST` | Lista CSV de URLs `http://user:pass@host:port` (prioridad sobre variables sueltas) |
+| `DB_PATH` | Ruta SQLite (por defecto `./data/mapleads.db`) |
+| `MAX_CONCURRENT_REQUESTS` | Concurrencia máxima |
+| `REQUEST_DELAY_MIN/MAX_SECONDS` | Delays entre peticiones |
+| `MAX_REQUESTS_PER_DAY` | Límite duro diario |
+| `DEDUPE_DAYS` | Ventana para no repetir negocios recientes |
+| `API_KEY` | Si está definida, requiere `X-API-Key` en cabeceras |
 
-## Estructura del proyecto
+</details>
 
-- `mapleads`: backend FastAPI para scraping de Google Maps y verificación de emails.
-- `instaleads`: backend FastAPI para captación de leads de Instagram (discovery interno, límites y enrichment HTTP).
-- `linkedinleads`: backend FastAPI para scraping de LinkedIn con Playwright (cuentas, sesiones, colas).
-- `scraperLead-web`: frontend FastAPI + Jinja + JS (dashboard, formularios y vistas de datos).
-- `start_all.sh`: inicia en macOS/Linux los cuatro servicios.
+<details>
+<summary><b>instaleads/.env</b></summary>
 
-## Requisitos mínimos
+| Variable | Descripción |
+|---|---|
+| `IG_PROXY_LIST` | Lista de proxies para Instagram |
+| `IG_LIMIT_DAILY_UNAUTHENTICATED` | Límite diario sin autenticación |
+| `IG_DELAY_UNAUTH_MIN/MAX` | Delays para peticiones sin autenticación |
+| `IG_CONCURRENCY` | Concurrencia del scraper |
+| `IG_MAX_RETRIES` | Reintentos máximos |
+| `DB_PATH` | Ruta de la base de datos SQLite |
 
-- Python 3.11+ (recomendado en todos los módulos).
-- `pip` actualizado.
-- LinkedIn: navegador de Playwright (Chromium) tras `pip install -r requirements.txt` en `linkedinleads`.
-- MapLeads (opcional): si activas `EMAIL_SCRAPER_USE_PLAYWRIGHT=1` en `.env`, instala también `playwright` y `playwright install chromium` en ese módulo.
+</details>
 
-## Variables de entorno (.env)
+<details>
+<summary><b>linkedinleads/.env</b></summary>
 
-Importante: no subas claves reales a GitHub. Usa valores propios. Los nombres siguientes coinciden con `backend/config` y `.env.example` / `env.example` de cada módulo.
+| Variable | Descripción |
+|---|---|
+| `LINKEDIN_API_PORT` | Puerto FastAPI (por defecto `8003`) |
+| `MAX_CONTACTS_PER_DAY` | Límite diario de contactos |
+| `SCRAPE_WINDOW_START/END` | Ventana horaria de scraping |
+| `HEADLESS` | Modo headless para Playwright |
+| `TELEGRAM_BOT_TOKEN/CHAT_ID` | Notificaciones vía Telegram |
+| `CREDENTIAL_KEY` | Cifrado Fernet para credenciales |
+| `HUNTER_API_KEY` | Enrichment de emails (Hunter.io) |
+| `SNOV_CLIENT_ID/SECRET` | Enrichment de emails (Snov.io) |
 
-### `mapleads/.env`
+</details>
 
-- `WEBSHARE_PROXY_USER`, `WEBSHARE_PROXY_PASS`, `WEBSHARE_PROXY_HOST`, `WEBSHARE_PROXY_PORT`: credenciales del proveedor proxy rotativo (o equivalente).
-- `PROXY_LIST`: lista CSV de URLs `http://user:pass@host:port` (si está definida, tiene prioridad sobre host/puerto sueltos).
-- `DB_PATH`: ruta SQLite (por defecto `./data/mapleads.db`).
-- `LOG_LEVEL`: nivel de logs.
-- `MAX_REQUESTS_PER_PROXY_BEFORE_COOLDOWN`, `PROXY_COOLDOWN_SECONDS`: límites por proxy.
-- `MAX_CONCURRENT_REQUESTS`, `REQUEST_DELAY_MIN_SECONDS`, `REQUEST_DELAY_MAX_SECONDS`: concurrencia y delays.
-- `ERROR_RATE_THRESHOLD`, `HIGH_ERROR_COOLDOWN_SECONDS`: circuit breaker por proxy.
-- `MAX_REQUESTS_PER_DAY`: límite duro diario.
-- `DEDUPE_DAYS`: ventana en días para no repetir negocios recientes.
-- `EMAIL_DNS_ACCEPT_A`, `EMAIL_SCRAPER_USE_PLAYWRIGHT`, `EMAIL_SCRAPER_FORCE_DIRECT`: comportamiento del descubrimiento de emails en web (ver comentarios en `.env.example`).
-- `API_KEY`: opcional; si está definida, el cliente debe enviar `X-API-Key` (el endpoint `GET /api/health` sigue siendo público).
+<details>
+<summary><b>scraperLead-web/.env</b></summary>
 
-### `instaleads/.env`
+| Variable | Descripción |
+|---|---|
+| `MAPLEADS_API_URL` | URL base de MapLeads (por defecto `http://localhost:8001`) |
+| `INSTALEADS_API_URL` | URL base de InstaLeads (por defecto `http://localhost:8002`) |
+| `LINKEDINLEADS_API_URL` | URL base de LinkedInLeads (por defecto `http://localhost:8003`) |
+| `MAPLEADS_API_KEY` | API key opcional para MapLeads |
+| `PORT` | Puerto del panel (por defecto `8081`) |
 
-Plantilla: `env.example` (nombre distinto a `.env.example`). Variables usadas por `instaleads/backend/config/settings.py`:
+</details>
 
-- Proxies: `IG_PROXY_LIST`, `IG_PROXY_ERROR_COOLDOWN`.
-- Límites y delays dorking: `IG_LIMIT_DAILY_UNAUTHENTICATED`, `IG_DELAY_UNAUTH_MIN`, `IG_DELAY_UNAUTH_MAX`.
-- Backoff: `IG_BACKOFF_INITIAL`, `IG_BACKOFF_MULTIPLIER`, `IG_BACKOFF_MAX`.
-- Configuración general: `IG_APP_ID`, `IG_CONCURRENCY`, `IG_MAX_RETRIES`, `IG_HEALTH_CHECK_INTERVAL`, `IG_HEALTH_TEST_ACCOUNT`.
-- Base de datos: `DB_PATH`.
-- Compatibilidad del extractor web: `email_scraper_use_playwright`, `email_scraper_force_direct`.
+---
 
-El endpoint `GET /api/instagram/health` devuelve estado del servicio en modo dorking (sin login).
+## 🏗️ Estructura del proyecto
 
-### `linkedinleads/.env`
+```
+MultiScraping/
+├── mapleads/          # Backend FastAPI — Google Maps + verificación de emails
+├── instaleads/        # Backend FastAPI — Instagram (discovery + enrichment)
+├── linkedinleads/     # Backend FastAPI — LinkedIn con Playwright
+├── scraperLead-web/   # Frontend FastAPI + Jinja + JS (dashboard unificado)
+├── nginx/             # Configuración Nginx para Docker/VPS
+├── docker-compose.yml
+└── start_all.sh       # Script de arranque (macOS/Linux)
+```
 
-Copia desde `linkedinleads/.env.example`. Entre otras, se usan:
+---
 
-- `LINKEDIN_API_PORT`: puerto FastAPI (por defecto `8003`).
-- Límites y ventanas: `MAX_CONTACTS_PER_RUN`, `MAX_CONTACTS_PER_DAY`, `MAX_CONTACTS_CAP`, `SCRAPE_WINDOW_START`, `SCRAPE_WINDOW_END`, `MIN_HOURS_BETWEEN_RUNS`, `COOLDOWN_HOURS_AFTER_429`, `CONTACT_REFRESH_DAYS`.
-- Navegador: `BROWSER_PROFILE_WAIT`, `SLEEP_BETWEEN_CONNECTIONS`, `HEADLESS`, `CHROME_BINARY`, `DRIVER_RESTART_EVERY`, `SESSIONS_DIR` (ruta de sesiones; por defecto carpeta `sessions` bajo el proyecto).
-- Cuenta objetivo opcional: `LINKEDIN_PROFILE_URL`.
-- Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-- Cifrado: `CREDENTIAL_KEY` (Fernet para credenciales guardadas).
-- `DB_PATH`: SQLite; por defecto `linkedinleads/backend/data/contacts.db` si no se define.
-- Enrichment opcional: `HUNTER_API_KEY`, `SNOV_CLIENT_ID`, `SNOV_CLIENT_SECRET`, `EMAIL_ENRICHMENT_ENABLED`.
-- Lista de proxies opcional: `PROXY_LIST` (véase `backend/proxy_pool.py`).
+## ✅ Comprobación rápida
 
-### `scraperLead-web/.env`
+Una vez arrancados todos los servicios, verifica que todo funciona:
 
-- `MAPLEADS_API_URL`, `INSTALEADS_API_URL`, `LINKEDINLEADS_API_URL`: URLs base de los tres backends (por defecto `http://localhost:8001` … `8003`).
-- `MAPLEADS_API_KEY`: opcional; si MapLeads tiene `API_KEY`, el frontend envía `X-API-Key` en las peticiones a MapLeads.
-- `PORT`: puerto del panel (por defecto `8081`).
+```bash
+# Panel principal
+open http://localhost:8081
 
-## Comprobación rápida
+# Health checks de cada backend
+curl http://localhost:8001/api/health            # MapLeads
+curl http://localhost:8002/api/instagram/health  # InstaLeads
+curl http://localhost:8003/api/linkedin/health   # LinkedInLeads
+```
 
-- Abrir `http://localhost:8081`.
-- Salud de APIs (directo en cada backend):
-  - MapLeads: `http://localhost:8001/api/health`
-  - InstaLeads: `http://localhost:8002/api/instagram/health`
-  - LinkedIn: `http://localhost:8003/health` o `http://localhost:8003/api/linkedin/health`
+---
 
-## Tests básicos
+## 🧪 Tests
 
-Cada backend incluye tests con `pytest` desde la raíz del repositorio:
+Cada backend incluye tests con `pytest`:
 
 ```bash
 cd mapleads && pytest
 cd ../instaleads && pytest
 cd ../linkedinleads && pytest
 ```
+
+---
+
+## ⚠️ Aviso
+
+> Las rutas de TikTok (`/tiktok`, etc.) están presentes en el frontend pero **no tienen backend activo** en este repositorio. Esas secciones quedan sin servicio salvo que integres uno por tu cuenta.
+
+---
+
+<div align="center">
+Made with ☕ by <a href="https://github.com/R4F405">R4F405</a>
+</div>
