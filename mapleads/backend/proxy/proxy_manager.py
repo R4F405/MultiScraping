@@ -18,11 +18,14 @@ _REQUESTS_PER_COMPANY = 4
 
 # Context var so wait_for_available knows which job is waiting (no parameter threading needed)
 _current_job_ctx: ContextVar[str | None] = ContextVar("current_job", default=None)
+# Context var so wait_for_available can honour cancellation from any scraper layer
+_cancel_event_ctx: ContextVar[asyncio.Event | None] = ContextVar("cancel_event", default=None)
 
 
-def set_current_job(job_id: str | None) -> None:
-    """Call at the start of a scrape job to enable proxy-wait tracking in the UI."""
+def set_current_job(job_id: str | None, cancel_event: asyncio.Event | None = None) -> None:
+    """Call at the start of a scrape job to enable proxy-wait tracking and cancellation."""
     _current_job_ctx.set(job_id)
+    _cancel_event_ctx.set(cancel_event)
 
 
 class ProxyManager:
@@ -201,7 +204,11 @@ class ProxyManager:
         """Record a successful request (reserved for future sliding-window logic)."""
         pass
 
-    async def wait_for_available(self, timeout_seconds: int | None = None) -> str | None:
+    async def wait_for_available(
+        self,
+        timeout_seconds: int | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ) -> str | None:
         """
         Block until a proxy is available. By default waits indefinitely, pausing
         the scraping job until a proxy exits cooldown (smart pause/resume).
@@ -210,6 +217,7 @@ class ProxyManager:
         - Dev mode (no proxies configured) → direct connection used by caller
         - Daily limit reached → caller should skip this request
         - timeout_seconds exceeded (when explicitly set)
+        - cancel_event is set → job was cancelled while waiting
 
         The current job ID (from _current_job_ctx) is tracked in _waiting_jobs
         so the UI can show a "waiting for proxy" state.
@@ -221,10 +229,20 @@ class ProxyManager:
             return None
 
         job_id = _current_job_ctx.get()
+        # Prefer explicitly-passed event; fall back to context var set by set_current_job
+        if cancel_event is None:
+            cancel_event = _cancel_event_ctx.get()
         start = datetime.now()
         first_wait = True
 
         while True:
+            # Honour cancellation immediately at the top of every iteration
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("ProxyManager: cancel signal received while waiting for proxy. Aborting.")
+                if job_id:
+                    self._waiting_jobs.pop(job_id, None)
+                return None
+
             proxy = await self.get_next()
 
             if proxy is not None:
@@ -267,7 +285,17 @@ class ProxyManager:
                         self._waiting_jobs.pop(job_id, None)
                     return None
 
-            await asyncio.sleep(min(5, max(1, wait_secs)))
+            # Sleep in short slices so cancel_event is checked frequently
+            sleep_total = min(5, max(1, wait_secs))
+            slice_secs = 0.5
+            slept = 0.0
+            while slept < sleep_total:
+                if cancel_event is not None and cancel_event.is_set():
+                    if job_id:
+                        self._waiting_jobs.pop(job_id, None)
+                    return None
+                await asyncio.sleep(min(slice_secs, sleep_total - slept))
+                slept += slice_secs
 
             # Refresh remaining wait estimate
             if job_id:

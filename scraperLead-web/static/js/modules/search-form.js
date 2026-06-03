@@ -674,16 +674,11 @@ function initSearchPage() {
     if (!summary) return;
     const textarea = document.getElementById('locations-textarea');
     const count = parseLocationLines().length;
-    const maxChars = parseInt(textarea?.getAttribute('maxlength') || '0', 10);
-    const currentChars = textarea?.value.length || 0;
-    const charsInfo = locationsInputMode === 'text' && maxChars > 0
-      ? ` · ${currentChars}/${maxChars} caracteres`
-      : '';
     let importedInfo = '';
     if (importedLocationsMeta?.source === 'file') {
       importedInfo = ' · fuente: archivo';
     }
-    summary.textContent = `${count} localidades válidas${charsInfo}${importedInfo}`;
+    summary.textContent = `${count} localidades válidas${importedInfo}`;
   }
 
   function updateCompaniesTotalSummary() {
@@ -800,6 +795,7 @@ function initSearchPage() {
   // -- State ----------------------------------------------------------------
   let currentJobId = null;
   let pollInterval = null;
+  let _jobPollMs = 2000;
 
   // -- Counter ---------------------------------------------------------------
   const counterInput = document.getElementById('counter-display');
@@ -813,7 +809,7 @@ function initSearchPage() {
 
   function getMultiCompaniesTarget() {
     const input = document.getElementById('companies-per-location');
-    return Math.max(1, Math.min(200, parseInt(input?.value || '10', 10) || 10));
+    return Math.max(1, parseInt(input?.value || '10', 10) || 10);
   }
 
   counterInput.addEventListener('input', function onInput() {
@@ -991,6 +987,9 @@ function initSearchPage() {
     alertEl.classList.add('hidden');
   }
 
+  /** True tras pulsar cancelar hasta que el job deje de estar "running" (feedback inmediato + anti doble clic). */
+  let _scrapeCancelPending = false;
+
   // -- Loader ---------------------------------------------------------------
   const loaderSection = document.getElementById('loader-section');
 
@@ -1034,11 +1033,19 @@ function initSearchPage() {
         proxyWaitEl.classList.remove('hidden');
       }
       if (spinnerEl) spinnerEl.classList.add('paused');
-      if (textEl) textEl.textContent = 'En pausa...';
+      if (textEl) {
+        textEl.textContent = _scrapeCancelPending && job?.status === 'running'
+          ? 'Cancelando extracción…'
+          : 'En pausa...';
+      }
     } else {
       if (proxyWaitEl) proxyWaitEl.classList.add('hidden');
       if (spinnerEl) spinnerEl.classList.remove('paused');
-      if (textEl) textEl.textContent = 'Cargando empresas...';
+      if (textEl) {
+        textEl.textContent = _scrapeCancelPending && job?.status === 'running'
+          ? 'Cancelando extracción…'
+          : 'Cargando empresas...';
+      }
     }
   }
 
@@ -1063,6 +1070,25 @@ function initSearchPage() {
   const progressTotal = document.getElementById('progress-total');
   const progressBarFill = document.getElementById('progress-bar-fill');
   const progressElapsed = document.getElementById('progress-elapsed');
+  const scrapeCancelBar = document.getElementById('scrape-cancel-bar');
+  const scrapeCancelBtn = document.getElementById('scrape-cancel-btn');
+  const scrapeCancelHint = document.getElementById('scrape-cancel-hint');
+  const SCRAPE_CANCEL_HINT_DEFAULT =
+    'Puedes detener la extracción en cualquier momento. Los leads ya guardados se conservan.';
+
+  function resetScrapeCancelUi() {
+    _scrapeCancelPending = false;
+    if (scrapeCancelBtn) {
+      scrapeCancelBtn.disabled = false;
+      scrapeCancelBtn.textContent = 'Cancelar extracción';
+    }
+    if (scrapeCancelHint) scrapeCancelHint.textContent = SCRAPE_CANCEL_HINT_DEFAULT;
+  }
+
+  function setScrapeCancelVisible(visible) {
+    if (!scrapeCancelBar) return;
+    scrapeCancelBar.classList.toggle('hidden', !visible);
+  }
 
   // -- Job summary ----------------------------------------------------------
   const jobSummarySection = document.getElementById('job-summary-section');
@@ -1090,9 +1116,9 @@ function initSearchPage() {
     const emailsFound = Number(job.emails_found || 0);
 
     if (jobSummaryTitle) {
-      jobSummaryTitle.textContent = job.status === 'done'
-        ? 'Scrapeo completado'
-        : 'Scrapeo finalizado con errores';
+      if (job.status === 'done') jobSummaryTitle.textContent = 'Scrapeo completado';
+      else if (job.status === 'cancelled') jobSummaryTitle.textContent = 'Scrapeo cancelado';
+      else jobSummaryTitle.textContent = 'Scrapeo finalizado con errores';
     }
     if (jobSummaryCompanies) jobSummaryCompanies.textContent = `${companiesProcessed} empresas`;
     if (jobSummaryTargetCompanies) jobSummaryTargetCompanies.textContent = `${targetTotal} empresas`;
@@ -1103,7 +1129,8 @@ function initSearchPage() {
         const done = Number(locationsSummary.done || 0);
         const empty = Number(locationsSummary.empty || 0);
         const failed = Number(locationsSummary.failed || 0);
-        jobSummaryLocations.textContent = `${totalLoc} localidades · ${done} ok · ${empty} vacías · ${failed} fallidas`;
+        const cancelled = Number(locationsSummary.cancelled || 0);
+        jobSummaryLocations.textContent = `${totalLoc} localidades · ${done} ok · ${empty} vacías · ${failed} fallidas${cancelled ? ` · ${cancelled} canceladas` : ''}`;
       } else {
         jobSummaryLocations.textContent = `${totalLoc} localidades`;
       }
@@ -1177,6 +1204,8 @@ function initSearchPage() {
   function updateProgressUI(job = null) {
     if (!progressSection || !progressBarFill || !progressText || !progressSubtext || !progressEta) return;
     if (!job || !_scrapingInProgress) {
+      setScrapeCancelVisible(false);
+      resetScrapeCancelUi();
       progressSection.classList.add('hidden');
       progressBarFill.style.width = '0%';
       progressText.textContent = 'Progreso de extracción';
@@ -1187,6 +1216,7 @@ function initSearchPage() {
       return;
     }
 
+    setScrapeCancelVisible(true);
     progressSection.classList.remove('hidden');
     const fraction = computeProgressFraction(job);
     const percent = Math.round(fraction * 100);
@@ -1208,13 +1238,21 @@ function initSearchPage() {
       }
       const companies = Number(job.progress || 0);
       const emails = Number(job.emails_found || 0);
-      progressSubtext.textContent = `${label} · empresas ${currentCompanies}/${target} · ${companies} empresas · ${emails} emails opcionales${perLocationEtaText}`;
+      let subMulti = `${label} · empresas ${currentCompanies}/${target} · ${companies} empresas · ${emails} emails opcionales${perLocationEtaText}`;
+      if (_scrapeCancelPending && job.status === 'running') {
+        subMulti = `⏹ Cancelando (unos segundos) — ${subMulti}`;
+      }
+      progressSubtext.textContent = subMulti;
     } else {
       const progress = Number(job.progress || 0);
       const total = Number(job.total || 0);
       const emails = Number(job.emails_found || 0);
       progressText.textContent = `${percent}% · ${progress}/${total} empresas`;
-      progressSubtext.textContent = `${emails} emails opcionales`;
+      let subSingle = `${emails} emails opcionales`;
+      if (_scrapeCancelPending && job.status === 'running') {
+        subSingle = `⏹ Cancelando (unos segundos) — ${subSingle}`;
+      }
+      progressSubtext.textContent = subSingle;
     }
 
     const stats = loadEtaStats();
@@ -1272,8 +1310,8 @@ function initSearchPage() {
       const remainingSec = (elapsedSec / fraction) - elapsedSec;
       progressEta.textContent = `ETA: ~${formatDuration(remainingSec)}`;
       if (progressElapsed) progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
-    } else if (fraction >= 1 || job.status === 'done') {
-      progressEta.textContent = 'ETA: completado';
+    } else if (fraction >= 1 || job.status === 'done' || job.status === 'cancelled') {
+      progressEta.textContent = job.status === 'cancelled' ? 'ETA: cancelado' : 'ETA: completado';
       if (scrapeStartedAtMs && progressElapsed) {
         const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
         progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
@@ -1305,6 +1343,10 @@ function initSearchPage() {
         const elapsedSec = (Date.now() - scrapeStartedAtMs) / 1000;
         progressElapsed.textContent = `Elapsed: ${formatDuration(elapsedSec)}`;
       }
+    }
+
+    if (_scrapeCancelPending && job.status === 'running' && progressEta) {
+      progressEta.textContent = 'ETA: cancelando…';
     }
   }
 
@@ -1451,7 +1493,7 @@ function initSearchPage() {
       if (!res.ok) return null;
       const rows = await res.json();
       if (!Array.isArray(rows)) return null;
-      const counts = { done: 0, empty: 0, failed: 0, running: 0, pending: 0, other: 0 };
+      const counts = { done: 0, empty: 0, failed: 0, running: 0, pending: 0, cancelled: 0, other: 0 };
       rows.forEach((r) => {
         const st = String(r?.status || 'other');
         if (counts[st] !== undefined) counts[st] += 1;
@@ -1466,7 +1508,20 @@ function initSearchPage() {
   // -- Polling ---------------------------------------------------------------
   function startPolling(jobId) {
     clearInterval(pollInterval);
-    pollInterval = window.setInterval(() => pollJob(jobId), 2000);
+    pollInterval = null;
+    _jobPollMs = 2000;
+    pollInterval = window.setInterval(() => {
+      void pollJob(jobId);
+    }, _jobPollMs);
+  }
+
+  function restartJobPollingFast(jobId) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+    _jobPollMs = 400;
+    pollInterval = window.setInterval(() => {
+      void pollJob(jobId);
+    }, _jobPollMs);
   }
 
   async function pollJob(jobId) {
@@ -1476,7 +1531,7 @@ function initSearchPage() {
       const job = await res.json();
       updateLoaderCount(job.progress, job.total, job.emails_found, job.waiting_for_proxy, job.proxy_wait_seconds, job);
       updateProgressUI(job);
-      if (job.status === 'done' || job.status === 'failed') {
+      if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
         if (job.mode === 'multi_locality') {
           const locSummary = await loadLocationsSummary(jobId);
           updateJobSummaryUI(job, locSummary);
@@ -1500,7 +1555,11 @@ function initSearchPage() {
           saveEtaStats(stats);
         }
         clearInterval(pollInterval);
+        pollInterval = null;
+        _jobPollMs = 2000;
         hideLoader();
+        setScrapeCancelVisible(false);
+        resetScrapeCancelUi();
         _scrapingInProgress = false;
         scrapeStartedAtMs = null;
         updateProgressUI(null);
@@ -1513,6 +1572,10 @@ function initSearchPage() {
         if (job.status === 'done') {
           await loadResults(jobId);
           if (exportBtn) exportBtn.disabled = false;
+        } else if (job.status === 'cancelled') {
+          await loadResults(jobId);
+          if (exportBtn) exportBtn.disabled = false;
+          showAlert('Scrapeo cancelado. Se muestran los leads obtenidos hasta el momento.');
         } else {
           showAlert('El scraping falló. Revisa los logs del servidor.');
         }
@@ -1527,6 +1590,7 @@ function initSearchPage() {
   async function onStart(event) {
     const clickedBtn = event.currentTarget;
     hideAlert();
+    resetScrapeCancelUi();
     const query = document.getElementById('query').value.trim();
     const location = document.getElementById('location').value.trim();
     const maxResults = getCounterValue();
@@ -1612,6 +1676,7 @@ function initSearchPage() {
     } catch (err) {
       _scrapingInProgress = false;
       scrapeStartedAtMs = null;
+      resetScrapeCancelUi();
       updateProgressUI(null);
       showAlert(`Error al iniciar la búsqueda: ${err.message}`);
       if (clickedBtn) {
@@ -1628,6 +1693,47 @@ function initSearchPage() {
   }
   startBtn?.addEventListener('click', onStart);
   startBtnMulti?.addEventListener('click', onStart);
+
+  scrapeCancelBtn?.addEventListener('click', async () => {
+    if (!currentJobId || !_scrapingInProgress) return;
+    if (_scrapeCancelPending) return;
+
+    _scrapeCancelPending = true;
+    if (scrapeCancelBtn) {
+      scrapeCancelBtn.disabled = true;
+      scrapeCancelBtn.textContent = 'Cancelando…';
+    }
+    if (scrapeCancelHint) {
+      scrapeCancelHint.textContent =
+        'Cancelación enviada. El servidor detiene el trabajo en cuanto termine el lote actual (suele tardar unos segundos).';
+    }
+    void pollJob(currentJobId);
+
+    try {
+      const res = await fetch(`${window.__BASE__}/api/jobs/${encodeURIComponent(currentJobId)}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = res.ok ? await res.json().catch(() => ({})) : {};
+      if (data.ok === true) {
+        restartJobPollingFast(currentJobId);
+        void pollJob(currentJobId);
+        return;
+      }
+      resetScrapeCancelUi();
+      if (data.ok === false && data.reason === 'already_finished') {
+        showAlert('El scrapeo ya había terminado.');
+      } else if (data.ok === false && data.reason === 'not_running_locally') {
+        showAlert('No se pudo cancelar en este servidor (reinicio u otro worker).');
+      } else {
+        showAlert('No se pudo confirmar la cancelación. Reintenta o revisa el estado del scrapeo.');
+      }
+    } catch (_) {
+      resetScrapeCancelUi();
+      showAlert('No se pudo enviar la cancelación. Revisa la conexión e inténtalo de nuevo.');
+    }
+  });
 
   // -- Export ----------------------------------------------------------------
   if (exportBtn) {

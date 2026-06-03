@@ -86,7 +86,7 @@ def _load_settings() -> Settings:
         request_delay_max=float(os.getenv("REQUEST_DELAY_MAX_SECONDS", "1.5")),
         error_rate_threshold=float(os.getenv("ERROR_RATE_THRESHOLD", "0.30")),
         high_error_cooldown_seconds=int(os.getenv("HIGH_ERROR_COOLDOWN_SECONDS", "600")),
-        max_requests_per_day=int(os.getenv("MAX_REQUESTS_PER_DAY", "10000")),
+        max_requests_per_day=int(os.getenv("MAX_REQUESTS_PER_DAY", "999999")),
         dedupe_days=int(os.getenv("DEDUPE_DAYS", "30")),
         email_dns_accept_a=os.getenv("EMAIL_DNS_ACCEPT_A", "0").strip().lower() in ("1", "true", "yes"),
         email_scraper_use_playwright=(

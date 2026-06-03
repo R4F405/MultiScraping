@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import subprocess
 import sys
 import threading
@@ -28,7 +29,7 @@ from backend.storage.exporter import export_to_csv
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
-_MAX_MULTI_LOCALITIES = 5000
+_MAX_MULTI_LOCALITIES = 50000
 _NETWORK_CHECK_URLS = (
     "https://roymo.es/",
     "https://www.marketingdigitaldirecto.com/diseno-web/",
@@ -48,6 +49,9 @@ _CATEGORIES_SYNC_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" /
 _CATEGORIES_SYNC_BG_TIMEOUT_SEC = 180  # evita bloqueos eternos
 
 _categories_sync_endpoint_lock = asyncio.Lock()
+
+# Cooperative cancellation: set by POST /jobs/{job_id}/cancel, checked in background runners.
+_job_cancel_events: dict[str, asyncio.Event] = {}
 
 
 def _sync_categories_script_background() -> None:
@@ -168,6 +172,7 @@ async def _search_unique_businesses(
     lng: float | None = None,
     radius_km: float = 10.0,
     dedupe_days: int,
+    cancel_ev: asyncio.Event | None = None,
 ) -> list[dict]:
     """
     Paginate Maps results and keep unique businesses, skipping recently seen place_ids.
@@ -184,14 +189,39 @@ async def _search_unique_businesses(
     max_pages = max(3, min(200, target * 6))
 
     while len(uniques) < target and pages_scanned < max_pages:
-        batch = await search_maps(
-            query=query,
-            location=location,
-            start=start,
-            lat=lat,
-            lng=lng,
-            radius_km=radius_km,
-        )
+        if cancel_ev is not None and cancel_ev.is_set():
+            break
+
+        batch: list[dict] = []
+        last_error: MapsFetchError | None = None
+        for attempt in range(3):
+            try:
+                batch = await search_maps(
+                    query=query,
+                    location=location,
+                    start=start,
+                    lat=lat,
+                    lng=lng,
+                    radius_km=radius_km,
+                )
+                last_error = None
+                break
+            except MapsFetchError as exc:
+                last_error = exc
+                if not exc.retryable:
+                    break
+                backoff = 0.6 * (2 ** attempt) + random.uniform(0.0, 0.25)
+                logger.warning(
+                    "_search_unique_businesses: retry %d/3 for '%s' after %s (backoff %.1fs)",
+                    attempt + 1, query, exc, backoff,
+                )
+                if cancel_ev is not None and cancel_ev.is_set():
+                    break
+                await asyncio.sleep(backoff)
+
+        if last_error is not None and not batch:
+            raise last_error
+
         pages_scanned += 1
 
         if not batch:
@@ -241,7 +271,7 @@ async def _search_unique_businesses(
     return uniques
 
 
-async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
+async def _run_scrape_job(job_id: str, request: SearchRequest, cancel_ev: asyncio.Event) -> None:
     """
     Full scraping pipeline:
     1. Fetch business listings from Google Maps (paginated)
@@ -249,8 +279,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
     3. Verify email MX records
     4. Save to DB with live progress updates
     """
-    # Register job ID so proxy_manager can track waiting state visible to the UI
-    set_current_job(job_id)
+    set_current_job(job_id, cancel_event=cancel_ev)
     logger.info("Job %s: starting scrape — query='%s', location='%s', max_results=%d", job_id, request.query, request.location, request.max_results)
     emails_found = 0
 
@@ -264,6 +293,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
             lng=request.lng,
             radius_km=request.radius_km,
             dedupe_days=settings.dedupe_days,
+            cancel_ev=cancel_ev,
         )
         logger.info("Job %s: got %d businesses from Maps", job_id, len(businesses))
 
@@ -271,12 +301,22 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
         await db.update_job_total(job_id, total)
         await db.update_job_progress(job_id, 0, 0)
 
+        if cancel_ev.is_set():
+            await db.finish_job(job_id, "cancelled")
+            logger.info("Job %s cancelled before enrichment", job_id)
+            return
+
         semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
         progress_lock = asyncio.Lock()
+        chunk_size = max(1, settings.max_concurrent_requests)
 
         async def process_business(index: int, business: dict) -> None:
             nonlocal emails_found
+            if cancel_ev.is_set():
+                return
             async with semaphore:
+                if cancel_ev.is_set():
+                    return
                 email, email_status, email_reason, email_confidence = await _enrich_business_email(business)
                 if email:
                     async with progress_lock:
@@ -292,8 +332,13 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
                 await db.save_lead(business, job_id)
                 await db.update_job_progress(job_id, index + 1, current_emails)
 
-        tasks = [process_business(i, b) for i, b in enumerate(businesses)]
-        await asyncio.gather(*tasks)
+        for start_idx in range(0, len(businesses), chunk_size):
+            if cancel_ev.is_set():
+                await db.finish_job(job_id, "cancelled")
+                logger.info("Job %s cancelled after partial enrichment (%d emails)", job_id, emails_found)
+                return
+            chunk = businesses[start_idx : start_idx + chunk_size]
+            await asyncio.gather(*[process_business(start_idx + j, b) for j, b in enumerate(chunk)])
 
         await db.finish_job(job_id, "done")
         logger.info("Job %s done: %d businesses, %d emails", job_id, total, emails_found)
@@ -302,6 +347,7 @@ async def _run_scrape_job(job_id: str, request: SearchRequest) -> None:
         logger.error("Job %s failed: %s", job_id, exc)
         await db.finish_job(job_id, "failed")
     finally:
+        _job_cancel_events.pop(job_id, None)
         set_current_job(None)
 
 
@@ -310,8 +356,6 @@ def _normalize_locations(raw_locations: list[str]) -> list[str]:
     seen: set[str] = set()
     for raw in raw_locations:
         raw_value = (raw or "").strip()
-        if len(raw_value) > 220:
-            raw_value = raw_value[:220]
         parts = [p.strip() for p in raw_value.split(",") if p.strip()]
         normalized = ", ".join(parts)
         if not normalized or len(normalized) < 2:
@@ -324,18 +368,24 @@ def _normalize_locations(raw_locations: list[str]) -> list[str]:
     return unique
 
 
-async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations: list[str]) -> None:
-    set_current_job(job_id)
+async def _run_multi_locality_job(
+    job_id: str, request: SearchRequest, locations: list[str], cancel_ev: asyncio.Event
+) -> None:
+    set_current_job(job_id, cancel_event=cancel_ev)
     total_locations = len(locations)
     total_progress = 0
     total_scanned = 0
     total_emails_found = 0
     failed_locations = 0
+    user_cancelled = False
 
     try:
         await db.create_job_locations(job_id, locations)
 
         for idx, location in enumerate(locations, start=1):
+            if cancel_ev.is_set():
+                user_cancelled = True
+                break
             await db.update_job_location_progress(
                 job_id,
                 current_location_index=idx,
@@ -361,15 +411,24 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
                     location=location,
                     target=request.target_per_location,
                     dedupe_days=settings.dedupe_days,
+                    cancel_ev=cancel_ev,
                 )
                 total_scanned += len(businesses)
                 await db.update_job_total(job_id, total_scanned)
 
                 if not businesses:
-                    locality_status = "empty"
+                    if cancel_ev.is_set():
+                        locality_status = "cancelled"
+                        user_cancelled = True
+                    else:
+                        locality_status = "empty"
                     continue
 
                 for business in businesses:
+                    if cancel_ev.is_set():
+                        locality_status = "cancelled"
+                        user_cancelled = True
+                        break
                     email, email_status, email_reason, email_confidence = await _enrich_business_email(business)
                     business["email"] = email
                     business["email_status"] = email_status
@@ -402,6 +461,8 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
 
                     if locality_leads_found >= request.target_per_location:
                         break
+                if user_cancelled:
+                    break
             except MapsFetchError as exc:
                 locality_status = "failed"
                 failed_locations += 1
@@ -419,6 +480,9 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
             finally:
                 await db.finish_job_location(job_id, idx, locality_status)
 
+            if user_cancelled:
+                break
+
         await db.update_job_location_progress(
             job_id,
             current_location_index=total_locations,
@@ -426,7 +490,9 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
             current_location_label=locations[-1] if locations else None,
             current_location_emails_found=0,
         )
-        if total_locations > 0 and failed_locations >= total_locations:
+        if user_cancelled:
+            await db.finish_job(job_id, "cancelled")
+        elif total_locations > 0 and failed_locations >= total_locations:
             await db.finish_job(job_id, "failed")
         else:
             await db.finish_job(job_id, "done")
@@ -434,6 +500,7 @@ async def _run_multi_locality_job(job_id: str, request: SearchRequest, locations
         logger.error("Job %s failed (multi locality): %s", job_id, exc)
         await db.finish_job(job_id, "failed")
     finally:
+        _job_cancel_events.pop(job_id, None)
         set_current_job(None)
 
 
@@ -639,17 +706,37 @@ async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
             total_locations=len(normalized_locations),
             emails_target_per_location=body.target_per_location,
         )
-        background_tasks.add_task(_run_multi_locality_job, job_id, body, normalized_locations)
+        cancel_ev = asyncio.Event()
+        _job_cancel_events[job_id] = cancel_ev
+        background_tasks.add_task(_run_multi_locality_job, job_id, body, normalized_locations, cancel_ev)
         logger.info(
             "Started multi-locality job %s: category='%s' locations=%d target/location=%d",
             job_id, body.category_query, len(normalized_locations), body.target_per_location,
         )
     else:
         await db.create_job(job_id, body.query, body.location, total=0, mode="single")
-        background_tasks.add_task(_run_scrape_job, job_id, body)
+        cancel_ev = asyncio.Event()
+        _job_cancel_events[job_id] = cancel_ev
+        background_tasks.add_task(_run_scrape_job, job_id, body, cancel_ev)
         logger.info("Started job %s: '%s' in '%s'", job_id, body.query, body.location)
 
     return {"job_id": job_id, "status": "running"}
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    row = await db.get_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    status = str(row.get("status") or "")
+    if status != "running":
+        return {"ok": False, "reason": "already_finished", "status": status}
+    ev = _job_cancel_events.get(job_id)
+    if ev is None:
+        return {"ok": False, "reason": "not_running_locally"}
+    ev.set()
+    logger.info("Job %s: cancellation requested", job_id)
+    return {"ok": True}
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
