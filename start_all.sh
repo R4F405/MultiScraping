@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script principal: inicia MapLeads + InstaLeads + LinkedInLeads + Frontend (macOS/Linux)
+# Script principal: inicia MapLeads + InstaLeads + LinkedInLeads + TikTokLeads + Frontend (macOS/Linux)
 set -e
 
 echo ""
@@ -81,6 +81,7 @@ wait_port() {
 require_venv "mapleads" "MapLeads"
 require_venv "instaleads" "InstaLeads"
 require_venv "linkedinleads" "LinkedInLeads"
+require_venv "tiktokleads" "TikTokLeads"
 
 # Frontend: opcional, puede reutilizar venv de mapleads
 FRONTEND_VENV="$SCRIPT_DIR/scraperLead-web/venv/bin/activate"
@@ -90,6 +91,7 @@ FALLBACK_FRONTEND_VENV="$SCRIPT_DIR/mapleads/venv/bin/activate"
 free_port 8001
 free_port 8002
 free_port 8003
+free_port 8004
 free_port 8081
 
 echo "Iniciando MapLeads backend en :8001..."
@@ -113,9 +115,17 @@ echo "Iniciando LinkedInLeads backend en :8003..."
 ) &
 LINKEDINLEADS_PID=$!
 
+echo "Iniciando TikTokLeads backend en :8004..."
+(
+    cd "$SCRIPT_DIR/tiktokleads"
+    "$SCRIPT_DIR/tiktokleads/venv/bin/python" -m uvicorn backend.main:app --host 0.0.0.0 --port 8004
+) &
+TIKTOKLEADS_PID=$!
+
 wait_port 8001 "MapLeads" 20
 wait_port 8002 "InstaLeads" 60  # InstaLeads toma más tiempo (carga pool, Google CSE, etc)
 wait_port 8003 "LinkedInLeads" 20
+wait_port 8004 "TikTokLeads" 20
 
 echo "Iniciando Frontend en :8081..."
 (
@@ -136,10 +146,11 @@ echo "  - Frontend:       http://localhost:8081"
 echo "  - MapLeads API:   http://localhost:8001"
 echo "  - InstaLeads API: http://localhost:8002"
 echo "  - LinkedIn API:   http://localhost:8003"
+echo "  - TikTok API:     http://localhost:8004"
 echo ""
 echo "Presiona Ctrl+C para detener todo."
 echo ""
 
-trap "echo ''; echo 'Deteniendo servicios...'; kill $MAPLEADS_PID $INSTALEADS_PID $LINKEDINLEADS_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
+trap "echo ''; echo 'Deteniendo servicios...'; kill $MAPLEADS_PID $INSTALEADS_PID $LINKEDINLEADS_PID $TIKTOKLEADS_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
 
 wait

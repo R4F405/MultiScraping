@@ -1,26 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}TikTok Leads — En construcción{% endblock %}
+{% block title %}TikTok Leads — redirección{% endblock %}
+
+{% block head %}
+<meta http-equiv="refresh" content="0;url={{ url_for('tiktok_page') }}?view=leads">
+{% endblock %}
 
 {% block content %}
-  <div class="max-w-3xl">
-    <div class="bg-white border border-slate-200 rounded-2xl p-8">
-      <h1 class="text-2xl font-bold text-slate-800 mb-2">Base de datos TikTok</h1>
-      <p class="text-slate-600 mb-6">
-        Esta sección también está temporalmente desactivada.
-      </p>
-      <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-800 text-sm">
-        <strong class="font-semibold">Scraper en construcción.</strong>
-        No hay extracción ni consulta de datos disponible por ahora.
-      </div>
-      <div class="mt-6 flex gap-3">
-        <a href="{{ url_for('tiktok_page') }}" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium no-underline hover:bg-slate-700 transition">
-          Ir a TikTok
-        </a>
-        <a href="{{ url_for('databases') }}" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm no-underline hover:bg-slate-50 transition">
-          Ver otras bases de datos
-        </a>
-      </div>
-    </div>
-  </div>
+<div class="max-w-lg mx-auto py-12 text-center text-slate-600 text-sm">
+  <p class="mb-4">Los leads de TikTok se gestionan en la pestaña <strong>Leads</strong> del módulo TikTok.</p>
+  <a href="{{ url_for('tiktok_page') }}?view=leads" class="text-slate-900 font-medium underline">Ir a TikTok → Leads</a>
+</div>
 {% endblock %}

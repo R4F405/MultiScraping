@@ -3,9 +3,8 @@ import csv
 import io
 import uuid
 import logging
-from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import (
@@ -21,11 +20,39 @@ from backend.storage import database as db
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/instagram")
 
-# In-memory job registry: job_id → asyncio.Task
+# In-memory: job_id → asyncio.Task (dorking worker)
 _jobs: dict[str, asyncio.Task] = {}
+
+# Cooperative cancel: job_id → Event (POST .../cancel). Solo el worker que ejecuta el job
+# tiene el Event; en multi-worker la cancelación puede devolver 503 si el job corre en otro proceso.
+_job_cancel_events: dict[str, asyncio.Event] = {}
+_cancel_registry_lock = asyncio.Lock()
 
 # Prevent concurrent dorking jobs from flooding proxies and crashing
 _dorking_lock = asyncio.Lock()
+
+
+def _dorking_task_done(task: asyncio.Task, job_id: str) -> None:
+    _jobs.pop(job_id, None)
+    try:
+        exc = task.exception()
+        if exc is not None and not isinstance(exc, asyncio.CancelledError):
+            logger.error("Dorking task %s raised: %s", job_id[:8], exc)
+    except asyncio.CancelledError:
+        pass
+    except Exception as err:  # pragma: no cover
+        logger.error("Dorking task done callback: %s", err)
+
+
+def _schedule_dorking_job(niche: str, location: str, max_results: int, job_id: str) -> None:
+    """Start dorking in the current event loop; register cancel Event before returning."""
+    stop_event = asyncio.Event()
+    _job_cancel_events[job_id] = stop_event
+    task = asyncio.create_task(
+        _run_dorking_job(niche, location, max_results, job_id, stop_event)
+    )
+    _jobs[job_id] = task
+    task.add_done_callback(lambda t, jid=job_id: _dorking_task_done(t, jid))
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -82,10 +109,37 @@ async def get_job(job_id: str):
     return _normalize_job(job)
 
 
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """Request cooperative cancellation of a running dorking job in this worker."""
+    job = await db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    status = job.get("status") or ""
+    if status == "cancelled":
+        return {"status": "ok", "detail": "already_cancelled"}
+    if status != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not running (status={status})",
+        )
+    async with _cancel_registry_lock:
+        ev = _job_cancel_events.get(job_id)
+    if not ev:
+        # Running in DB but no local handle (other worker / race).
+        logger.warning("Cancel requested for %s but no local cancel handle", job_id[:8])
+        raise HTTPException(
+            status_code=503,
+            detail="Cannot cancel: job is not running in this process",
+        )
+    ev.set()
+    return {"status": "ok", "detail": "cancel_requested"}
+
+
 # ── Search: Unified endpoint ─────────────────────────────────────────────────
 
 @router.post("/search", response_model=JobResponse)
-async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
+async def start_search(body: SearchRequest):
     if body.mode == "dorking":
         parts = body.target.split("|", 1)
         niche = parts[0].strip()
@@ -95,7 +149,8 @@ async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
             return JobResponse(job_id=existing["job_id"], status=existing["status"])
         job_id = str(uuid.uuid4())
         await db.upsert_job(job_id, "dorking", body.target, body.email_goal)
-        background_tasks.add_task(_run_dorking_job, niche, location, body.email_goal, job_id)
+        async with _cancel_registry_lock:
+            _schedule_dorking_job(niche, location, body.email_goal, job_id)
         return JobResponse(job_id=job_id, status="running")
 
     raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
@@ -103,29 +158,52 @@ async def start_search(body: SearchRequest, background_tasks: BackgroundTasks):
 
 # ── Search: Dorking (Modo A) ──────────────────────────────────────────────────
 
-async def _run_dorking_job(niche: str, location: str, max_results: int, job_id: str):
+async def _run_dorking_job(
+    niche: str,
+    location: str,
+    max_results: int,
+    job_id: str,
+    stop_event: asyncio.Event,
+):
     from backend.scraper.ig_dorking import search_and_extract
-    async with _dorking_lock:
-        try:
-            async for _ in search_and_extract(niche, location, max_results, job_id):
-                pass
-            job = await db.get_job(job_id)
-            emails_found = job["emails_found"] if job else 0
-            status = "completed" if emails_found >= max_results else "completed_partial"
-            await db.finish_job(job_id, status)
-        except Exception as e:
-            logger.error("Dorking job %s failed: %s", job_id, e)
-            await db.finish_job(job_id, "failed")
+
+    try:
+        async with _dorking_lock:
+            try:
+                async for _ in search_and_extract(
+                    niche,
+                    location,
+                    max_results,
+                    job_id,
+                    stop_event=stop_event,
+                ):
+                    pass
+                job = await db.get_job(job_id)
+                emails_found = job["emails_found"] if job else 0
+                if stop_event.is_set():
+                    await db.finish_job(job_id, "cancelled")
+                else:
+                    st = (
+                        "completed"
+                        if emails_found >= max_results
+                        else "completed_partial"
+                    )
+                    await db.finish_job(job_id, st)
+            except Exception as e:
+                logger.error("Dorking job %s failed: %s", job_id, e)
+                await db.finish_job(job_id, "failed")
+    finally:
+        async with _cancel_registry_lock:
+            _job_cancel_events.pop(job_id, None)
 
 
 @router.post("/search/dorking", response_model=JobResponse)
-async def start_dorking(body: DorkingRequest, background_tasks: BackgroundTasks):
+async def start_dorking(body: DorkingRequest):
     job_id = str(uuid.uuid4())
     target = f"{body.niche}|{body.location}"
     await db.upsert_job(job_id, "dorking", target, body.max_results)
-    background_tasks.add_task(
-        _run_dorking_job, body.niche, body.location, body.max_results, job_id
-    )
+    async with _cancel_registry_lock:
+        _schedule_dorking_job(body.niche, body.location, body.max_results, job_id)
     return JobResponse(job_id=job_id, status="running")
 
 

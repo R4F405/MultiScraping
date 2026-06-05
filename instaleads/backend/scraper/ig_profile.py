@@ -17,6 +17,25 @@ _JUNK_EMAIL_DOMAINS = {
 PROFILE_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
 
+def _extract_follower_count(user: dict) -> int:
+    """Normalize follower count across Instagram payload variants."""
+    direct_value = user.get("follower_count")
+    if isinstance(direct_value, int):
+        return max(direct_value, 0)
+
+    edge_followed_by = user.get("edge_followed_by")
+    if isinstance(edge_followed_by, dict):
+        edge_count = edge_followed_by.get("count")
+        if isinstance(edge_count, int):
+            return max(edge_count, 0)
+
+    followers_count = user.get("followers_count")
+    if isinstance(followers_count, int):
+        return max(followers_count, 0)
+
+    return 0
+
+
 async def get_profile(username: str) -> dict | None:
     """Fetch a public Instagram profile and extract all relevant fields.
 
@@ -54,7 +73,7 @@ async def get_profile(username: str) -> dict | None:
         "phone": user.get("business_phone_number"),
         "website": user.get("external_url"),
         "bio": user.get("biography"),
-        "follower_count": user.get("follower_count", 0),
+        "follower_count": _extract_follower_count(user),
         "is_business": user.get("is_business_account", False),
         "private": False,
     }

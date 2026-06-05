@@ -268,11 +268,10 @@ async def test_leads_all_dedupes_by_place_id_keeps_most_recent(client):
 
     # Assert
     assert isinstance(leads, list)
-    # Deduped: only one lead per place_id
-    assert len(leads) == 1
-    assert leads[0]["place_id"] == "place-1"
-    # Most recent by insertion order (scraped_at/id)
-    assert leads[0]["business_name"] == "Second name"
+    # Deduped: only one row per place_id in "Todos" (other tests may leave extra place_ids in session DB).
+    place_rows = [L for L in leads if L.get("place_id") == "place-1"]
+    assert len(place_rows) == 1
+    assert place_rows[0]["business_name"] == "Second name"
 
 
 @pytest.mark.asyncio

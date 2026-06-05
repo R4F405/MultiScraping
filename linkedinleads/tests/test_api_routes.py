@@ -32,6 +32,16 @@ def _reset_job_state():
     r._job_started_at = None
     r._job_finished_at = None
     r._job_progress = {}
+    r._job_run_id = None
+    r._scrape_cancel_event = None
+    r._job_state.running = False
+    r._job_state.mode = None
+    r._job_state.account = None
+    r._job_state.error = None
+    r._job_state.started_at = None
+    r._job_state.finished_at = None
+    r._job_state.run_id = None
+    r._job_state.progress = {}
 
 
 @pytest.fixture(autouse=True)
@@ -258,6 +268,7 @@ class TestSearch:
         data = r.json()
         assert data["status"] == "started"
         assert data["mode"] == "index"
+        assert isinstance(data.get("run_id"), int)
 
     def test_lanza_job_enrich(self, client):
         with patch("backend.db.get_last_trigger_epoch", return_value=0.0), \
@@ -267,7 +278,9 @@ class TestSearch:
                 "mode": "enrich", "account": "miquel1818", "max_contacts": 5
             })
         assert r.status_code == 200
-        assert r.json()["mode"] == "enrich"
+        body = r.json()
+        assert body["mode"] == "enrich"
+        assert isinstance(body.get("run_id"), int)
 
     def test_409_si_job_en_curso(self, client):
         import backend.api.routes as routes
@@ -297,6 +310,53 @@ class TestSearch:
             "mode": "index", "account": "   ", "max_contacts": 10
         })
         assert r.status_code == 422
+
+
+# ── POST /api/linkedin/job/cancel ─────────────────────────────────────────────
+
+class TestJobCancel:
+    def test_cancel_409_sin_job(self, client):
+        r = client.post("/api/linkedin/job/cancel")
+        assert r.status_code == 409
+
+    def test_cancel_400_cuenta_distinta(self, client):
+        import backend.api.routes as routes
+        import threading
+
+        ev = threading.Event()
+        routes._job_running = True
+        routes._job_account = "alice"
+        routes._job_run_id = 7
+        routes._scrape_cancel_event = ev
+        routes._job_state.running = True
+        routes._job_state.account = "alice"
+        routes._job_state.run_id = 7
+        try:
+            r = client.post("/api/linkedin/job/cancel?account=otro")
+            assert r.status_code == 400
+            assert not ev.is_set()
+        finally:
+            _reset_job_state()
+
+    def test_cancel_200_marca_evento(self, client):
+        import backend.api.routes as routes
+        import threading
+
+        ev = threading.Event()
+        routes._job_running = True
+        routes._job_account = "alice"
+        routes._job_run_id = 7
+        routes._scrape_cancel_event = ev
+        routes._job_state.running = True
+        routes._job_state.account = "alice"
+        routes._job_state.run_id = 7
+        try:
+            r = client.post("/api/linkedin/job/cancel?account=alice")
+            assert r.status_code == 200
+            assert r.json()["status"] == "cancelling"
+            assert ev.is_set()
+        finally:
+            _reset_job_state()
 
 
 # ── GET /api/linkedin/status ─────────────────────────────────────────────────

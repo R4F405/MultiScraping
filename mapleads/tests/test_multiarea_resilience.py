@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from backend.api.routes import _normalize_locations, _run_multi_locality_job
@@ -55,7 +57,7 @@ async def test_multiarea_marks_locations_failed_and_job_failed_when_all_fail(mon
         emails_target_per_location=5,
     )
 
-    await _run_multi_locality_job(job_id, req, locations)
+    await _run_multi_locality_job(job_id, req, locations, asyncio.Event())
 
     job = await db.get_job(job_id)
     assert job is not None
@@ -98,7 +100,7 @@ async def test_multiarea_finishes_by_companies_even_without_valid_emails(monkeyp
         locations=locations,
         companies_target_per_location=2,
     )
-    await _run_multi_locality_job(job_id, req, locations)
+    await _run_multi_locality_job(job_id, req, locations, asyncio.Event())
 
     job = await db.get_job(job_id)
     assert job is not None

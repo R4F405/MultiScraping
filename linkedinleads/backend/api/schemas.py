@@ -109,6 +109,7 @@ class JobStatusResponse(BaseModel):
     running: bool
     mode: Optional[str] = None
     account: Optional[str] = None
+    run_id: Optional[int] = None
     error: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

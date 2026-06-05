@@ -90,6 +90,53 @@ def test_insert_run_multiples_filas(tmp_db):
     assert n == 2
 
 
+def test_create_run_y_finalize_run(tmp_db):
+    rid = db_module.create_run("acc1", "enrich", "2026-06-01T10:00:00Z")
+    assert rid >= 1
+    conn = _conn(tmp_db)
+    row = dict(conn.execute("SELECT status, mode FROM runs WHERE id = ?", (rid,)).fetchone())
+    conn.close()
+    assert row["status"] == "running"
+    assert row["mode"] == "enrich"
+    db_module.finalize_run(
+        rid,
+        "2026-06-01T10:30:00Z",
+        contacts_scraped=2,
+        contacts_new=1,
+        contacts_updated=1,
+        status="cancelled",
+        slugs_collected=0,
+        slugs_new_queued=0,
+        username="acc1_resolved",
+    )
+    conn = _conn(tmp_db)
+    row2 = dict(conn.execute("SELECT * FROM runs WHERE id = ?", (rid,)).fetchone())
+    conn.close()
+    assert row2["status"] == "cancelled"
+    assert row2["username"] == "acc1_resolved"
+    assert row2["contacts_scraped"] == 2
+
+
+def test_upsert_contact_asocia_run_id(tmp_db):
+    rid = db_module.create_run("u1", "enrich", "2026-06-01T12:00:00Z")
+    db_module.upsert_contact(
+        "u1",
+        {"profile_id": "p99", "name": "Pat"},
+        run_id=rid,
+    )
+    conn = _conn(tmp_db)
+    cid = conn.execute(
+        "SELECT id FROM contacts WHERE username = ? AND profile_id = ?",
+        ("u1", "p99"),
+    ).fetchone()["id"]
+    n = conn.execute(
+        "SELECT COUNT(*) FROM run_contacts WHERE run_id = ? AND contact_id = ?",
+        (rid, cid),
+    ).fetchone()[0]
+    conn.close()
+    assert n == 1
+
+
 # ── queue_slugs ───────────────────────────────────────────────────────────────
 
 def test_queue_slugs_inserta_nuevos(tmp_db):

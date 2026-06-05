@@ -106,3 +106,16 @@ SCHEDULED_RANDOM_DELAY_MINUTES=25
 CONTACT_REFRESH_DAYS=30
 BROWSER_PROFILE_WAIT=15
 SLEEP_BETWEEN_CONNECTIONS=6
+
+# ── tiktokleads (objetivo correos / discovery) ───────────────────────────────
+# Rondas seguidas sin candidatos discovery vacíos o sin nuevo email (default 12).
+# TIKTOKLEADS_EMAIL_GOAL_NO_EMAIL_ROUNDS=12
+# Máximo de rondas de discovery por job (default 24).
+# TIKTOKLEADS_EMAIL_GOAL_MAX_ROUNDS=24
+# Tamaño pedido a discovery por ronda (default 52).
+# TIKTOKLEADS_EMAIL_GOAL_DISCOVERY_CHUNK=52
+# Piso de techo de perfiles: max(max_results, email_goal × este factor), hasta 500 (default 90).
+# TIKTOKLEADS_EMAIL_GOAL_PROFILES_PER_EMAIL=90
+# Enrich: HTTP solo a tiktok.com antes de Playwright si hay señal de contacto (default false; true ahorra navegador cuando el HTML ya trae email). Ms tras goto (0=omitir).
+# TIKTOKLEADS_ENRICH_HTTP_FIRST=false
+# TIKTOKLEADS_ENRICH_PLAYWRIGHT_SETTLE_MS=1200

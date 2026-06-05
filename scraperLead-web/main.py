@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 from auth import get_current_user, is_ip_allowed, parse_ip_whitelist, parse_users, verify_password
@@ -25,6 +25,7 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 MAPLEADS_URL = os.getenv("MAPLEADS_API_URL", "http://localhost:8001").rstrip("/")
 INSTALEADS_URL = os.getenv("INSTALEADS_API_URL", "http://localhost:8002").rstrip("/")
 LINKEDINLEADS_URL = os.getenv("LINKEDINLEADS_API_URL", "http://localhost:8003").rstrip("/")
+TIKTOKLEADS_URL = os.getenv("TIKTOKLEADS_API_URL", "http://localhost:8004").rstrip("/")
 MAPLEADS_API_KEY = os.getenv("MAPLEADS_API_KEY", "").strip()
 
 USERS: dict[str, str] = parse_users(os.getenv("AUTH_USERS", ""))
@@ -325,14 +326,16 @@ async def databases(request: Request):
     proxy_task = safe_fetch(f"{MAPLEADS_URL}/api/proxy/status", timeout=5.0)
     li_stats_task = safe_fetch(f"{LINKEDINLEADS_URL}/api/linkedin/stats", timeout=5.0)
     ig_stats_task = safe_fetch(f"{INSTALEADS_URL}/api/instagram/stats", timeout=5.0)
+    tt_stats_task = safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/stats", timeout=5.0)
 
-    (stats, _), (proxy_status, _), (li_data, _), (ig_data, _) = await asyncio.gather(
-        ml_stats_task, proxy_task, li_stats_task, ig_stats_task
+    (stats, _), (proxy_status, _), (li_data, _), (ig_data, _), (tt_data, _) = await asyncio.gather(
+        ml_stats_task, proxy_task, li_stats_task, ig_stats_task, tt_stats_task
     )
 
     stats = stats or {}
     proxy_status = proxy_status or {}
     instagram_stats = ig_data.get("total_leads", 0) if isinstance(ig_data, dict) else 0
+    tiktok_stats = tt_data.get("total_leads", 0) if isinstance(tt_data, dict) else 0
 
     linkedin_stats = {}
     if li_data and isinstance(li_data, dict):
@@ -343,6 +346,7 @@ async def databases(request: Request):
         "stats": stats,
         "proxy_status": proxy_status,
         "instagram_stats": instagram_stats,
+        "tiktok_stats": tiktok_stats,
         "linkedin_stats": linkedin_stats,
     })
 
@@ -364,9 +368,12 @@ async def instagram(request: Request, from_page: str | None = Query(default=None
 
 
 @app.get("/instagram/leads")
-async def instagram_leads(request: Request, job_id: str | None = Query(default=None)):
-    _ = job_id
-    return templates.TemplateResponse("instagram_leads.html", {"request": request})
+async def instagram_leads(_request: Request, job_id: str | None = Query(default=None)):
+    """Compatibilidad: la UX vive en /instagram (pestaña Leads)."""
+    params = {"view": "leads"}
+    if job_id:
+        params["job_id"] = job_id
+    return RedirectResponse(url=f"/instagram?{urlencode(params)}", status_code=302)
 
 
 # ── Proxy routes: Google Maps → localhost:8001 ────────────────────────────────
@@ -468,6 +475,11 @@ async def api_job_locations(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}/locations", request)
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+async def api_job_cancel(job_id: str, request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/jobs/{job_id}/cancel", request)
+
+
 @app.get("/api/export/{job_id}")
 async def api_export(job_id: str, request: Request):
     return await _proxy_to(f"{MAPLEADS_URL}/api/export/{job_id}", request)
@@ -510,6 +522,11 @@ async def ig_job(job_id: str, request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/jobs/{job_id}", request)
 
 
+@app.post("/api/instagram/jobs/{job_id}/cancel")
+async def ig_job_cancel(job_id: str, request: Request):
+    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/jobs/{job_id}/cancel", request)
+
+
 @app.get("/api/instagram/leads")
 async def ig_leads(request: Request):
     return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/leads", request)
@@ -528,13 +545,78 @@ async def ig_limits(request: Request):
 
 @app.get("/tiktok")
 async def tiktok_page(request: Request):
-    return templates.TemplateResponse("tiktok.html", {"request": request})
+    health, health_state = await safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/health", timeout=10.0)
+    health = health or {"status": "unknown"}
+    state = health_state if health_state in ("timeout", "upstream_error") else "ok"
+    recent_jobs, _ = await safe_fetch(f"{TIKTOKLEADS_URL}/api/tiktok/jobs?limit=6", timeout=5.0)
+    recent_jobs = recent_jobs if isinstance(recent_jobs, list) else []
+    return templates.TemplateResponse("tiktok.html", {
+        "request": request,
+        "health": health,
+        "state": state,
+        "recent_jobs": recent_jobs,
+    })
 
 
 @app.get("/tiktok/leads")
-async def tiktok_leads(request: Request, job_id: str | None = Query(default=None)):
-    _ = job_id
-    return templates.TemplateResponse("tiktok_leads.html", {"request": request})
+async def tiktok_leads(_request: Request, job_id: str | None = Query(default=None)):
+    """Compatibilidad: misma UX que Instagram — todo en /tiktok con pestañas."""
+    params = {"view": "leads"}
+    if job_id:
+        params["job_id"] = job_id
+    return RedirectResponse(url=f"/tiktok?{urlencode(params)}", status_code=302)
+
+
+# ── Proxy routes: TikTok → localhost:8004 ─────────────────────────────────────
+
+@app.get("/api/tiktok/health")
+async def tt_health(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/health", request)
+
+
+@app.get("/api/tiktok/limits")
+async def tt_limits(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/limits", request)
+
+
+@app.get("/api/tiktok/stats")
+async def tt_stats(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/stats", request)
+
+
+@app.post("/api/tiktok/search")
+async def tt_search(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/search", request)
+
+
+@app.get("/api/tiktok/jobs")
+async def tt_jobs(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/jobs", request)
+
+
+@app.get("/api/tiktok/jobs/{job_id}")
+async def tt_job(job_id: str, request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/jobs/{job_id}", request)
+
+
+@app.post("/api/tiktok/jobs/{job_id}/cancel")
+async def tt_job_cancel(job_id: str, request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/jobs/{job_id}/cancel", request)
+
+
+@app.get("/api/tiktok/leads")
+async def tt_leads(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/leads", request)
+
+
+@app.get("/api/tiktok/export")
+async def tt_export_all(request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/export", request)
+
+
+@app.get("/api/tiktok/export/{job_id}")
+async def tt_export(job_id: str, request: Request):
+    return await _proxy_to(f"{TIKTOKLEADS_URL}/api/tiktok/export/{job_id}", request)
 
 
 @app.get("/linkedin")
@@ -572,6 +654,11 @@ async def li_stats(request: Request):
 @app.post("/api/linkedin/search")
 async def li_search(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/search", request)
+
+
+@app.post("/api/linkedin/job/cancel")
+async def li_job_cancel(request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/job/cancel", request)
 
 
 @app.get("/api/linkedin/status")

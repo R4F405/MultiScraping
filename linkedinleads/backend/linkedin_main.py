@@ -38,6 +38,7 @@ from scraper import (
     session_file_for,
 )
 from db import (
+    finalize_run,
     insert_run,
     queue_slugs,
     get_pending_slugs,
@@ -386,13 +387,38 @@ def run_index(
     interactive: bool = True,
     account: Optional[str] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
-) -> None:
+    cancel_event: Optional[threading.Event] = None,
+    run_id: Optional[int] = None,
+) -> str:
     """
     Fase A: recopila todos los slugs de conexiones y los encola en contact_queue.
     No visita perfiles individuales → rápido y de bajo riesgo.
 
     account: slug de LinkedIn de la cuenta a usar (None = cuenta por defecto).
+    Devuelve: "completed" | "cancelled".
     """
+    def _finalize_index_run(
+        status: str,
+        *,
+        slugs_collected: int = 0,
+        slugs_new_queued: int = 0,
+        resolved_username: Optional[str] = None,
+    ) -> None:
+        if run_id is None:
+            return
+        finished = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        finalize_run(
+            run_id,
+            finished,
+            contacts_scraped=0,
+            contacts_new=0,
+            contacts_updated=0,
+            status=status,
+            slugs_collected=slugs_collected,
+            slugs_new_queued=slugs_new_queued,
+            username=resolved_username,
+        )
+
     setup_logging()
     logger.info("run_index iniciado%s", f" [{account}]" if account else "")
     print("🗂️  Modo INDEX: recopilando índice de conexiones...\n")
@@ -438,7 +464,7 @@ def run_index(
             "total": 10,
         })
 
-    slugs = collect_all_slugs(session, proxy=proxy)
+    slugs = collect_all_slugs(session, proxy=proxy, cancel_event=cancel_event)
 
     if not slugs:
         print("ℹ️  No se encontraron slugs. Revisa la sesión.")
@@ -454,7 +480,10 @@ def run_index(
                 "queue_done": 0,
                 "queue_error": 0,
             })
-        return
+        _finalize_index_run("completed", slugs_collected=0, slugs_new_queued=0, resolved_username=username)
+        return "completed"
+
+    user_cancelled = bool(cancel_event and cancel_event.is_set())
 
     if progress_callback:
         progress_callback({
@@ -470,9 +499,10 @@ def run_index(
     logger.info("run_index: %d slugs totales, %d nuevos encolados", len(slugs), nuevos)
     notify_index_complete(account or username, len(slugs), nuevos)
     if progress_callback:
+        done_label = "Indexación cancelada" if user_cancelled else "Indexación completada"
         progress_callback({
-            "phase": "done",
-            "label": "Indexación completada",
+            "phase": "cancelled" if user_cancelled else "done",
+            "label": done_label,
             "detail": f"Conexiones encontradas: {len(slugs)} · nuevas en cola: {nuevos}",
             "current": 10,
             "total": 10,
@@ -489,6 +519,13 @@ def run_index(
             **stats
         )
     )
+    _finalize_index_run(
+        "cancelled" if user_cancelled else "completed",
+        slugs_collected=len(slugs),
+        slugs_new_queued=nuevos,
+        resolved_username=username,
+    )
+    return "cancelled" if user_cancelled else "completed"
 
 
 # ── Modo ENRICH ───────────────────────────────────────────────────────────────
@@ -498,7 +535,9 @@ def run_enrich(
     max_contacts_override: int | None = None,
     account: Optional[str] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
-) -> None:
+    cancel_event: Optional[threading.Event] = None,
+    run_id: Optional[int] = None,
+) -> str:
     """
     Fase B: toma slugs 'pending' de la cola y visita cada perfil para extraer
     datos completos. Guarda los resultados en la tabla contacts y marca cada
@@ -509,7 +548,33 @@ def run_enrich(
     peticiones y reduce el riesgo de bloqueo).
 
     account: slug de LinkedIn de la cuenta a usar (None = cuenta por defecto).
+    Devuelve: "completed" | "cancelled" | "failed" (failed reservado; errores graves suelen propagarse).
     """
+    def _finalize_api_run(
+        status: str,
+        *,
+        contacts_scraped: int = 0,
+        contacts_new: int = 0,
+        contacts_updated: int = 0,
+        slugs_collected: int = 0,
+        slugs_new_queued: int = 0,
+        resolved_username: Optional[str] = None,
+    ) -> None:
+        if run_id is None:
+            return
+        finished = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        finalize_run(
+            run_id,
+            finished,
+            contacts_scraped=contacts_scraped,
+            contacts_new=contacts_new,
+            contacts_updated=contacts_updated,
+            status=status,
+            slugs_collected=slugs_collected,
+            slugs_new_queued=slugs_new_queued,
+            username=resolved_username,
+        )
+
     setup_logging()
     logger.info("run_enrich iniciado%s", f" [{account}]" if account else "")
     print("👥 Modo ENRICH: enriqueciendo contactos pendientes...\n")
@@ -571,7 +636,8 @@ def run_enrich(
                 "current": 1,
                 "total": 1,
             })
-        return
+        _finalize_api_run("completed")
+        return "completed"
 
     requeued = requeue_errors(username)
     if requeued:
@@ -597,7 +663,8 @@ def run_enrich(
                 "queue_done": stats.get("done", 0),
                 "queue_error": stats.get("error", 0),
             })
-        return
+        _finalize_api_run("completed")
+        return "completed"
 
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     new_count = updated_count = skipped_count = error_count = visited = 0
@@ -671,6 +738,10 @@ def run_enrich(
 
     try:
         for slug in slugs:
+            if cancel_event and cancel_event.is_set():
+                logger.info("run_enrich: cancelado por el usuario tras %d visitas", visited)
+                break
+
             # Parar si ya alcanzamos el límite de visitas reales de esta ejecución
             # o si agotamos el presupuesto diario
             if visited >= run_limit or visited >= remaining_budget:
@@ -785,7 +856,7 @@ def run_enrich(
                     if data.get("_meta_contact_source") == "overlay":
                         # Track fallback path usage; helps diagnose Voyager failures.
                         strategy_errors["voyager"] += 1
-                    result = upsert_contact(username, data)
+                    result = upsert_contact(username, data, run_id=run_id)
                     mark_queue_done(username, slug)
                     visited += 1
                     if result == "inserted":
@@ -880,14 +951,26 @@ def run_enrich(
     print()  # nueva línea tras el \r
     finished_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     total_scraped = new_count + updated_count
-    insert_run(
-        username=username,
-        started_at=started_at,
-        finished_at=finished_at,
-        contacts_scraped=total_scraped,
-        contacts_new=new_count,
-        contacts_updated=updated_count,
-    )
+    user_cancelled = bool(cancel_event and cancel_event.is_set())
+    if run_id:
+        _finalize_api_run(
+            "cancelled" if user_cancelled else "completed",
+            contacts_scraped=total_scraped,
+            contacts_new=new_count,
+            contacts_updated=updated_count,
+            resolved_username=username,
+        )
+    else:
+        insert_run(
+            username=username,
+            started_at=started_at,
+            finished_at=finished_at,
+            contacts_scraped=total_scraped,
+            contacts_new=new_count,
+            contacts_updated=updated_count,
+            mode="enrich",
+            status="completed",
+        )
     update_account_last_run(username)
     stats = get_queue_stats(username)
     logger.info(
@@ -906,9 +989,10 @@ def run_enrich(
         queue_pending=stats.get("pending", 0),
     )
     if progress_callback:
+        done_label = "Enriquecimiento cancelado" if user_cancelled else "Enriquecimiento completado"
         progress_callback({
-            "phase": "done",
-            "label": "Enriquecimiento completado",
+            "phase": "cancelled" if user_cancelled else "done",
+            "label": done_label,
             "detail": (
                 f"Nuevos: {new_count} · actualizados: {updated_count} · "
                 f"saltados: {skipped_count} · errores: {error_count}"
@@ -942,6 +1026,8 @@ def run_enrich(
         print(f"\n⚠️  LinkedIn limitó la sesión. Cooldown de {effective_hours}h activado.")
     else:
         _reset_cooldown_counter()
+
+    return "cancelled" if user_cancelled else "completed"
 
 
 # ── Modo LEGACY (compatibilidad con el flujo original) ────────────────────────

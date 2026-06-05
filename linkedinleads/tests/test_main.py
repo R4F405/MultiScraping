@@ -462,7 +462,7 @@ def test_run_enrich_procesa_slugs_pendientes_y_guarda_en_db():
                                                     with patch("linkedin_main.time.sleep"):
                                                         main_module.run_enrich(interactive=False)
 
-        mock_upsert.assert_called_once_with("yo", fake_data)
+        mock_upsert.assert_called_once_with("yo", fake_data, run_id=None)
         mock_done.assert_called_once_with("yo", "alice")
 
 

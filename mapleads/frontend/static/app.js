@@ -322,13 +322,22 @@ function hideAlert() { alertEl.className = "alert"; }
 // ── Loader ───────────────────────────────────────────────────
 const loaderSection = document.getElementById("loader-section");
 const loaderCount   = document.getElementById("loader-count");
+const scrapeCancelBar = document.getElementById("scrape-cancel-bar");
+const scrapeCancelBtn = document.getElementById("scrape-cancel-btn");
+
+function setScrapeCancelVisible(visible) {
+  if (!scrapeCancelBar) return;
+  scrapeCancelBar.style.display = visible ? "flex" : "none";
+}
 
 function showLoader() {
   loaderSection.style.display = "flex";
+  setScrapeCancelVisible(true);
 }
 
 function hideLoader() {
   loaderSection.style.display = "none";
+  setScrapeCancelVisible(false);
 }
 
 function updateLoaderCount(progress, total, emailsFound, waitingForProxy, proxyWaitSeconds) {
@@ -510,7 +519,7 @@ async function pollJob(jobId) {
 
     updateLoaderCount(job.progress, job.total, job.emails_found, job.waiting_for_proxy, job.proxy_wait_seconds);
 
-    if (job.status === "done" || job.status === "failed") {
+    if (job.status === "done" || job.status === "failed" || job.status === "cancelled") {
       clearInterval(pollInterval);
       hideLoader();
       _scrapingInProgress = false;
@@ -523,6 +532,10 @@ async function pollJob(jobId) {
       if (job.status === "done") {
         await loadResults(jobId);
         if (exportBtn) exportBtn.disabled = false;
+      } else if (job.status === "cancelled") {
+        await loadResults(jobId);
+        if (exportBtn) exportBtn.disabled = false;
+        showAlert("Scrapeo cancelado. Se muestran los leads obtenidos hasta el momento.", "success");
       } else {
         showAlert("El scraping falló. Revisa los logs del servidor.");
       }
@@ -579,6 +592,30 @@ startBtn.addEventListener("click", async function () {
     hideLoader();
   }
 });
+
+if (scrapeCancelBtn) {
+  scrapeCancelBtn.addEventListener("click", async () => {
+    if (!currentJobId || !_scrapingInProgress) return;
+    scrapeCancelBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = res.ok ? await res.json().catch(() => ({})) : {};
+      if (data.ok === false && data.reason === "already_finished") {
+        showAlert("El scrapeo ya había terminado.");
+      } else if (data.ok === false && data.reason === "not_running_locally") {
+        showAlert("No se pudo cancelar en este proceso (reinicio del servidor u otro worker).");
+      }
+    } catch (_) {
+      showAlert("No se pudo enviar la cancelación.");
+    } finally {
+      scrapeCancelBtn.disabled = false;
+    }
+  });
+}
 
 // ── Export ────────────────────────────────────────────────────
 if (exportBtn) {

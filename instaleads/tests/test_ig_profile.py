@@ -13,7 +13,7 @@ async def test_get_profile_extracts_business_email():
                 "username": "testuser",
                 "full_name": "Test User",
                 "biography": "No email here",
-                "business_email": "business@example.com",
+                "business_email": "business@testuser.com",
                 "business_phone_number": None,
                 "external_url": None,
                 "follower_count": 1000,
@@ -26,7 +26,7 @@ async def test_get_profile_extracts_business_email():
         profile = await get_profile("testuser")
 
     assert profile is not None
-    assert profile["email"] == "business@example.com"
+    assert profile["email"] == "business@testuser.com"
     assert profile["email_source"] == "business_field"
 
 
@@ -114,3 +114,30 @@ async def test_get_profile_returns_none_on_fetch_error():
         profile = await get_profile("erroruser")
 
     assert profile is None
+
+
+@pytest.mark.asyncio
+async def test_get_profile_extracts_followers_from_edge_followed_by():
+    from backend.scraper.ig_profile import get_profile
+
+    fake_response = {
+        "data": {
+            "user": {
+                "id": "321",
+                "username": "edgefollowers",
+                "full_name": "Edge Followers",
+                "biography": "No email here",
+                "business_email": None,
+                "business_phone_number": None,
+                "external_url": None,
+                "edge_followed_by": {"count": 4321},
+                "is_business_account": False,
+                "is_private": False,
+            }
+        }
+    }
+    with patch("backend.scraper.ig_profile.ig_get", new=AsyncMock(return_value=fake_response)):
+        profile = await get_profile("edgefollowers")
+
+    assert profile is not None
+    assert profile["follower_count"] == 4321

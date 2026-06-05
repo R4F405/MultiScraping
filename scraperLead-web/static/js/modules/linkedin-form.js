@@ -15,6 +15,8 @@ export function initLinkedInForm() {
   let pollTimer = null;
   let contactPage = 1;
   const PER_PAGE = 50;
+  /** Filtro por ejecución (historial): GET /leads?run_id= */
+  let historyRunFilterId = null;
 
   // ── DOM refs ──────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
@@ -34,6 +36,7 @@ export function initLinkedInForm() {
   const modeSection      = $('li-mode-section');
   const alertBox        = $('li-alert');
   const startBtn        = $('li-start-btn');
+  const cancelScrapeBtn = $('li-cancel-scrape-btn');
   const runningBadge    = $('li-running-badge');
   const progressCard    = $('li-progress-card');
   const progressBar     = $('li-progress-bar');
@@ -82,6 +85,10 @@ export function initLinkedInForm() {
   const prevBtn        = $('li-prev-btn');
   const nextBtn        = $('li-next-btn');
 
+  const runFilterBanner = $('li-run-filter-banner');
+  const runFilterText   = $('li-run-filter-text');
+  const clearRunFilterBtn = $('li-clear-run-filter');
+
   // ── Tab navigation ────────────────────────────────────────────────────
   function showTab(sectionName) {
     tabBtns.forEach(btn => {
@@ -96,7 +103,11 @@ export function initLinkedInForm() {
       sec.classList.toggle('active', sec.id === `li-section-${sectionName}`);
     });
     if (sectionName === 'historial') loadHistory();
-    if (sectionName === 'contactos') { contactPage = 1; loadContacts(); }
+    if (sectionName === 'contactos') {
+      contactPage = 1;
+      updateRunFilterBanner();
+      loadContacts();
+    }
     if (sectionName === 'cuentas') loadAccounts();
   }
 
@@ -698,6 +709,28 @@ export function initLinkedInForm() {
     return detail;
   }
 
+  function jobStatusLabel(st) {
+    const m = { completed: 'Completado', cancelled: 'Cancelado', failed: 'Error', running: 'En curso' };
+    return m[st] || (st || '—');
+  }
+
+  function jobModeLabel(m) {
+    if (m === 'index') return 'Index';
+    if (m === 'enrich') return 'Enrich';
+    if (m === 'legacy') return 'Legacy';
+    return m ? String(m) : '—';
+  }
+
+  function updateRunFilterBanner() {
+    if (!runFilterBanner || !runFilterText) return;
+    if (historyRunFilterId) {
+      runFilterBanner.classList.remove('hidden');
+      runFilterText.textContent = `Mostrando leads del scrapeo #${historyRunFilterId}`;
+    } else {
+      runFilterBanner.classList.add('hidden');
+    }
+  }
+
   // ── Cooldown badge (post-429) ─────────────────────────────────────────
   let _cooldownTimer = null;
 
@@ -761,12 +794,18 @@ export function initLinkedInForm() {
         clearInterval(pollTimer);
         pollTimer = null;
         runningBadge.classList.add('hidden');
+        cancelScrapeBtn?.classList.add('hidden');
         startBtn.disabled = false;
         if (s.error) {
           progressLabel.textContent = 'Error durante la ejecución';
           progressDetail.textContent = humanizeError(s.detail || s.error);
           progressBar.style.width = '0%';
           progressPct.textContent = '—';
+        } else if (s.phase === 'cancelled') {
+          progressLabel.textContent = `⏹ ${s.label || 'Cancelado'}`;
+          progressBar.style.width = `${percent}%`;
+          progressPct.textContent = `${Math.round(percent)}%`;
+          progressDetail.textContent = s.detail || 'Proceso detenido; los datos obtenidos hasta ahora están guardados.';
         } else {
           progressLabel.textContent = `✅ ${s.label || 'Completado'}`;
           progressBar.style.width = `${percent || 100}%`;
@@ -778,6 +817,7 @@ export function initLinkedInForm() {
         loadHistory();
         renderRunSummaryFromStatus(s);
       } else {
+        cancelScrapeBtn?.classList.remove('hidden');
         progressLabel.textContent = s.label || (s.mode === 'index'
           ? 'Recopilando conexiones…'
           : 'Enriqueciendo contactos…');
@@ -824,25 +864,40 @@ export function initLinkedInForm() {
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-100">
             <tr>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Cuenta</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Inicio</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Fin</th>
-              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Scrapeados</th>
-              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Nuevos</th>
-              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Actualizados</th>
+              <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Cuenta</th>
+              <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Modo</th>
+              <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Estado</th>
+              <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Inicio</th>
+              <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Fin</th>
+              <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500">Items</th>
+              <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500">Nuevos</th>
+              <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500">Act.</th>
+              <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500"></th>
             </tr>
           </thead>
           <tbody>
-            ${jobs.map(j => `
+            ${jobs.map((j) => {
+              const st = j.status || 'completed';
+              const items = j.mode === 'index'
+                ? (j.slugs_collected ?? 0)
+                : (j.contacts_scraped ?? 0);
+              const acc = (j.username || '').replace(/"/g, '&quot;');
+              return `
               <tr class="border-b border-slate-50 hover:bg-slate-50/50">
-                <td class="px-4 py-2.5 font-medium text-slate-700">${j.username || '—'}</td>
-                <td class="px-4 py-2.5 text-slate-500 text-xs">${formatDate(j.started_at)}</td>
-                <td class="px-4 py-2.5 text-slate-500 text-xs">${j.finished_at ? formatDate(j.finished_at) : '—'}</td>
-                <td class="px-4 py-2.5 text-right font-semibold text-slate-800">${j.contacts_scraped ?? 0}</td>
-                <td class="px-4 py-2.5 text-right text-green-600 font-medium">${j.contacts_new ?? 0}</td>
-                <td class="px-4 py-2.5 text-right text-[#0077B5] font-medium">${j.contacts_updated ?? 0}</td>
-              </tr>
-            `).join('')}
+                <td class="px-3 py-2.5 font-medium text-slate-700">${j.username || '—'}</td>
+                <td class="px-3 py-2.5 text-slate-600 text-xs">${jobModeLabel(j.mode)}</td>
+                <td class="px-3 py-2.5 text-xs font-medium ${st === 'cancelled' ? 'text-amber-700' : st === 'failed' ? 'text-red-600' : 'text-slate-600'}">${jobStatusLabel(st)}</td>
+                <td class="px-3 py-2.5 text-slate-500 text-xs whitespace-nowrap">${formatDate(j.started_at)}</td>
+                <td class="px-3 py-2.5 text-slate-500 text-xs whitespace-nowrap">${j.finished_at ? formatDate(j.finished_at) : '—'}</td>
+                <td class="px-3 py-2.5 text-right font-semibold text-slate-800">${items}</td>
+                <td class="px-3 py-2.5 text-right text-green-600 font-medium">${j.mode === 'index' ? (j.slugs_new_queued ?? '—') : (j.contacts_new ?? 0)}</td>
+                <td class="px-3 py-2.5 text-right text-[#0077B5] font-medium">${j.mode === 'index' ? '—' : (j.contacts_updated ?? 0)}</td>
+                <td class="px-3 py-2.5 text-right">
+                  <button type="button" class="li-history-leads text-xs font-semibold text-[#0077B5] hover:underline"
+                    data-run-id="${j.id}" data-account="${acc}">Ver leads</button>
+                </td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>`;
     } catch {
@@ -852,13 +907,39 @@ export function initLinkedInForm() {
 
   reloadHistory?.addEventListener('click', loadHistory);
 
+  historyBody?.addEventListener('click', (e) => {
+    const btn = e.target?.closest?.('.li-history-leads');
+    if (!btn) return;
+    const rid = parseInt(btn.getAttribute('data-run-id') || '', 10);
+    const acc = btn.getAttribute('data-account') || '';
+    if (!rid) return;
+    historyRunFilterId = rid;
+    if (acc && filterAccount && [...filterAccount.options].some((o) => o.value === acc)) {
+      filterAccount.value = acc;
+    }
+    updateRunFilterBanner();
+    showTab('contactos');
+  });
+
+  clearRunFilterBtn?.addEventListener('click', () => {
+    historyRunFilterId = null;
+    updateRunFilterBanner();
+    contactPage = 1;
+    loadContacts();
+  });
+
   // ── Contacts ──────────────────────────────────────────────────────────
   let searchDebounce = null;
   searchInput.addEventListener('input', () => {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(() => { contactPage = 1; loadContacts(); }, 400);
   });
-  filterAccount.addEventListener('change', () => { contactPage = 1; loadContacts(); });
+  filterAccount.addEventListener('change', () => {
+    historyRunFilterId = null;
+    updateRunFilterBanner();
+    contactPage = 1;
+    loadContacts();
+  });
   filterType.addEventListener('change', () => { contactPage = 1; loadContacts(); });
   prevBtn.addEventListener('click', () => { if (contactPage > 1) { contactPage--; loadContacts(); } });
   nextBtn.addEventListener('click', () => { contactPage++; loadContacts(); });
@@ -872,6 +953,7 @@ export function initLinkedInForm() {
       account: filterAccount.value,
       filter: filterType.value,
     });
+    if (historyRunFilterId) params.set('run_id', String(historyRunFilterId));
 
     try {
       const r = await fetch(`${window.__BASE__}/api/linkedin/leads?${params}`);
@@ -894,7 +976,10 @@ export function initLinkedInForm() {
       phoneCount.textContent = withPhone;
 
       if (!contacts.length) {
-        contactsTbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-400 py-10">No se encontraron contactos.</td></tr>';
+        const msg = historyRunFilterId
+          ? 'No hay contactos enriquecidos en este scrapeo (el modo Index solo encola slugs; usa Enrich para leads).'
+          : 'No se encontraron contactos.';
+        contactsTbody.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 py-10">${msg}</td></tr>`;
         return;
       }
 
@@ -929,7 +1014,28 @@ export function initLinkedInForm() {
       search: searchInput.value.trim(),
       filter: filterType.value,
     });
-    window.location.href = `/api/linkedin/leads/export?${params}`;
+    if (historyRunFilterId) params.set('run_id', String(historyRunFilterId));
+    window.location.href = `${window.__BASE__}/api/linkedin/leads/export?${params}`;
+  });
+
+  cancelScrapeBtn?.addEventListener('click', async () => {
+    const account = accountSelect.value;
+    if (!account) return;
+    cancelScrapeBtn.disabled = true;
+    try {
+      const r = await fetch(
+        `${window.__BASE__}/api/linkedin/job/cancel?account=${encodeURIComponent(account)}`,
+        { method: 'POST' },
+      );
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        showAlert(typeof d.detail === 'string' ? d.detail : 'No se pudo cancelar.');
+      }
+    } catch {
+      showAlert('Error de red al cancelar.');
+    } finally {
+      cancelScrapeBtn.disabled = false;
+    }
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────

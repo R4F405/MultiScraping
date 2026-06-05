@@ -2732,6 +2732,7 @@ def _collect_connection_slugs(
     *,
     max_scroll_rounds: int | None = None,
     no_progress_limit: int | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> List[str]:
     """
     Navega por la página de conexiones y la búsqueda de primer grado (con scroll
@@ -2809,6 +2810,8 @@ def _collect_connection_slugs(
 
     no_progress = 0
     for scroll_i in range(scroll_cap):
+        if cancel_event is not None and cancel_event.is_set():
+            return slugs[:max_contacts]
         if len(slugs) >= max_contacts:
             break
         prev = len(slugs)
@@ -2842,10 +2845,14 @@ def _collect_connection_slugs(
         inner_scrolls = max(12, min(40, max_contacts // 3 + 8))
 
         for page_num in range(1, max_search_pages + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                return slugs[:max_contacts]
             if len(slugs) >= max_contacts:
                 break
             no_prog = 0
             for _ in range(inner_scrolls):
+                if cancel_event is not None and cancel_event.is_set():
+                    return slugs[:max_contacts]
                 if len(slugs) >= max_contacts:
                     break
                 prev = len(slugs)
@@ -3286,7 +3293,11 @@ def scrape_profile_and_connections(
 
 # ── Fase A: recopilar índice de slugs ──────────────────────────────────────────
 
-def collect_all_slugs(session: LinkedInSession, proxy: Optional[str] = None) -> List[str]:
+def collect_all_slugs(
+    session: LinkedInSession,
+    proxy: Optional[str] = None,
+    cancel_event: threading.Event | None = None,
+) -> List[str]:
     """
     Fase A del scraping en producción: recorre la página de conexiones y la
     búsqueda de primer grado para recopilar TODOS los slugs disponibles
@@ -3319,6 +3330,7 @@ def collect_all_slugs(session: LinkedInSession, proxy: Optional[str] = None) -> 
             driver,
             max_contacts=index_max_contacts,
             max_scroll_rounds=index_max_scroll,
+            cancel_event=cancel_event,
         )
         own_slug = (session.username or "").strip().lower()
         excluded = {

@@ -376,12 +376,16 @@ async def search_and_extract(
     location: str,
     max_results: int,
     job_id: str,
+    stop_event: asyncio.Event | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Async generator: yields one profile dict per profile found WITH email.
 
     Profiles without email or already in DB are silently discarded.
     Processes up to IG_CONCURRENCY profiles concurrently to maximize throughput
     while respecting the rate limiter's inter-request delay.
+
+    If ``stop_event`` is set, the generator exits cooperatively at the next safe
+    point (between SERP fetches / after each profile batch).
     """
     dedup = Deduplicator()
     await dedup.load_from_db()
@@ -397,12 +401,18 @@ async def search_and_extract(
         if emails_found >= max_results:
             break
 
+        if stop_event and stop_event.is_set():
+            logger.info("Job %s: cancelación solicitada — deteniendo antes de SERP", job_id[:8])
+            return
+
         usernames = await _scrape_serp_all_pages(query)
         candidates = [u for u in usernames if not dedup.should_skip(u)]
 
         if not candidates:
             logger.debug("Query #%d '%s': sin candidatos nuevos", query_idx + 1, query[:60])
             if query_idx < len(queries) - 1:
+                if stop_event and stop_event.is_set():
+                    return
                 await asyncio.sleep(1.0)
             continue
 
@@ -453,7 +463,13 @@ async def search_and_extract(
             if daily_limit_hit:
                 return
 
+            if stop_event and stop_event.is_set():
+                logger.info("Job %s: cancelación solicitada — %d emails guardados", job_id[:8], emails_found)
+                return
+
         if emails_found < max_results and query_idx < len(queries) - 1:
+            if stop_event and stop_event.is_set():
+                return
             await asyncio.sleep(1.0)
 
     logger.info(

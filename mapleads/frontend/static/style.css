@@ -461,6 +461,27 @@ h1 {
   min-height: 18px;
 }
 
+.scrape-cancel-bar {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+}
+.scrape-cancel-bar p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #78350f;
+}
+.scrape-cancel-bar__btn {
+  width: 100%;
+  margin-top: 0;
+}
+
 /* ── Start button ─────────────────────────────────────────── */
 .btn-start {
   width: 100%;
@@ -1315,6 +1336,7 @@ tbody td {
 .job-status.done    { background: #d1fae5; color: #065f46; }
 .job-status.running { background: #dbeafe; color: #1e40af; }
 .job-status.failed  { background: #fee2e2; color: #991b1b; }
+.job-status.cancelled { background: #fef3c7; color: #92400e; }
 
 .job-card-query {
   font-size: 15px;
@@ -1642,6 +1664,7 @@ tbody td {
 .location-status.done { background: #d1fae5; color: #065f46; }
 .location-status.running { background: #dbeafe; color: #1e40af; }
 .location-status.failed { background: #fee2e2; color: #991b1b; }
+.location-status.cancelled { background: #fef3c7; color: #92400e; }
 .location-status.empty { background: #f1f5f9; color: #475569; }
 
 .location-row-metrics {

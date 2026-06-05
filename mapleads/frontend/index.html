@@ -219,7 +219,7 @@ async function loadRecentJobs() {
             <div class="recent-stat-label">Emails</div>
           </div>
         </div>
-        <span class="job-status ${job.status}">${job.status === 'done' ? 'Completado' : job.status === 'failed' ? 'Error' : 'En curso'}</span>
+        <span class="job-status ${job.status}">${job.status === 'done' ? 'Completado' : job.status === 'failed' ? 'Error' : job.status === 'cancelled' ? 'Cancelado' : 'En curso'}</span>
       </a>
     `).join("");
   } catch (_) {

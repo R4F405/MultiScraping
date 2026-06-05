@@ -115,6 +115,21 @@ _ACCOUNTS_MIGRATION_PROXY  = "ALTER TABLE accounts ADD COLUMN proxy TEXT;"
 _ACCOUNTS_MIGRATION_EMAIL  = "ALTER TABLE accounts ADD COLUMN email TEXT;"
 _ACCOUNTS_MIGRATION_ENCPWD = "ALTER TABLE accounts ADD COLUMN encrypted_password TEXT;"
 
+_RUNS_MIGRATION_MODE = "ALTER TABLE runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'enrich';"
+_RUNS_MIGRATION_STATUS = "ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'completed';"
+_RUNS_MIGRATION_SLUGS_COL = "ALTER TABLE runs ADD COLUMN slugs_collected INTEGER NOT NULL DEFAULT 0;"
+_RUNS_MIGRATION_SLUGS_NEW = "ALTER TABLE runs ADD COLUMN slugs_new_queued INTEGER NOT NULL DEFAULT 0;"
+
+RUN_CONTACTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS run_contacts (
+    run_id      INTEGER NOT NULL,
+    contact_id  INTEGER NOT NULL,
+    username    TEXT    NOT NULL,
+    PRIMARY KEY (run_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_run_contacts_run ON run_contacts (run_id);
+"""
+
 
 # ── Helpers internos ───────────────────────────────────────────────────────────
 
@@ -173,12 +188,21 @@ def ensure_tables() -> None:
         _ACCOUNTS_MIGRATION_PROXY,
         _ACCOUNTS_MIGRATION_EMAIL,
         _ACCOUNTS_MIGRATION_ENCPWD,
+        _RUNS_MIGRATION_MODE,
+        _RUNS_MIGRATION_STATUS,
+        _RUNS_MIGRATION_SLUGS_COL,
+        _RUNS_MIGRATION_SLUGS_NEW,
     ):
         try:
             conn.execute(migration)
             conn.commit()
         except sqlite3.OperationalError:
             pass
+    try:
+        conn.executescript(RUN_CONTACTS_SCHEMA)
+        conn.commit()
+    except sqlite3.Error:
+        pass
     conn.close()
     _tables_initialized_for = DB_PATH
 
@@ -197,16 +221,104 @@ def insert_run(
     contacts_scraped: int = 0,
     contacts_new: int = 0,
     contacts_updated: int = 0,
+    *,
+    mode: str = "legacy",
+    status: str = "completed",
 ) -> None:
-    """Registra una ejecución del scraper."""
+    """Registra una ejecución del scraper (CLI / flujo legacy sin create_run previo)."""
     ensure_tables()
     with _db() as conn:
         conn.execute(
             """INSERT INTO runs
-               (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated),
+               (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated,
+                mode, status, slugs_collected, slugs_new_queued)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)""",
+            (
+                username,
+                started_at,
+                finished_at,
+                contacts_scraped,
+                contacts_new,
+                contacts_updated,
+                mode,
+                status,
+            ),
         )
+
+
+def create_run(username: str, mode: str, started_at: str) -> int:
+    """
+    Crea una fila de ejecución en estado 'running' (finished_at = started_at hasta finalize_run).
+    """
+    ensure_tables()
+    with _db() as conn:
+        cur = conn.execute(
+            """INSERT INTO runs
+               (username, started_at, finished_at, contacts_scraped, contacts_new, contacts_updated,
+                mode, status, slugs_collected, slugs_new_queued)
+               VALUES (?, ?, ?, 0, 0, 0, ?, 'running', 0, 0)""",
+            (username, started_at, started_at, mode),
+        )
+        return int(cur.lastrowid)
+
+
+def finalize_run(
+    run_id: int,
+    finished_at: str,
+    *,
+    contacts_scraped: int = 0,
+    contacts_new: int = 0,
+    contacts_updated: int = 0,
+    status: str = "completed",
+    slugs_collected: int = 0,
+    slugs_new_queued: int = 0,
+    username: Optional[str] = None,
+) -> None:
+    """Cierra una ejecución creada con create_run."""
+    ensure_tables()
+    with _db() as conn:
+        if username:
+            conn.execute(
+                """UPDATE runs SET
+                   finished_at = ?, contacts_scraped = ?, contacts_new = ?, contacts_updated = ?,
+                   status = ?, slugs_collected = ?, slugs_new_queued = ?, username = ?
+                   WHERE id = ?""",
+                (
+                    finished_at,
+                    contacts_scraped,
+                    contacts_new,
+                    contacts_updated,
+                    status,
+                    slugs_collected,
+                    slugs_new_queued,
+                    username,
+                    run_id,
+                ),
+            )
+        else:
+            conn.execute(
+                """UPDATE runs SET
+                   finished_at = ?, contacts_scraped = ?, contacts_new = ?, contacts_updated = ?,
+                   status = ?, slugs_collected = ?, slugs_new_queued = ?
+                   WHERE id = ?""",
+                (
+                    finished_at,
+                    contacts_scraped,
+                    contacts_new,
+                    contacts_updated,
+                    status,
+                    slugs_collected,
+                    slugs_new_queued,
+                    run_id,
+                ),
+            )
+
+
+def get_run_username(run_id: int) -> Optional[str]:
+    ensure_tables()
+    with _db() as conn:
+        row = conn.execute("SELECT username FROM runs WHERE id = ?", (run_id,)).fetchone()
+    return str(row["username"]) if row and row["username"] else None
 
 
 # ── Tabla contact_queue ────────────────────────────────────────────────────────
@@ -327,12 +439,13 @@ def get_queue_stats(username: str) -> Dict[str, int]:
 
 # ── Tabla contacts ─────────────────────────────────────────────────────────────
 
-def upsert_contact(username: str, data: Dict) -> str:
+def upsert_contact(username: str, data: Dict, run_id: Optional[int] = None) -> str:
     """
     Inserta o actualiza los datos de un contacto.
     - Si no existe (username, profile_id): INSERT con first_scraped_at = ahora.
     - Si ya existe: UPDATE de todos los campos excepto first_scraped_at.
     Devuelve 'inserted' o 'updated'.
+    Si run_id está definido, asocia el contacto a esa ejecución en run_contacts.
     """
     ensure_tables()
     now = _now_iso()
@@ -379,7 +492,7 @@ def upsert_contact(username: str, data: Dict) -> str:
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 params + (now, now),
             )
-            return "inserted"
+            result = "inserted"
         else:
             conn.execute(
                 """UPDATE contacts SET
@@ -400,7 +513,20 @@ def upsert_contact(username: str, data: Dict) -> str:
                     now, username, profile_id,
                 ),
             )
-            return "updated"
+            result = "updated"
+
+        if run_id is not None:
+            row = conn.execute(
+                "SELECT id FROM contacts WHERE username = ? AND profile_id = ?",
+                (username, profile_id),
+            ).fetchone()
+            if row:
+                conn.execute(
+                    """INSERT OR IGNORE INTO run_contacts (run_id, contact_id, username)
+                       VALUES (?, ?, ?)""",
+                    (run_id, int(row["id"]), username),
+                )
+        return result
 
 
 def get_daily_count(username: str) -> int:
@@ -564,6 +690,7 @@ def _contacts_where(
     filter_mode: str = "all",
     run_from: Optional[str] = None,
     run_to: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> tuple:
     """
     Construye la cláusula WHERE y la lista de parámetros para consultas
@@ -602,6 +729,10 @@ def _contacts_where(
         clauses.append("last_scraped_at <= ?")
         params.append(run_to)
 
+    if run_id is not None:
+        clauses.append("id IN (SELECT contact_id FROM run_contacts WHERE run_id = ?)")
+        params.append(run_id)
+
     where = " AND ".join(clauses) if clauses else "1=1"
     return where, params
 
@@ -612,13 +743,14 @@ def count_contacts_filtered(
     filter_mode: str = "all",
     run_from: Optional[str] = None,
     run_to: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> int:
     """
     Cuenta los contactos de una cuenta que cumplen los filtros dados.
     Útil para calcular el número de páginas en la paginación.
     """
     ensure_tables()
-    where, params = _contacts_where(username, search, filter_mode, run_from, run_to)
+    where, params = _contacts_where(username, search, filter_mode, run_from, run_to, run_id)
     with _db() as conn:
         row = conn.execute(
             f"SELECT COUNT(*) AS n FROM contacts WHERE {where}", params
@@ -636,6 +768,7 @@ def get_contacts_paginated(
     sort_order: str = "desc",
     run_from: Optional[str] = None,
     run_to: Optional[str] = None,
+    run_id: Optional[int] = None,
 ) -> List[Dict]:
     """
     Devuelve una página de contactos con filtros, búsqueda y ordenación.
@@ -656,7 +789,7 @@ def get_contacts_paginated(
     offset = (max(1, page) - 1) * limit
 
     ensure_tables()
-    where, params = _contacts_where(username, search, filter_mode, run_from, run_to)
+    where, params = _contacts_where(username, search, filter_mode, run_from, run_to, run_id)
     with _db() as conn:
         rows = conn.execute(
             f"SELECT * FROM contacts WHERE {where} ORDER BY {col} {order} LIMIT ? OFFSET ?",
@@ -853,6 +986,8 @@ def clear_scraping_data(
 
     with _db() as conn:
         if reset_all:
+            cur = conn.execute("DELETE FROM run_contacts")
+            _ = cur.rowcount
             cur = conn.execute("DELETE FROM contacts")
             out["contacts_deleted"] = cur.rowcount or 0
             cur = conn.execute("DELETE FROM contact_queue")
@@ -863,6 +998,8 @@ def clear_scraping_data(
                 cur = conn.execute("DELETE FROM trigger_limits")
                 out["triggers_deleted"] = cur.rowcount or 0
         else:
+            cur = conn.execute("DELETE FROM run_contacts WHERE username = ?", (acc,))
+            _ = cur.rowcount
             cur = conn.execute("DELETE FROM contacts WHERE username = ?", (acc,))
             out["contacts_deleted"] = cur.rowcount or 0
             cur = conn.execute("DELETE FROM contact_queue WHERE username = ?", (acc,))

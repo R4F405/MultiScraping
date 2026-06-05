@@ -65,6 +65,7 @@ export function initInstagramForm() {
   const locationInput = document.getElementById('ig-location');
   const dorkingEmailGoal = document.getElementById('ig-dorking-email-goal');
   const dorkingStartBtn = document.getElementById('ig-dorking-start-btn');
+  const dorkingCancelBtn = document.getElementById('ig-dorking-cancel-btn');
   const dorkingExportBtn = document.getElementById('ig-dorking-export-btn');
   const dorkingProgress = document.getElementById('ig-dorking-progress');
   const dorkingBar = document.getElementById('ig-dorking-bar');
@@ -237,6 +238,18 @@ export function initInstagramForm() {
     if (barEl) barEl.style.width = '0%';
   };
 
+  const updateDorkingCancelUi = (visible, opts = {}) => {
+    if (!dorkingCancelBtn) return;
+    dorkingCancelBtn.classList.toggle('hidden', !visible);
+    if (opts.cancelling) {
+      dorkingCancelBtn.disabled = true;
+      dorkingCancelBtn.textContent = 'Cancelando…';
+    } else if (visible) {
+      dorkingCancelBtn.disabled = false;
+      dorkingCancelBtn.textContent = 'Cancelar scrapeo';
+    }
+  };
+
   // ── Polling ───────────────────────────────────────────────────────────
   const stopPoll = (intervalRef) => { if (intervalRef) clearInterval(intervalRef); };
 
@@ -253,6 +266,7 @@ export function initInstagramForm() {
         if (job.status === 'completed') {
           stopPoll(dorkingPollInterval);
           dorkingPollInterval = null;
+          updateDorkingCancelUi(false);
           hideProgress(progressWrapEl, barEl);
           if (exportBtnEl) exportBtnEl.disabled = false;
           await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
@@ -262,9 +276,26 @@ export function initInstagramForm() {
           }
           showAlert('Extracción completada.', 'ok');
           await loadUsage();
+        } else if (job.status === 'cancelled') {
+          stopPoll(dorkingPollInterval);
+          dorkingPollInterval = null;
+          updateDorkingCancelUi(false);
+          hideProgress(progressWrapEl, barEl);
+          if (exportBtnEl) exportBtnEl.disabled = false;
+          await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
+          if (igView === 'scrapeos') {
+            await renderJobsList();
+          }
+          const emails = Math.max(0, Number(job?.emails_found ?? 0));
+          showAlert(
+            `Scrapeo cancelado. Se conservan ${emails} email${emails === 1 ? '' : 's'} guardados en este job.`,
+            'warn',
+          );
+          await loadUsage();
         } else if (job.status === 'completed_partial') {
           stopPoll(dorkingPollInterval);
           dorkingPollInterval = null;
+          updateDorkingCancelUi(false);
           hideProgress(progressWrapEl, barEl);
           if (exportBtnEl) exportBtnEl.disabled = false;
           await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
@@ -299,6 +330,7 @@ export function initInstagramForm() {
         } else if (job.status === 'rate_limited') {
           stopPoll(dorkingPollInterval);
           dorkingPollInterval = null;
+          updateDorkingCancelUi(false);
           const emails = Math.max(0, Number(job?.emails_found ?? 0));
           const progress = Math.max(0, Number(job?.progress ?? 0));
           const total = Math.max(0, Number(job?.total ?? 0));
@@ -311,6 +343,7 @@ export function initInstagramForm() {
         } else if (job.status === 'failed') {
           stopPoll(dorkingPollInterval);
           dorkingPollInterval = null;
+          updateDorkingCancelUi(false);
           showAlert(`Extracción fallida: ${safeText(job?.failure_reason) || 'revisa los logs.'}`, 'error');
         }
       } catch (_) {}
@@ -344,6 +377,7 @@ export function initInstagramForm() {
     hideProgress(dorkingProgress, dorkingBar);
     allLeads = []; applyFilters();
     if (dorkingPollInterval) { clearInterval(dorkingPollInterval); dorkingPollInterval = null; }
+    updateDorkingCancelUi(false);
 
     try {
       const emailGoal = clamp(dorkingEmailGoal?.value, 1, 9999, 20);
@@ -363,6 +397,9 @@ export function initInstagramForm() {
       const data = await res.json();
       dorkingJobId = data.job_id;
       updateProgress({ progress: 0, total: emailGoal, emails_found: 0 }, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress);
+      if (data.status === 'running') {
+        updateDorkingCancelUi(true);
+      }
       dorkingPollInterval = window.setInterval(
         makePollFn(() => dorkingJobId, dorkingBar, dorkingProgressText, dorkingEmailsText, dorkingProgress, dorkingExportBtn),
         2000,
@@ -377,6 +414,32 @@ export function initInstagramForm() {
   });
 
   dorkingExportBtn?.addEventListener('click', () => exportLeads(dorkingJobId));
+
+  dorkingCancelBtn?.addEventListener('click', async () => {
+    const jid = dorkingJobId;
+    if (!jid) return;
+    hideAlert();
+    updateDorkingCancelUi(true, { cancelling: true });
+    try {
+      const res = await fetch(
+        `${window.__BASE__}/api/instagram/jobs/${encodeURIComponent(jid)}/cancel`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        let msg = `Error ${res.status}`;
+        try {
+          const err = await res.json();
+          if (typeof err?.detail === 'string') msg = err.detail;
+          else if (Array.isArray(err?.detail)) msg = err.detail.map((d) => d.msg || d).join(' ');
+        } catch (_) {}
+        showAlert(msg, res.status === 503 ? 'warn' : 'error');
+        updateDorkingCancelUi(true, { cancelling: false });
+      }
+    } catch (err) {
+      showAlert(`No se pudo cancelar: ${err.message}`, 'error');
+      updateDorkingCancelUi(true, { cancelling: false });
+    }
+  });
 
   // ── Export ────────────────────────────────────────────────────────────
   const exportLeads = (jobId) => {
@@ -572,6 +635,7 @@ export function initInstagramForm() {
         if (s === 'waiting_rate_window') return 'bg-amber-100 text-amber-800';
         if (s === 'rate_limited') return 'bg-amber-100 text-amber-800';
         if (s === 'completed_partial') return 'bg-amber-100 text-amber-800';
+        if (s === 'cancelled') return 'bg-slate-200 text-slate-700';
         return 'bg-green-100 text-green-700';
       };
       const statusLabel = (s) => {
@@ -580,6 +644,7 @@ export function initInstagramForm() {
         if (s === 'waiting_rate_window') return 'Pausado';
         if (s === 'rate_limited') return 'Límite';
         if (s === 'completed_partial') return 'Parcial';
+        if (s === 'cancelled') return 'Cancelado';
         return 'Completado';
       };
       const modeColor = () => 'bg-orange-100 text-orange-600';

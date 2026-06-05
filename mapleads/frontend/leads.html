@@ -217,7 +217,7 @@ async function setupHeader() {
         const job = await res.json();
         document.getElementById("job-header-query").textContent = job.query || JOB_ID;
         document.getElementById("job-header-meta").textContent =
-          `${job.location || "Sin ubicación"} · ${fmtDate(job.started_at)} · ${job.status}`;
+          `${job.location || "Sin ubicación"} · ${fmtDate(job.started_at)} · ${statusLabel(job.status)}`;
         document.getElementById("job-header-stats").innerHTML = `
           <div class="recent-stat">
             <div class="recent-stat-value">${job.total ?? 0}</div>
@@ -241,6 +241,7 @@ function statusLabel(status) {
   if (status === "done") return "Completada";
   if (status === "running") return "En curso";
   if (status === "failed") return "Fallida";
+  if (status === "cancelled") return "Cancelada";
   if (status === "empty") return "Sin resultados";
   return status || "—";
 }
@@ -249,6 +250,7 @@ function statusClass(status) {
   if (status === "done") return "done";
   if (status === "running") return "running";
   if (status === "failed") return "failed";
+  if (status === "cancelled") return "cancelled";
   if (status === "empty") return "empty";
   return "empty";
 }
@@ -262,10 +264,11 @@ function locationStatusRank(status) {
   const s = (status || "").toLowerCase();
   if (s === "running") return 0;
   if (s === "failed") return 1;
-  if (s === "empty") return 2;
-  if (s === "pending") return 3;
-  if (s === "done") return 4;
-  return 5;
+  if (s === "cancelled") return 2;
+  if (s === "empty") return 3;
+  if (s === "pending") return 4;
+  if (s === "done") return 5;
+  return 6;
 }
 
 function sortJobLocations(rows) {

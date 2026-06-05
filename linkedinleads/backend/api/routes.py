@@ -8,6 +8,7 @@ Endpoints:
   DELETE /api/linkedin/accounts/{username}
   GET  /api/linkedin/accounts/{username}/stats
   POST /api/linkedin/search          → lanza index/enrich en background
+  POST /api/linkedin/job/cancel      → solicita cancelación cooperativa del job
   GET  /api/linkedin/status          → estado del job en curso
   GET  /api/linkedin/jobs
   GET  /api/linkedin/leads
@@ -56,6 +57,7 @@ class JobState:
     error: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    run_id: Optional[int] = None
     progress: dict[str, Any] = field(default_factory=dict)
 
 
@@ -70,6 +72,9 @@ _job_error: Optional[str] = None
 _job_started_at: Optional[str] = None
 _job_finished_at: Optional[str] = None
 _job_progress: dict[str, Any] = {}
+_job_run_id: Optional[int] = None
+
+_scrape_cancel_event: Optional[threading.Event] = None
 
 _login_status_lock = threading.Lock()
 _login_status: dict[str, dict[str, Any]] = {}
@@ -106,13 +111,14 @@ def _safe_percent(current: int, total: int) -> float:
 
 
 def _sync_legacy_job_globals() -> None:
-    global _job_running, _job_mode, _job_account, _job_error, _job_started_at, _job_finished_at, _job_progress
+    global _job_running, _job_mode, _job_account, _job_error, _job_started_at, _job_finished_at, _job_progress, _job_run_id
     _job_running = _job_state.running
     _job_mode = _job_state.mode
     _job_account = _job_state.account
     _job_error = _job_state.error
     _job_started_at = _job_state.started_at
     _job_finished_at = _job_state.finished_at
+    _job_run_id = _job_state.run_id
     _job_progress = dict(_job_state.progress or {})
 
 
@@ -195,10 +201,12 @@ def _set_login_status(account_key: str, status: str, message: str, **extra: Any)
 
 def _adopt_legacy_job_globals_if_needed() -> None:
     """Compatibilidad: algunos tests tocan variables legacy directamente."""
+    global _job_run_id
     if (
         _job_running != _job_state.running
         or _job_mode != _job_state.mode
         or _job_account != _job_state.account
+        or _job_run_id != _job_state.run_id
     ):
         _job_state.running = _job_running
         _job_state.mode = _job_mode
@@ -206,6 +214,7 @@ def _adopt_legacy_job_globals_if_needed() -> None:
         _job_state.error = _job_error
         _job_state.started_at = _job_started_at
         _job_state.finished_at = _job_finished_at
+        _job_state.run_id = _job_run_id
         _job_state.progress = dict(_job_progress or {})
 
 
@@ -750,7 +759,8 @@ async def trigger_search(req: SearchRequest) -> Any:
         # Control de cadencia persistente (sobrevive reinicios)
         interval = _MIN_INDEX_INTERVAL if req.mode == "index" else _MIN_ENRICH_INTERVAL
         key = f"{req.account}:{req.mode}"
-        from backend.db import get_last_trigger_epoch, set_last_trigger_epoch
+        from backend.db import create_run, ensure_tables, get_last_trigger_epoch, set_last_trigger_epoch
+
         last = get_last_trigger_epoch(key)
         elapsed = time.time() - last
         if interval > 0 and elapsed < interval:
@@ -760,12 +770,20 @@ async def trigger_search(req: SearchRequest) -> Any:
                 detail=f"Demasiado pronto. Espera {wait_min} min antes del próximo {req.mode}.",
             )
 
+        ensure_tables()
+        started_iso = _utc_now_iso()
+        run_row_id = create_run(req.account, req.mode, started_iso)
+
+        global _scrape_cancel_event
+        _scrape_cancel_event = threading.Event()
+
         _job_state.running = True
         _job_state.mode = req.mode
         _job_state.account = req.account
         _job_state.error = None
-        _job_state.started_at = _utc_now_iso()
+        _job_state.started_at = started_iso
         _job_state.finished_at = None
+        _job_state.run_id = run_row_id
         _job_state.progress = {
             "phase": "queued",
             "label": "En cola",
@@ -786,20 +804,59 @@ async def trigger_search(req: SearchRequest) -> Any:
         _sync_legacy_job_globals()
         set_last_trigger_epoch(key, time.time())
 
-    t = threading.Thread(target=_run_job, args=(req.mode, req.account, req.max_contacts), daemon=True)
+    cancel_ev = _scrape_cancel_event
+    t = threading.Thread(
+        target=_run_job,
+        args=(req.mode, req.account, req.max_contacts, run_row_id, cancel_ev),
+        daemon=True,
+    )
     t.start()
-    return {"status": "started", "mode": req.mode, "account": req.account}
+    return {"status": "started", "mode": req.mode, "account": req.account, "run_id": run_row_id}
 
 
-def _run_job(mode: str, account: str, max_contacts: int) -> None:
+@router.post("/job/cancel")
+async def cancel_scrape_job(account: Optional[str] = Query(default=None)) -> Any:
+    """Marca el job en curso para que pare en el siguiente punto seguro."""
+    global _scrape_cancel_event
+    with _job_lock:
+        _adopt_legacy_job_globals_if_needed()
+        if not _job_state.running:
+            raise HTTPException(
+                status_code=409,
+                detail="No hay ningún scrape en curso.",
+            )
+        if account and account.strip() and account.strip() != (_job_state.account or ""):
+            raise HTTPException(
+                status_code=400,
+                detail="La cuenta no coincide con el job en ejecución.",
+            )
+        ev = _scrape_cancel_event
+        rid = _job_state.run_id
+    if ev is not None:
+        ev.set()
+    return {"status": "cancelling", "run_id": rid}
+
+
+def _run_job(
+    mode: str,
+    account: str,
+    max_contacts: int,
+    run_id: int,
+    cancel_event: Optional[threading.Event],
+) -> None:
     import sys
+
+    global _scrape_cancel_event
+
     backend_dir = str(Path(__file__).resolve().parent.parent)
     if backend_dir not in sys.path:
         sys.path.insert(0, backend_dir)
 
+    job_outcome = "completed"
     try:
-        from backend.linkedin_main import run_index, run_enrich
         from backend.db import ensure_tables
+        from backend.linkedin_main import run_enrich, run_index
+
         ensure_tables()
 
         def progress_cb(payload: dict[str, Any]) -> None:
@@ -826,16 +883,40 @@ def _run_job(mode: str, account: str, max_contacts: int) -> None:
                     _sync_legacy_job_globals()
 
         if mode == "index":
-            run_index(interactive=False, account=account, progress_callback=progress_cb)
+            job_outcome = run_index(
+                interactive=False,
+                account=account,
+                progress_callback=progress_cb,
+                cancel_event=cancel_event,
+                run_id=run_id,
+            )
         else:
-            run_enrich(
+            job_outcome = run_enrich(
                 interactive=False,
                 max_contacts_override=max_contacts,
                 account=account,
                 progress_callback=progress_cb,
+                cancel_event=cancel_event,
+                run_id=run_id,
             )
+        if not job_outcome:
+            job_outcome = "completed"
     except Exception as exc:
         logger.exception("_run_job error [%s/%s]: %s", mode, account, exc)
+        job_outcome = "failed"
+        try:
+            from backend.db import finalize_run
+
+            finalize_run(
+                run_id,
+                _utc_now_iso(),
+                contacts_scraped=0,
+                contacts_new=0,
+                contacts_updated=0,
+                status="failed",
+            )
+        except Exception:
+            logger.exception("_run_job: no se pudo marcar run %s como failed", run_id)
         with _job_lock:
             _job_state.error = str(exc)
             _job_state.progress["phase"] = "error"
@@ -849,15 +930,25 @@ def _run_job(mode: str, account: str, max_contacts: int) -> None:
         # different thread (which happens to have exited)").
         try:
             from backend.scraper import _cleanup_pw
+
             _cleanup_pw()
         except Exception:
             pass
         with _job_lock:
+            _scrape_cancel_event = None
             _job_state.running = False
             _job_state.finished_at = _utc_now_iso()
+            _job_state.run_id = None
             if _job_state.error:
                 _job_state.progress["phase"] = "error"
                 _job_state.progress["label"] = "Error en ejecución"
+            elif job_outcome == "cancelled":
+                _job_state.progress["phase"] = "cancelled"
+                _job_state.progress["label"] = "Cancelado"
+                tot = int(_job_state.progress.get("total", 0))
+                cur = int(_job_state.progress.get("current", 0))
+                if tot > 0:
+                    _job_state.progress["percent"] = _safe_percent(cur, tot)
             else:
                 _job_state.progress["phase"] = "done"
                 _job_state.progress["label"] = "Completado"
@@ -886,6 +977,7 @@ async def job_status() -> Any:
             "running": _job_state.running,
             "mode": _job_state.mode,
             "account": _job_state.account,
+            "run_id": _job_state.run_id if _job_state.running else None,
             "error": _job_state.error,
             "started_at": _job_state.started_at,
             "finished_at": _job_state.finished_at,
@@ -932,13 +1024,19 @@ async def list_jobs(
         conn = _db_conn()
         rows = conn.execute(
             f"""SELECT id, username, started_at, finished_at,
-                       contacts_scraped, contacts_new, contacts_updated
+                       contacts_scraped, contacts_new, contacts_updated,
+                       mode, status, slugs_collected, slugs_new_queued
                 FROM runs {where}
                 ORDER BY id DESC LIMIT ?""",
             params,
         ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["job_id"] = d.get("id")
+            out.append(d)
+        return out
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -963,12 +1061,17 @@ async def list_leads(
     per_page: int = Query(default=50, ge=1, le=200),
     sort: str = Query(default="last_scraped_at"),
     order: str = Query(default="desc"),
+    run_id: Optional[int] = Query(default=None, ge=1),
 ) -> Any:
     if not _db_exists():
         return {"total": 0, "page": page, "per_page": per_page, "pages": 1, "contacts": []}
 
     try:
-        from backend.db import get_contacts_paginated, count_contacts_filtered
+        from backend.db import (
+            count_contacts_filtered,
+            get_contacts_paginated,
+            get_run_username,
+        )
 
         filter_mode = filter if filter in ("all", "email", "phone", "email_phone") else "all"
         sort_col = sort if sort in (
@@ -976,9 +1079,34 @@ async def list_leads(
         ) else "last_scraped_at"
         sort_order = "desc" if order.lower() != "asc" else "asc"
 
-        total = count_contacts_filtered(account or "", search or "", filter_mode, None, None)
+        run_filter: Optional[int] = None
+        if run_id is not None:
+            run_owner = get_run_username(run_id)
+            if not run_owner:
+                raise HTTPException(status_code=404, detail="Scrapeo no encontrado.")
+            acc = (account or "").strip()
+            if acc and acc != run_owner:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La cuenta no coincide con el scrapeo indicado.",
+                )
+            run_filter = run_id
+            account = run_owner
+
+        total = count_contacts_filtered(
+            account or "", search or "", filter_mode, None, None, run_filter
+        )
         contacts = get_contacts_paginated(
-            account or "", page, per_page, search or "", filter_mode, sort_col, sort_order, None, None
+            account or "",
+            page,
+            per_page,
+            search or "",
+            filter_mode,
+            sort_col,
+            sort_order,
+            None,
+            None,
+            run_filter,
         )
 
         return {
@@ -991,8 +1119,10 @@ async def list_leads(
                 for c in contacts
             ],
         }
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/leads/export")
@@ -1001,11 +1131,29 @@ async def export_leads(
     search: Optional[str] = Query(default=None),
     filter: Optional[str] = Query(default="all"),
     format: str = Query(default="csv"),
+    run_id: Optional[int] = Query(default=None, ge=1),
 ) -> Any:
     if not _db_exists():
         raise HTTPException(status_code=404, detail="No hay datos aún.")
 
     filter_mode = filter if filter in ("all", "email", "phone", "email_phone") else "all"
+
+    run_filter: Optional[int] = None
+    acc_export = account
+    if run_id is not None:
+        from backend.db import get_run_username
+
+        run_owner = get_run_username(run_id)
+        if not run_owner:
+            raise HTTPException(status_code=404, detail="Scrapeo no encontrado.")
+        acc = (account or "").strip()
+        if acc and acc != run_owner:
+            raise HTTPException(
+                status_code=400,
+                detail="La cuenta no coincide con el scrapeo indicado.",
+            )
+        run_filter = run_id
+        acc_export = run_owner
 
     def _csv_gen():
         import csv
@@ -1035,13 +1183,20 @@ async def export_leads(
         yield ("\ufeff" + hdr_buf.getvalue()).encode("utf-8")
 
         from backend.db import get_contacts_paginated
+
         page = 1
         while True:
             batch = get_contacts_paginated(
-                account or "", page=page, per_page=500,
-                search=search or "", filter_mode=filter_mode,
-                sort_col="last_scraped_at", sort_order="desc",
-                run_from=None, run_to=None,
+                acc_export or "",
+                page=page,
+                per_page=500,
+                search=search or "",
+                filter_mode=filter_mode,
+                sort_col="last_scraped_at",
+                sort_order="desc",
+                run_from=None,
+                run_to=None,
+                run_id=run_filter,
             )
             if not batch:
                 break
@@ -1054,8 +1209,9 @@ async def export_leads(
                 break
             page += 1
 
-    suffix = f"_{account}" if account else ""
-    filename = f"linkedin_leads{suffix}.csv"
+    suffix = f"_{acc_export}" if acc_export else ""
+    rid = f"_run{run_id}" if run_id else ""
+    filename = f"linkedin_leads{suffix}{rid}.csv"
 
     return StreamingResponse(
         _csv_gen(),

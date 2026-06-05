@@ -36,8 +36,8 @@
     </div>
   </div>
 
-  {% set status_classes = {'done': 'bg-green-100 text-green-700', 'failed': 'bg-red-100 text-red-700', 'running': 'bg-blue-100 text-blue-700'} %}
-  {% set status_labels = {'done': 'Completado', 'failed': 'Error', 'running': 'En curso'} %}
+  {% set status_classes = {'done': 'bg-green-100 text-green-700', 'failed': 'bg-red-100 text-red-700', 'running': 'bg-blue-100 text-blue-700', 'cancelled': 'bg-amber-100 text-amber-800'} %}
+  {% set status_labels = {'done': 'Completado', 'failed': 'Error', 'running': 'En curso', 'cancelled': 'Cancelado'} %}
 
   <div id="jobs-content">
     {% if jobs_state in ('upstream_error', 'timeout') %}
