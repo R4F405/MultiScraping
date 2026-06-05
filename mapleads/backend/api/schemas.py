@@ -13,7 +13,7 @@ class SearchRequest(BaseModel):
     lat: float | None = Field(default=None, description="Latitude of the search center")
     lng: float | None = Field(default=None, description="Longitude of the search center")
     radius_km: float = Field(default=10.0, ge=1.0, le=50.0, description="Search radius in km")
-    max_results: int = Field(default=50, ge=1, le=200)
+    max_results: int = Field(default=50, ge=1)
     category_query: str = Field(default="", description="Business category for multi-locality mode")
     locations: list[str] = Field(default_factory=list, description="Localities for multi-locality mode")
     companies_target_per_location: int | None = Field(
