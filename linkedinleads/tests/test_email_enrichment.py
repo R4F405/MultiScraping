@@ -107,9 +107,9 @@ def test_hunter_ok_retorna_email_e_incrementa(monkeypatch, tmp_path):
     original = ee.USAGE_FILE
     ee.USAGE_FILE = usage_file
     try:
-        mock_resp = _mock_response(200, {"data": {"emails": [{"value": "ceo@acme.com"}]}})
+        mock_resp = _mock_response(200, {"data": {"email": "ceo@acme.com", "score": 90}})
         with patch("email_enrichment.requests.get", return_value=mock_resp):
-            result = ee._hunter_find_email("acme.com")
+            result = ee._hunter_find_email("acme.com", first_name="John", last_name="Doe")
         assert result == "ceo@acme.com"
         # Verificar que se incrementó el contador
         with open(usage_file) as f:
@@ -201,10 +201,10 @@ def test_enrich_hunter_primero_snov_no_se_llama(monkeypatch, tmp_path):
     ee.USAGE_FILE = usage_file
     try:
         clearbit_resp = _mock_response(200, [{"domain": "acme.com"}])
-        hunter_resp = _mock_response(200, {"data": {"emails": [{"value": "ceo@acme.com"}]}})
+        hunter_resp = _mock_response(200, {"data": {"email": "ceo@acme.com", "score": 90}})
         with patch("email_enrichment.requests.get", side_effect=[clearbit_resp, hunter_resp]):
             with patch("email_enrichment._snov_find_email") as mock_snov:
-                result = ee.enrich_email_if_missing("Acme Corp")
+                result = ee.enrich_email_if_missing("Acme Corp", first_name="John", last_name="Doe")
         assert result == "ceo@acme.com"
         mock_snov.assert_not_called()
     finally:
@@ -229,7 +229,7 @@ def test_enrich_hunter_falla_snov_fallback(monkeypatch, tmp_path):
         domain_resp = _mock_response(200, {"emails": [{"email": "info@acme.com"}]})
         with patch("email_enrichment.requests.get", return_value=clearbit_resp):
             with patch("email_enrichment.requests.post", side_effect=[token_resp, domain_resp]):
-                result = ee.enrich_email_if_missing("Acme Corp")
+                result = ee.enrich_email_if_missing("Acme Corp", first_name="John", last_name="Doe")
         assert result == "info@acme.com"
     finally:
         ee.USAGE_FILE = original

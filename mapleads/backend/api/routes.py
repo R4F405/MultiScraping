@@ -29,7 +29,7 @@ from backend.storage.exporter import export_to_csv
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
-_MAX_MULTI_LOCALITIES = 50000
+_MAX_MULTI_LOCALITIES = 5000
 _NETWORK_CHECK_URLS = (
     "https://roymo.es/",
     "https://www.marketingdigitaldirecto.com/diseno-web/",
@@ -220,7 +220,14 @@ async def _search_unique_businesses(
                 await asyncio.sleep(backoff)
 
         if last_error is not None and not batch:
-            raise last_error
+            if uniques:
+                logger.warning(
+                    "_search_unique_businesses: error fetching page at start=%d, returning %d businesses collected so far. Error: %s",
+                    start, len(uniques), last_error
+                )
+                break
+            else:
+                raise last_error
 
         pages_scanned += 1
 
@@ -285,17 +292,36 @@ async def _run_scrape_job(job_id: str, request: SearchRequest, cancel_ev: asynci
 
     try:
         logger.info("Job %s: calling _search_unique_businesses...", job_id)
-        businesses = await _search_unique_businesses(
-            query=request.query,
-            location=request.location,
-            target=request.max_results,
-            lat=request.lat,
-            lng=request.lng,
-            radius_km=request.radius_km,
-            dedupe_days=settings.dedupe_days,
-            cancel_ev=cancel_ev,
-        )
-        logger.info("Job %s: got %d businesses from Maps", job_id, len(businesses))
+        queries = [q.strip() for q in request.query.split(",") if q.strip()]
+        if not queries:
+            queries = [request.query]
+
+        businesses = []
+        seen_ids = set()
+        for q in queries:
+            if cancel_ev.is_set():
+                break
+            logger.info("Job %s: searching sub-query '%s'...", job_id, q)
+            sub_businesses = await _search_unique_businesses(
+                query=q,
+                location=request.location,
+                target=request.max_results,
+                lat=request.lat,
+                lng=request.lng,
+                radius_km=request.radius_km,
+                dedupe_days=settings.dedupe_days,
+                cancel_ev=cancel_ev,
+            )
+            for b in sub_businesses:
+                pid = b.get("place_id")
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    businesses.append(b)
+            if len(businesses) >= request.max_results:
+                businesses = businesses[:request.max_results]
+                break
+
+        logger.info("Job %s: got %d businesses total from Maps across %d queries", job_id, len(businesses), len(queries))
 
         total = len(businesses)
         await db.update_job_total(job_id, total)
@@ -398,21 +424,40 @@ async def _run_multi_locality_job(
             locality_emails_found = 0
             locality_leads_found = 0
             locality_status = "done"
-            query = f"{request.category_query} {location}".strip()
-
             logger.info(
                 "Job %s: processing location %d/%d — '%s'",
                 job_id, idx, total_locations, location,
             )
 
+            # Split category query by commas
+            sub_categories = [cat.strip() for cat in request.category_query.split(",") if cat.strip()]
+            if not sub_categories:
+                sub_categories = [request.category_query]
+
+            businesses = []
+            location_seen_ids = set()
             try:
-                businesses = await _search_unique_businesses(
-                    query=query,
-                    location=location,
-                    target=request.target_per_location,
-                    dedupe_days=settings.dedupe_days,
-                    cancel_ev=cancel_ev,
-                )
+                for cat in sub_categories:
+                    if cancel_ev.is_set():
+                        break
+                    query = f"{cat} {location}".strip()
+                    logger.info("Job %s: searching sub-category '%s' for location '%s'...", job_id, cat, location)
+                    sub_businesses = await _search_unique_businesses(
+                        query=query,
+                        location=location,
+                        target=request.target_per_location,
+                        dedupe_days=settings.dedupe_days,
+                        cancel_ev=cancel_ev,
+                    )
+                    for b in sub_businesses:
+                        pid = b.get("place_id")
+                        if pid not in location_seen_ids:
+                            location_seen_ids.add(pid)
+                            businesses.append(b)
+                    if len(businesses) >= request.target_per_location:
+                        businesses = businesses[:request.target_per_location]
+                        break
+
                 total_scanned += len(businesses)
                 await db.update_job_total(job_id, total_scanned)
 

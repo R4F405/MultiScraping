@@ -35,8 +35,8 @@ class SearchRequest(BaseModel):
             cleaned_locations = [loc.strip() for loc in self.locations if loc.strip()]
             if not cleaned_locations:
                 raise ValueError("At least one non-empty location is required in multi_locality mode")
-            if len(cleaned_locations) > 50000:
-                raise ValueError("Too many locations in multi_locality mode (max 50000)")
+            if len(cleaned_locations) > 5000:
+                raise ValueError("Too many locations in multi_locality mode (max 5000)")
             self.locations = cleaned_locations
             # Backward compatible mapping: maintain old field while adopting companies naming in UI.
             self.emails_target_per_location = self.target_per_location

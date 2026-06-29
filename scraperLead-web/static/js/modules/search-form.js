@@ -181,8 +181,29 @@ function initSearchPage() {
   function chooseCategory(index) {
     const selected = categorySuggestions[index];
     if (!selected || !categoryInput) return;
-    categoryInput.value = selected.label_es || selected.label_en || '';
+    const newVal = selected.label_es || selected.label_en || '';
+    
+    // Split the current input value by commas to support multiple selections
+    const parts = categoryInput.value.split(',');
+    if (parts.length > 0) {
+      // Replace the last part (the one currently being typed)
+      parts[parts.length - 1] = ' ' + newVal;
+    } else {
+      parts.push(newVal);
+    }
+    
+    // Join parts and clean up extra spacing
+    categoryInput.value = parts
+      .map((p, idx) => {
+        const trimmed = p.trim();
+        if (idx === 0) return trimmed;
+        return ' ' + trimmed;
+      })
+      .filter(Boolean)
+      .join(',') + ', ';
+      
     closeCategoryDropdown();
+    categoryInput.focus();
   }
 
   function renderCategoryDropdown() {
@@ -240,7 +261,8 @@ function initSearchPage() {
 
   function scheduleCategorySearch() {
     if (!categoryInput) return;
-    const query = categoryInput.value.trim();
+    const parts = categoryInput.value.split(',');
+    const query = parts[parts.length - 1].trim();
     if (categoryDebounce) window.clearTimeout(categoryDebounce);
     if (categoryDropdown) {
       categoryDropdown.replaceChildren();
@@ -317,12 +339,16 @@ function initSearchPage() {
   });
   categoryInput?.addEventListener('focus', async () => {
     // UX acordada: mostrar top relevantes al enfocar.
-    categorySuggestions = await fetchCategorySuggestions('', 20);
+    const parts = categoryInput.value.split(',');
+    const query = parts[parts.length - 1].trim();
+    categorySuggestions = await fetchCategorySuggestions(query, 20);
     categoryHighlightIndex = categorySuggestions.length ? 0 : -1;
     renderCategoryDropdown();
   });
   categoryInput?.addEventListener('click', async () => {
-    categorySuggestions = await fetchCategorySuggestions('', 20);
+    const parts = categoryInput.value.split(',');
+    const query = parts[parts.length - 1].trim();
+    categorySuggestions = await fetchCategorySuggestions(query, 20);
     categoryHighlightIndex = categorySuggestions.length ? 0 : -1;
     renderCategoryDropdown();
   });
