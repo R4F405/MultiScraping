@@ -1,3 +1,23 @@
+"""
+HTTP client for Google Maps internal search (tbm=map).
+
+Primary flow (1 request per page of 20 full results):
+  GET /search?tbm=map&q={query}&pb={PB}
+  The ``pb`` protobuf-style parameter pins the map viewport (altitude/lng/lat)
+  and the result offset (``8i{offset}``), enabling real pagination — Google
+  ignores ``start``/``num`` on tbm=map. The response embeds full business
+  data (name, address, phone, website, rating, CID, coordinates) inline.
+
+Viewport resolution:
+  - Explicit lat/lng from the caller → altitude derived from radius_km.
+  - Otherwise a one-off bootstrap request (plain ``q=``) geocodes the query
+    and returns the viewport Google chose (cached per location).
+
+Fallback flow (first page only, 2 extra requests per place):
+  plain ``q=`` → hex CIDs → /maps?cid= HTML → /maps/preview/place JSON.
+  Kept for resilience if Google ever rejects the ``pb`` template.
+"""
+
 import asyncio
 import logging
 import math
@@ -9,6 +29,7 @@ from backend.config.settings import settings
 from backend.proxy.proxy_manager import proxy_manager
 from backend.scraper.maps_parser import (
     extract_preview_url_from_html,
+    extract_viewport_from_maps_response,
     hex_cid_to_decimal,
     parse_cids_from_maps_response,
     parse_maps_response,
@@ -32,42 +53,60 @@ _SEARCH_HEADERS = {
 }
 
 _PLACE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "es-ES,es;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    **_SEARCH_HEADERS,
     "Referer": "https://www.google.com/",
 }
 
+_PREVIEW_HEADERS = {
+    **_SEARCH_HEADERS,
+    "Accept": "*/*",
+    "Referer": "https://www.google.com/maps/",
+}
+
 # Bypass Google GDPR consent page ("Antes de ir a Google Maps").
-# Without these cookies, Google redirects place page requests to the consent
-# screen and returns an HTML page whose <title> is "Antes de ir a Google Maps".
+# Without these cookies, Google redirects requests to the consent screen.
 _GOOGLE_CONSENT_COOKIES = {
     "CONSENT": "YES+cb.20210720-07-p0.en+FX+410",
     "SOCS": "CAESHAgBEhJnd3NfMjAyNDA5MTAtMF9SQzIaAnplIAEaBgiA3pO1Bg",
 }
 
-
-def _radius_to_zoom(radius_km: float) -> int:
-    """Convert search radius in km to an approximate Google Maps zoom level."""
-    return max(9, round(15 - math.log2(max(1.0, radius_km))))
-
-
 _MAPS_PREVIEW_URL = "https://www.google.com/maps/preview/place"
 
-_PREVIEW_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "es-ES,es;q=0.9",
-    "Accept": "*/*",
-    "Referer": "https://www.google.com/maps/",
-}
+# pb template for paginated tbm=map searches (reverse-engineered from the
+# Google Maps web app; same template documented by SerpApi). Placeholders:
+#   {altitude} — viewport altitude in meters (see _zoom_to_altitude)
+#   {lng}/{lat} — viewport center
+#   {offset}   — result offset for pagination (0, 20, 40…), segment 8i
+# The 7i20 segment requests 20 results per page.
+_PB_TEMPLATE = (
+    "!4m8!1m3!1d{altitude}!2d{lng}!3d{lat}!3m2!1i1024!2i768!4f13.1!7i20!8i{offset}!10b1!12m25"
+    "!1m1!18b1!2m3!5m1!6e2!20e3!6m16!4b1!23b1!26i1!27i1!41i2!45b1!49b1!63m0!67b1!73m0!74i150000"
+    "!75b1!89b1!105b1!109b1!110m0!10b1!16b1!19m4!2m3!1i360!2i120!4i8!20m65!2m2!1i203!2i100!3m2"
+    "!2i4!5b1!6m6!1m2!1i86!2i86!1m2!1i408!2i240!7m50!1m3!1e1!2b0!3e3!1m3!1e2!2b1!3e2!1m3!1e2"
+    "!2b0!3e3!1m3!1e3!2b0!3e3!1m3!1e8!2b0!3e3!1m3!1e3!2b1!3e2!1m3!1e10!2b0!3e3!1m3!1e10!2b1"
+    "!3e2!1m3!1e9!2b1!3e2!1m3!1e10!2b0!3e3!1m3!1e10!2b1!3e2!1m3!1e10!2b0!3e4!2b1!4b1!9b0!22m3"
+    "!1s!2z!7e81!24m55!1m15!13m7!2b1!3b1!4b1!6i1!8b1!9b1!20b0!18m6!3b1!4b1!5b1!6b1!13b0!14b0"
+    "!2b1!5m5!2b1!3b1!5b1!6b1!7b1!10m1!8e3!14m1!3b1!17b1!20m4!1e3!1e6!1e14!1e15!24b1!25b1!26b1"
+    "!29b1!30m1!2b1!36b1!43b1!52b1!54m1!1b1!55b1!56m2!1b1!3b1!65m5!3m4!1m3!1m2!1i224!2i298!89b1"
+    "!26m4!2m3!1i80!2i92!4i8!30m28!1m6!1m2!1i0!2i0!2m2!1i458!2i768!1m6!1m2!1i974!2i0!2m2!1i1024"
+    "!2i768!1m6!1m2!1i0!2i0!2m2!1i1024!2i20!1m6!1m2!1i0!2i748!2m2!1i1024!2i768!34m16!2b1!3b1!4b1"
+    "!6b1!8m4!1b1!3b1!4b1!6b1!9b1!12b1!14b1!20b1!23b1!25b1!26b1!37m1!1e81!42b1!46m1!1e9!47m0"
+    "!49m1!3b1!50m53!1m49!2m7!1u3!4s!5e1!9s!10m2!3m1!1e1!2m7!1u2!4s!5e1!9s!10m2!2m1!1e1!2m7"
+    "!1u16!4s!5e1!9s!10m2!16m1!1e1!2m7!1u16!4s!5e1!9s!10m2!16m1!1e2!3m11!1u16!2m4!1m2!16m1!1e1"
+    "!2s!2m4!1m2!16m1!1e2!2s!3m1!1u2!3m1!1u3!4BIAE!2e2!3m1!3b1!59B!65m0!69i540"
+)
+
+_EARTH_RADIUS_M = 6371010
+_TILE_SIZE = 256
+_SCREEN_PIXEL_HEIGHT = 768
+
+# Viewport fallback when geocoding fails: Spain-wide (the query text still
+# contains the location, so Google recenters; the viewport only biases).
+_DEFAULT_VIEWPORT = (40.4168, -3.7038, 6.0)  # lat, lng, zoom
+
+# Bootstrap viewport cache: location text → (lat, lng, altitude)
+_viewport_cache: dict[str, tuple[float, float, float]] = {}
+_VIEWPORT_CACHE_MAX = 10000
 
 
 class MapsFetchError(RuntimeError):
@@ -79,157 +118,46 @@ class MapsFetchError(RuntimeError):
         self.retryable = retryable
 
 
-async def _fetch_place_details(hex_cid: str) -> dict | None:
+def _radius_to_zoom(radius_km: float) -> int:
+    """Convert search radius in km to an approximate Google Maps zoom level."""
+    return max(9, round(15 - math.log2(max(1.0, radius_km))))
+
+
+def _zoom_to_altitude(zoom: float, lat: float) -> float:
+    """Convert zoom level + latitude to the viewport altitude the pb expects."""
+    return (27.3611 * _EARTH_RADIUS_M * _SCREEN_PIXEL_HEIGHT * math.cos(lat * math.pi / 180)) / (
+        (2 ** zoom) * _TILE_SIZE
+    )
+
+
+def _curl_kwargs() -> dict:
     """
-    Fetch full business details for a single place by its hex CID.
+    Transport options for curl_cffi.
 
-    Two-step process:
-      1. Fetch the Google Maps place HTML page (/maps?cid={decimal}).
-         The response embeds a <link> element pointing to the JSON preview API
-         with the exact business coordinates embedded in the pb parameter.
-      2. Fetch the preview/place JSON endpoint → full structured data
-         (name, address, phone, website, rating, category).
-
-    Falls back to title extraction from the HTML if the preview step fails.
-    Returns a business dict or None on failure.
+    MAPS_IMPERSONATE: browser TLS fingerprint profile (default chrome131);
+    set to "none" to disable (e.g. dev environments whose egress proxy
+    rejects impersonated ClientHellos). MAPS_CA_BUNDLE: custom CA path for
+    TLS-intercepting proxies.
     """
-    decimal = hex_cid_to_decimal(hex_cid)
-    if not decimal:
-        logger.debug("_fetch_place_details: invalid hex_cid %s", hex_cid)
-        return None
-
-    proxy = await proxy_manager.wait_for_available()
-    if proxy is None and proxy_manager._stats:
-        logger.warning("_fetch_place_details: no proxy available for cid=%s", hex_cid)
-        return None
-
-    proxies = {"https": proxy, "http": proxy} if proxy else None
-
-    # --- Step 1: Fetch place page HTML to get the preview URL ---
-    try:
-        loop = asyncio.get_running_loop()
-        html_response = await loop.run_in_executor(
-            None,
-            lambda: curl_requests.get(
-                _MAPS_PLACE_URL,
-                params={"cid": decimal, "hl": "es", "gl": "es"},
-                headers=_PLACE_HEADERS,
-                cookies=_GOOGLE_CONSENT_COOKIES,
-                proxies=proxies,
-                impersonate="chrome131",
-                timeout=15,
-                allow_redirects=True,
-            ),
-        )
-    except Exception as exc:
-        logger.debug("_fetch_place_details: HTML fetch error cid=%s: %s", hex_cid, exc)
-        if proxy:
-            await proxy_manager.report_error(proxy)
-        return None
-
-    if html_response.status_code == 429:
-        await proxy_manager.report_error(proxy)
-        return None
-    if html_response.status_code != 200:
-        logger.debug("_fetch_place_details: HTML status %d for cid=%s",
-                     html_response.status_code, hex_cid)
-        await proxy_manager.report_error(proxy)
-        return None
-    if "Antes de ir a Google Maps" in html_response.text or "Before you continue" in html_response.text:
-        logger.warning("_fetch_place_details: consent page for cid=%s — check cookies", hex_cid)
-        return None
-
-    html = html_response.text
-    preview_url = extract_preview_url_from_html(html)
-
-    if not preview_url:
-        # Last-resort fallback: try to get at least the name from the title
-        logger.debug("_fetch_place_details: no preview link for cid=%s, using title fallback", hex_cid)
-        return parse_place_from_html(html, hex_cid)
-
-    # --- Step 2: Fetch the preview/place JSON endpoint ---
-    try:
-        preview_proxy = await proxy_manager.wait_for_available()
-        if preview_proxy is None and proxy_manager._stats:
-            return None
-        preview_proxies = {"https": preview_proxy, "http": preview_proxy} if preview_proxy else None
-
-        json_response = await loop.run_in_executor(
-            None,
-            lambda: curl_requests.get(
-                preview_url,
-                headers=_PREVIEW_HEADERS,
-                cookies=_GOOGLE_CONSENT_COOKIES,
-                proxies=preview_proxies,
-                impersonate="chrome131",
-                timeout=15,
-            ),
-        )
-    except Exception as exc:
-        logger.debug("_fetch_place_details: preview fetch error cid=%s: %s", hex_cid, exc)
-        return parse_place_from_html(html, hex_cid)
-
-    if json_response.status_code != 200:
-        logger.debug("_fetch_place_details: preview status %d for cid=%s",
-                     json_response.status_code, hex_cid)
-        return parse_place_from_html(html, hex_cid)
-
-    raw = json_response.text
-    if raw.startswith(")]}'"):
-        raw = raw[4:].lstrip("\n")
-
-    business = parse_place_from_preview_json(raw, hex_cid)
-    if business:
-        await proxy_manager.report_success(proxy)
-        logger.debug("_fetch_place_details: resolved '%s' via preview JSON", business.get("business_name"))
-    else:
-        logger.debug("_fetch_place_details: preview JSON parse failed for cid=%s, using title fallback", hex_cid)
-        business = parse_place_from_html(html, hex_cid)
-
-    return business
+    kwargs: dict = {}
+    imp = (settings.maps_impersonate or "").strip()
+    if imp and imp.lower() not in ("none", "off", "0", "false"):
+        kwargs["impersonate"] = imp
+    if settings.maps_ca_bundle:
+        kwargs["verify"] = settings.maps_ca_bundle
+    return kwargs
 
 
-async def _fetch_cid_list(
-    query: str,
-    location: str,
-    start: int = 0,
-    lat: float | None = None,
-    lng: float | None = None,
-    radius_km: float = 10.0,
-) -> list[str]:
+async def _http_get(url: str, *, params: dict, headers: dict, timeout: int = 20):
     """
-    Fetch the tbm=map JSON response and extract hex CIDs.
+    Proxy-managed GET against Google. Returns the curl_cffi response.
 
-    When lat/lng are provided, adds the ``ll`` parameter to center the Google
-    Maps search on the given coordinates with a zoom level derived from radius_km.
-
-    Returns up to 20 hex CID strings. Empty list on error.
+    Raises MapsFetchError on connection errors, 429 and unexpected statuses;
+    reports proxy success/error to the proxy manager.
     """
     proxy = await proxy_manager.wait_for_available()
     if proxy is None and proxy_manager._stats:
-        logger.warning("_fetch_cid_list: no proxy available, skipping")
-        return []
-
-    # Build query string: combine keyword + location text (if any)
-    search_query = f"{query} {location}".strip() if location else query
-
-    params: dict[str, str] = {
-        "tbm": "map",
-        "hl": "es",
-        "gl": "es",
-        "q": search_query,
-        "num": "20",
-        "start": str(start),
-    }
-
-    # Pin the map to explicit coordinates when available
-    if lat is not None and lng is not None:
-        zoom = _radius_to_zoom(radius_km)
-        params["ll"] = f"@{lat},{lng},{zoom}z"
-        logger.debug(
-            "_fetch_cid_list: using coords lat=%.5f lng=%.5f zoom=%d radius=%.1fkm",
-            lat, lng, zoom, radius_km,
-        )
+        raise MapsFetchError("No proxy available", kind="no_proxy", retryable=True)
 
     proxies = {"https": proxy, "http": proxy} if proxy else None
 
@@ -238,60 +166,181 @@ async def _fetch_cid_list(
         response = await loop.run_in_executor(
             None,
             lambda: curl_requests.get(
-                _SEARCH_URL,
+                url,
                 params=params,
-                headers=_SEARCH_HEADERS,
+                headers=headers,
                 cookies=_GOOGLE_CONSENT_COOKIES,
                 proxies=proxies,
-                impersonate="chrome131",
-                timeout=20,
+                timeout=timeout,
+                allow_redirects=True,
+                **_curl_kwargs(),
             ),
         )
-
-        if response.status_code == 429:
-            await proxy_manager.report_error(proxy)
-            raise MapsFetchError("Maps rate limited (429)", kind="rate_limited", retryable=True)
-
-        if response.status_code != 200:
-            logger.warning("_fetch_cid_list: status %d for '%s'", response.status_code, search_query)
-            await proxy_manager.report_error(proxy)
-            raise MapsFetchError(
-                f"Maps unexpected status {response.status_code}",
-                kind="bad_status",
-                retryable=True,
-            )
-
-        raw = response.text
-        if raw.startswith(")]}'"):
-            raw = raw[4:].lstrip("\n")
-
-        # Try old full-detail format first (FORMAT A)
-        businesses = parse_maps_response(raw)
-        if businesses:
-            await proxy_manager.report_success(proxy)
-            logger.debug("_fetch_cid_list: FORMAT A hit — %d businesses directly", len(businesses))
-            # Return a special sentinel so search_maps knows to use these directly
-            return [("__FORMAT_A__", businesses)]  # type: ignore[list-item]
-
-        # New CID-only format (FORMAT B)
-        cids = parse_cids_from_maps_response(raw)
-        if cids:
-            await proxy_manager.report_success(proxy)
-            logger.debug("_fetch_cid_list: FORMAT B — %d CIDs for '%s' start=%d", len(cids), search_query, start)
-        else:
-            logger.debug("_fetch_cid_list: no data in either format for '%s'", search_query)
-            # Puede ser 'sin resultados' real. No lo tratamos como error operativo.
-
-        await asyncio.sleep(random.uniform(settings.request_delay_min, settings.request_delay_max))
-        return cids
-
     except Exception as exc:
-        logger.error("_fetch_cid_list('%s', start=%d): error=%s", search_query, start, exc, exc_info=True)
-        if isinstance(exc, MapsFetchError):
-            raise
         if proxy:
             await proxy_manager.report_error(proxy)
         raise MapsFetchError(str(exc), kind="connection", retryable=True) from exc
+
+    if response.status_code == 429:
+        await proxy_manager.report_error(proxy)
+        raise MapsFetchError("Maps rate limited (429)", kind="rate_limited", retryable=True)
+
+    if response.status_code != 200:
+        await proxy_manager.report_error(proxy)
+        raise MapsFetchError(
+            f"Maps unexpected status {response.status_code}",
+            kind="bad_status",
+            retryable=True,
+        )
+
+    text = response.text
+    if "Antes de ir a Google" in text[:4000] or "Before you continue" in text[:4000]:
+        await proxy_manager.report_error(proxy)
+        raise MapsFetchError("Google consent page — check consent cookies", kind="consent", retryable=True)
+    if "unusual traffic" in text[:4000] or "/sorry/" in str(response.url):
+        await proxy_manager.report_error(proxy)
+        raise MapsFetchError("Google anti-bot interstitial (sorry page)", kind="blocked", retryable=True)
+
+    await proxy_manager.report_success(proxy)
+    return response
+
+
+def _strip_xssi(raw: str) -> str:
+    if raw.startswith(")]}'"):
+        return raw[4:].lstrip("\n")
+    return raw
+
+
+def _cache_viewport(key: str, viewport: tuple[float, float, float]) -> None:
+    if len(_viewport_cache) >= _VIEWPORT_CACHE_MAX:
+        _viewport_cache.pop(next(iter(_viewport_cache)))
+    _viewport_cache[key] = viewport
+
+
+async def _resolve_viewport(
+    search_query: str,
+    location: str,
+    lat: float | None,
+    lng: float | None,
+    radius_km: float,
+) -> tuple[float, float, float]:
+    """
+    Resolve the (lat, lng, altitude) viewport for a search.
+
+    Explicit coordinates win; otherwise geocode via a bootstrap plain-q
+    request (cached per location text). Falls back to a country-wide
+    viewport — the query text still carries the location for Google.
+    """
+    if lat is not None and lng is not None:
+        zoom = _radius_to_zoom(radius_km)
+        return lat, lng, _zoom_to_altitude(zoom, lat)
+
+    cache_key = (location or search_query).strip().lower()
+    cached = _viewport_cache.get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        response = await _http_get(
+            _SEARCH_URL,
+            params={"tbm": "map", "hl": "es", "gl": "es", "q": search_query},
+            headers=_SEARCH_HEADERS,
+        )
+        viewport = extract_viewport_from_maps_response(_strip_xssi(response.text))
+        if viewport:
+            vp_lat, vp_lng, altitude = viewport
+            result = (vp_lat, vp_lng, altitude)
+            _cache_viewport(cache_key, result)
+            logger.debug(
+                "_resolve_viewport: geocoded '%s' → lat=%.5f lng=%.5f alt=%.0f",
+                search_query, vp_lat, vp_lng, altitude,
+            )
+            return result
+        logger.warning("_resolve_viewport: no viewport in bootstrap response for '%s'", search_query)
+    except MapsFetchError as exc:
+        logger.warning("_resolve_viewport: bootstrap failed for '%s': %s", search_query, exc)
+
+    d_lat, d_lng, d_zoom = _DEFAULT_VIEWPORT
+    return d_lat, d_lng, _zoom_to_altitude(d_zoom, d_lat)
+
+
+async def _fetch_place_details(hex_cid: str) -> dict | None:
+    """
+    Fallback flow: fetch full details for a single place by hex CID.
+
+    1. /maps?cid={decimal} HTML → embedded /maps/preview/place URL
+    2. preview endpoint JSON → full structured data
+    Falls back to <title> extraction if the preview step fails.
+    """
+    decimal = hex_cid_to_decimal(hex_cid)
+    if not decimal:
+        logger.debug("_fetch_place_details: invalid hex_cid %s", hex_cid)
+        return None
+
+    try:
+        html_response = await _http_get(
+            _MAPS_PLACE_URL,
+            params={"cid": decimal, "hl": "es", "gl": "es"},
+            headers=_PLACE_HEADERS,
+            timeout=15,
+        )
+    except MapsFetchError as exc:
+        logger.debug("_fetch_place_details: HTML fetch failed cid=%s: %s", hex_cid, exc)
+        return None
+
+    html = html_response.text
+    preview_url = extract_preview_url_from_html(html)
+
+    if not preview_url:
+        logger.debug("_fetch_place_details: no preview link for cid=%s, using title fallback", hex_cid)
+        return parse_place_from_html(html, hex_cid)
+
+    try:
+        json_response = await _http_get(preview_url, params={}, headers=_PREVIEW_HEADERS, timeout=15)
+    except MapsFetchError as exc:
+        logger.debug("_fetch_place_details: preview fetch failed cid=%s: %s", hex_cid, exc)
+        return parse_place_from_html(html, hex_cid)
+
+    business = parse_place_from_preview_json(_strip_xssi(json_response.text), hex_cid)
+    if business:
+        logger.debug("_fetch_place_details: resolved '%s' via preview JSON", business.get("business_name"))
+    else:
+        logger.debug("_fetch_place_details: preview JSON parse failed for cid=%s, using title fallback", hex_cid)
+        business = parse_place_from_html(html, hex_cid)
+
+    return business
+
+
+async def _search_maps_via_cids(search_query: str) -> list[dict]:
+    """
+    Fallback: plain ``q=`` search → hex CIDs → per-CID detail fetches.
+
+    Only useful for the first page — Google ignores pagination parameters
+    on plain-q tbm=map requests.
+    """
+    response = await _http_get(
+        _SEARCH_URL,
+        params={"tbm": "map", "hl": "es", "gl": "es", "q": search_query},
+        headers=_SEARCH_HEADERS,
+    )
+    cids = parse_cids_from_maps_response(_strip_xssi(response.text))
+    if not cids:
+        return []
+
+    logger.info("_search_maps_via_cids: fetching details for %d places…", len(cids))
+    semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
+
+    async def fetch_with_semaphore(cid: str) -> dict | None:
+        async with semaphore:
+            result = await _fetch_place_details(cid)
+            await asyncio.sleep(random.uniform(
+                settings.request_delay_min * 0.5,
+                settings.request_delay_max * 0.5,
+            ))
+            return result
+
+    results = await asyncio.gather(*[fetch_with_semaphore(cid) for cid in cids])
+    return [b for b in results if b is not None and b.get("business_name")]
 
 
 async def search_maps(
@@ -305,50 +354,65 @@ async def search_maps(
     """
     Return normalized business dicts for a single page of Google Maps results.
 
-    Two-step process:
-      1. Fetch CID list from tbm=map (FORMAT B) or full data directly (FORMAT A)
-      2. If FORMAT B: fetch place details for each CID in parallel
-
     Args:
         query: What to search (e.g. "dentistas")
-        location: Where to search as text (e.g. "Valencia"), used when no coords
+        location: Where to search as text (e.g. "Valencia"); appended to the
+            query unless it is already contained in it.
         start: Pagination offset (0, 20, 40…)
-        lat: Latitude to center the search map
-        lng: Longitude to center the search map
-        radius_km: Search radius in km (used for zoom level)
+        lat/lng: Optional coordinates to center the search viewport
+        radius_km: Search radius in km (drives the viewport zoom)
 
     Returns:
-        List of business dicts. Empty list on error or no proxy available.
+        List of business dicts (up to 20). Empty list when the page has no
+        results. Raises MapsFetchError on operational failures.
     """
-    cid_list = await _fetch_cid_list(query, location, start=start, lat=lat, lng=lng, radius_km=radius_km)
+    location = (location or "").strip()
+    if location and location.lower() in query.lower():
+        search_query = query
+    else:
+        search_query = f"{query} {location}".strip()
 
-    if not cid_list:
-        return []
+    vp_lat, vp_lng, altitude = await _resolve_viewport(search_query, location, lat, lng, radius_km)
 
-    # FORMAT A fast-path: full businesses returned directly
-    if len(cid_list) == 1 and isinstance(cid_list[0], tuple) and cid_list[0][0] == "__FORMAT_A__":
-        return cid_list[0][1]
+    pb = _PB_TEMPLATE.format(
+        altitude=f"{altitude:.6f}",
+        lng=f"{vp_lng:.7f}",
+        lat=f"{vp_lat:.7f}",
+        offset=start,
+    )
+    response = await _http_get(
+        _SEARCH_URL,
+        params={
+            "tbm": "map",
+            "authuser": "0",
+            "hl": "es",
+            "gl": "es",
+            "q": search_query,
+            "pb": pb,
+        },
+        headers=_SEARCH_HEADERS,
+    )
 
-    # FORMAT B: fetch details for each CID concurrently
-    logger.info("search_maps: fetching details for %d places (FORMAT B)…", len(cid_list))
-    semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
+    businesses = parse_maps_response(_strip_xssi(response.text))
+    if businesses:
+        logger.debug(
+            "search_maps('%s', start=%d): %d businesses via pb search",
+            search_query, start, len(businesses),
+        )
+        await asyncio.sleep(random.uniform(settings.request_delay_min, settings.request_delay_max))
+        return businesses
 
-    async def fetch_with_semaphore(cid: str) -> dict | None:
-        async with semaphore:
-            result = await _fetch_place_details(cid)
-            await asyncio.sleep(random.uniform(
-                settings.request_delay_min * 0.5,
-                settings.request_delay_max * 0.5,
-            ))
-            return result
+    # pb yielded nothing. On the first page, try the CID fallback flow in
+    # case Google rejected the pb template but still answers plain queries.
+    if start == 0:
+        logger.info("search_maps('%s'): pb search empty — trying CID fallback", search_query)
+        businesses = await _search_maps_via_cids(search_query)
+        if businesses:
+            logger.info("search_maps('%s'): CID fallback resolved %d businesses", search_query, len(businesses))
+        return businesses
 
-    tasks = [fetch_with_semaphore(cid) for cid in cid_list]
-    results = await asyncio.gather(*tasks)
-
-    businesses = [b for b in results if b is not None and b.get("business_name")]
-    logger.debug("search_maps('%s %s', start=%d): %d/%d places resolved",
-                 query, location, start, len(businesses), len(cid_list))
-    return businesses
+    logger.debug("search_maps('%s', start=%d): no more results", search_query, start)
+    return []
 
 
 async def search_maps_paginated(
@@ -362,9 +426,12 @@ async def search_maps_paginated(
     """
     Paginate through Google Maps results up to max_results.
 
-    Stops early if a page returns fewer than 20 results (no more pages).
+    Stops when a page returns fewer than 20 results, or when a full page
+    contributes no unseen place_ids (Google starts repeating results near
+    the end of the available set — usually ~200 per viewport).
     """
     all_results: list[dict] = []
+    seen_ids: set[str] = set()
     start = 0
 
     while len(all_results) < max_results:
@@ -393,10 +460,19 @@ async def search_maps_paginated(
         if not batch:
             break
 
-        all_results.extend(batch)
+        new_in_batch = 0
+        for business in batch:
+            pid = str(business.get("place_id") or "").strip()
+            if pid:
+                if pid in seen_ids:
+                    continue
+                seen_ids.add(pid)
+            new_in_batch += 1
+            all_results.append(business)
+
         start += 20
 
-        if len(batch) < 20:
+        if len(batch) < 20 or new_in_batch == 0:
             break
 
     return all_results[:max_results]

@@ -1,19 +1,34 @@
 """
-Parser for Google Maps internal search API responses.
+Parser for Google Maps internal search API responses (tbm=map).
 
-Google Maps returns data as deeply nested positional arrays (not named keys).
+Two request styles hit ``https://www.google.com/search?tbm=map``:
 
-The API now has two distinct response formats:
+  1. ``pb``-based search (primary, current): passing the protobuf-style ``pb``
+     parameter returns a rich JSON document where the result list lives at
+     ``data[0][1]``. Each result entry is a list whose index 14 holds the
+     business data block, with real pagination via the ``8i{offset}`` segment.
 
-  FORMAT A (old, full detail) — data[0][1][0][14] → list of business blocks.
-    Each business block has name, address, phone, website, rating inline.
+  2. Plain ``q=`` search (bootstrap/fallback): returns a light "spotlight"
+     document with no inline business data — only the geocoded viewport
+     (``data[1]``) and a list of hex CIDs (``data[16][0][0][7][11][2]``).
+     Google ignores ``start``/``num`` here, so this style cannot paginate.
 
-  FORMAT B (current, CID-only) — data[16][0][0][7][11][2] → list of hex CIDs.
-    Business details are NOT inline; each place must be fetched separately.
-    Hex CID format: "0x0:0xHHHHHHHHHHHHHHHH"
+The business data block schema is shared between the ``pb`` search results
+(``entry[14]``) and the ``/maps/preview/place`` endpoint (``data[6]``):
 
-When no businesses are found, the raw response is saved to /tmp/mapleads_debug_*.json
-so you can inspect the actual structure and update the candidate paths.
+    block[11]        → name
+    block[39]        → full address string
+    block[2]         → address parts (list of str)
+    block[13]        → categories (list of str)
+    block[4][7]      → rating (float)
+    block[7][0]      → website URL
+    block[178][0][0] → phone number
+    block[10]        → hex CID "0xHIGH:0xLOW"
+    block[78]        → Google place_id ("ChIJ…")
+    block[9][2..3]   → latitude, longitude
+
+When no businesses are found, the raw response is saved to
+/tmp/mapleads_debug_*.json so you can inspect the actual structure.
 """
 
 import json
@@ -35,60 +50,6 @@ def safe_get(obj, *keys, default=None):
     return obj
 
 
-def _looks_like_business_entry(item) -> bool:
-    """
-    Heuristic: does this list item look like a Maps business entry?
-
-    A business entry is a list where index 14 contains the business data block,
-    and block[0][0] is the business name (a non-empty string).
-    """
-    if not isinstance(item, list):
-        return False
-    block = safe_get(item, 14, 0)
-    if isinstance(block, list):
-        name = safe_get(block, 0, 0)
-        if isinstance(name, str) and len(name) > 1:
-            return True
-    return False
-
-
-def _scan_for_business_list(data: list) -> tuple[list, str]:
-    """
-    Scan the top levels of the Maps response to find the list of business entries.
-
-    Tries all children of the top 3 nesting levels. Returns (result_list, path_str)
-    where path_str describes the path found (for logging). Returns ([], "") if not found.
-    """
-    if not isinstance(data, list):
-        return [], ""
-
-    def _check_candidate(node, path: str) -> tuple[list, str]:
-        if not isinstance(node, list) or len(node) == 0:
-            return [], ""
-        hits = sum(1 for item in node[:5] if _looks_like_business_entry(item))
-        if hits >= 1:
-            return node, path
-        return [], ""
-
-    # BFS up to depth 4
-    queue: list[tuple] = [(data, "data", 0)]
-    while queue:
-        node, path, depth = queue.pop(0)
-        if not isinstance(node, list) or depth > 4:
-            continue
-
-        found, found_path = _check_candidate(node, path)
-        if found:
-            return found, found_path
-
-        if depth < 4:
-            for i, child in enumerate(node):
-                if isinstance(child, list):
-                    queue.append((child, f"{path}[{i}]", depth + 1))
-
-    return [], ""
-
-
 def _save_debug_dump(raw_json: str) -> None:
     """Save raw response to a temp file for manual inspection."""
     try:
@@ -100,165 +61,11 @@ def _save_debug_dump(raw_json: str) -> None:
         logger.debug("maps_parser: could not save debug dump: %s", exc)
 
 
-def _extract_business(entry: list) -> dict | None:
-    """
-    Extract normalized business data from a single Maps result entry.
-
-    The positional structure observed from Google Maps responses:
-      entry[14][0]  → business data block
-    Within the data block:
-      [0][0]        → name
-      [0][1]        → maps_url (google.com/maps/place/...)
-      [0][2]        → address
-      [0][13][0]    → category
-      [0][4][7]     → rating (float)
-      [0][178][0][0]→ phone (varies by version)
-      [0][7][0]     → website
-      [0][78]       → place_id
-    """
-    try:
-        block = safe_get(entry, 14, 0)
-        if not isinstance(block, list):
-            return None
-
-        name = safe_get(block, 0, 0)
-        if not name or not isinstance(name, str):
-            return None
-
-        place_id = safe_get(block, 0, 78)
-        maps_url = safe_get(block, 0, 1)
-        address = safe_get(block, 0, 2)
-        category = safe_get(block, 0, 13, 0)
-        rating = safe_get(block, 0, 4, 7)
-        phone = safe_get(block, 0, 178, 0, 0) or safe_get(block, 0, 3, 0)
-        website = safe_get(block, 0, 7, 0) or safe_get(block, 0, 183)
-
-        if isinstance(phone, list):
-            phone = phone[0] if phone else None
-
-        return {
-            "place_id": str(place_id) if place_id else None,
-            "business_name": name,
-            "address": address,
-            "category": category,
-            "rating": float(rating) if rating is not None else None,
-            "phone": str(phone) if phone else None,
-            "website": str(website) if website else None,
-            "maps_url": str(maps_url) if maps_url else None,
-        }
-
-    except Exception as exc:
-        logger.debug("Failed to extract business from entry: %s", exc)
-        return None
-
-
-def parse_maps_response(raw_json: str) -> list[dict]:
-    """
-    Parse Google Maps search response JSON into a list of business dicts.
-
-    Returns empty list on any parsing error.
-    """
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to parse Maps response JSON: %s", exc)
-        logger.debug("Raw response snippet: %s", raw_json[:500])
-        return []
-
-    if not isinstance(data, list):
-        logger.warning("maps_parser: unexpected top-level type %s", type(data).__name__)
-        return []
-
-    logger.debug("maps_parser: top-level list len=%d", len(data))
-
-    # --- Fast path: known candidate paths from observed response structures ---
-    known_paths: list[tuple[str, list | None]] = [
-        ("data[0][1][0][14]", safe_get(data, 0, 1, 0, 14)),
-        ("data[0][1][0][1]",  safe_get(data, 0, 1, 0, 1)),
-        ("data[0][0][1][0][14]", safe_get(data, 0, 0, 1, 0, 14)),
-        ("data[0][0][0]",     safe_get(data, 0, 0, 0)),
-        ("data[0][2]",        safe_get(data, 0, 2)),
-        ("data[0][3]",        safe_get(data, 0, 3)),
-        ("data[1][0][14]",    safe_get(data, 1, 0, 14)),
-        ("data[1]",           safe_get(data, 1)),
-    ]
-
-    result_sets: list = []
-    found_path = ""
-
-    for path_name, candidate in known_paths:
-        if isinstance(candidate, list) and len(candidate) > 0:
-            if _looks_like_business_entry(candidate[0]):
-                result_sets = candidate
-                found_path = path_name
-                logger.debug("maps_parser: fast-path hit at %s (%d entries)", path_name, len(result_sets))
-                break
-
-    # --- Fallback: scan the entire structure heuristically ---
-    if not result_sets:
-        logger.debug("maps_parser: fast-path missed — running structure scan")
-        result_sets, found_path = _scan_for_business_list(data)
-        if result_sets:
-            logger.info(
-                "maps_parser: structure scan found business list at %s (%d entries) — "
-                "consider adding this path to known_paths",
-                found_path, len(result_sets),
-            )
-
-    if not result_sets:
-        logger.warning("maps_parser: could not locate business list in response")
-        logger.debug("maps_parser: top-level structure: %s", _describe_structure(data, depth=3))
-        _save_debug_dump(raw_json)
-        return []
-
-    businesses = []
-    for entry in result_sets:
-        if not isinstance(entry, list):
-            continue
-        business = _extract_business(entry)
-        if business and business.get("business_name"):
-            businesses.append(business)
-
-    logger.debug("maps_parser: extracted %d businesses from path %s", len(businesses), found_path)
-    return businesses
-
-
-# ---------------------------------------------------------------------------
-# FORMAT B — CID extraction and place-page parsing
-# ---------------------------------------------------------------------------
-
-def parse_cids_from_maps_response(raw_json: str) -> list[str]:
-    """
-    Extract hex CIDs from the new tbm=map response format (FORMAT B).
-
-    Known path: data[16][0][0][7][11][2] → list of [None, None, hex_cid_str] entries.
-    Returns a list of strings like "0x0:0xHHHHHHHHHHHHHHHH".
-    """
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError:
-        return []
-
-    entries = safe_get(data, 16, 0, 0, 7, 11, 2)
-    if not isinstance(entries, list):
-        logger.debug("parse_cids_from_maps_response: CID path not found")
-        return []
-
-    cids = []
-    for entry in entries:
-        cid = safe_get(entry, 2)
-        if isinstance(cid, str) and cid.startswith("0x"):
-            cids.append(cid)
-
-    logger.debug("parse_cids_from_maps_response: found %d CIDs", len(cids))
-    return cids
-
-
 def hex_cid_to_decimal(hex_cid: str) -> str | None:
     """
-    Convert a Google Maps hex CID "0x0:0xHHHH" to a decimal string for URL use.
+    Convert a Google Maps hex CID "0x…:0xHHHH" to a decimal string for URL use.
 
-    The decimal value is the high part (after the colon) as a base-10 integer.
+    The decimal value is the low part (after the colon) as a base-10 integer.
     """
     try:
         parts = hex_cid.split(":")
@@ -269,64 +76,26 @@ def hex_cid_to_decimal(hex_cid: str) -> str | None:
     return None
 
 
-def extract_preview_url_from_html(html: str) -> str | None:
+def parse_business_block(block, fallback_cid: str = "") -> dict | None:
     """
-    Extract the /maps/preview/place URL from a Google Maps place page HTML.
+    Extract a normalized business dict from a Maps business data block.
 
-    Google Maps place pages (fetched via /maps?cid=) embed a <link> element in the
-    <head> that points to the JSON data API endpoint with all the required parameters
-    including the exact business coordinates needed for the preview API.
-
-    Returns the full URL string, or None if not found.
+    Works for both ``pb`` search entries (``entry[14]``) and the
+    ``/maps/preview/place`` endpoint (``data[6]``). Returns None when the
+    block has no name.
     """
-    m = re.search(r'<link[^>]+href="(/maps/preview/place[^"]+)"', html)
-    if m:
-        url = "https://www.google.com" + m.group(1).replace("&amp;", "&")
-        logger.debug("extract_preview_url_from_html: found preview URL")
-        return url
-    logger.debug("extract_preview_url_from_html: no preview link found in HTML")
-    return None
-
-
-def parse_place_from_preview_json(raw_json: str, hex_cid: str = "") -> dict | None:
-    """
-    Parse a Google Maps /maps/preview/place JSON response into a business dict.
-
-    The preview endpoint returns a XSSI-protected JSON array. Strip the leading
-    ``)]}'\\n`` prefix before calling this function. Business data lives at
-    ``data[6]`` with the following positional structure:
-
-        data[6][4][7]   → rating (float)
-        data[6][7][0]   → website URL
-        data[6][10]     → full hex CID (0xHIGH:0xLOW)
-        data[6][11]     → business name
-        data[6][13][0]  → primary category
-        data[6][39]     → full address string
-        data[6][178][0][0] → phone number
-
-    Returns a normalized business dict, or None on failure.
-    """
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
-        logger.debug("parse_place_from_preview_json: JSON error: %s", exc)
-        return None
-
-    block = safe_get(data, 6)
-    if not isinstance(block, list) or len(block) < 15:
-        logger.debug("parse_place_from_preview_json: data[6] missing or too small (len=%s)",
-                     len(block) if isinstance(block, list) else "N/A")
+    if not isinstance(block, list):
         return None
 
     name = safe_get(block, 11)
     if not name or not isinstance(name, str):
-        logger.debug("parse_place_from_preview_json: no name at data[6][11]")
         return None
 
     address = safe_get(block, 39)
     if not address:
         parts = safe_get(block, 2)
-        address = ", ".join(p for p in (parts or []) if p) or None
+        if isinstance(parts, list):
+            address = ", ".join(str(p) for p in parts if p) or None
 
     rating_raw = safe_get(block, 4, 7)
     try:
@@ -340,13 +109,21 @@ def parse_place_from_preview_json(raw_json: str, hex_cid: str = "") -> dict | No
         phone = safe_get(block, 178, 0, 1, 0, 0)
     category = safe_get(block, 13, 0)
 
-    cid = safe_get(block, 10) or hex_cid or None
+    cid = safe_get(block, 10) or fallback_cid or None
+    if not (isinstance(cid, str) and cid.startswith("0x")):
+        cid = fallback_cid or None
     decimal = hex_cid_to_decimal(cid) if cid else None
     maps_url = f"https://www.google.com/maps?cid={decimal}" if decimal else None
 
-    logger.debug("parse_place_from_preview_json: extracted '%s'", name)
+    # place_id: prefer the hex CID for continuity with historical data
+    # (dedupe window compares against previously stored place_ids).
+    place_id = cid or safe_get(block, 78)
+
+    latitude = safe_get(block, 9, 2)
+    longitude = safe_get(block, 9, 3)
+
     return {
-        "place_id": cid,
+        "place_id": str(place_id) if place_id else None,
         "business_name": name,
         "address": str(address) if address else None,
         "category": str(category) if category else None,
@@ -354,17 +131,207 @@ def parse_place_from_preview_json(raw_json: str, hex_cid: str = "") -> dict | No
         "phone": str(phone) if phone else None,
         "website": str(website) if website else None,
         "maps_url": maps_url,
+        "latitude": latitude if isinstance(latitude, (int, float)) else None,
+        "longitude": longitude if isinstance(longitude, (int, float)) else None,
     }
+
+
+def _looks_like_business_entry(item) -> bool:
+    """A result entry is a list whose index 14 holds a block with a name at [11]."""
+    if not isinstance(item, list) or len(item) <= 14:
+        return False
+    block = safe_get(item, 14)
+    return isinstance(block, list) and isinstance(safe_get(block, 11), str)
+
+
+def _scan_for_business_list(data: list) -> tuple[list, str]:
+    """
+    Heuristic fallback: BFS over the top nesting levels of the response
+    looking for a list that contains business entries. Guards against
+    Google moving the result list away from data[0][1].
+    """
+    if not isinstance(data, list):
+        return [], ""
+
+    queue: list[tuple] = [(data, "data", 0)]
+    while queue:
+        node, path, depth = queue.pop(0)
+        if not isinstance(node, list) or depth > 4:
+            continue
+
+        hits = sum(1 for item in node[:8] if _looks_like_business_entry(item))
+        if hits >= 1:
+            return node, path
+
+        if depth < 4:
+            for i, child in enumerate(node):
+                if isinstance(child, list):
+                    queue.append((child, f"{path}[{i}]", depth + 1))
+
+    return [], ""
+
+
+def parse_maps_response(raw_json: str) -> list[dict]:
+    """
+    Parse a ``pb``-based tbm=map search response into business dicts.
+
+    The result list lives at ``data[0][1]``; the first element is usually a
+    header row without a business block and is skipped. Falls back to a
+    structure scan when the known path misses. Returns [] on any error.
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse Maps response JSON: %s", exc)
+        logger.debug("Raw response snippet: %s", raw_json[:500])
+        return []
+
+    if not isinstance(data, list):
+        logger.warning("maps_parser: unexpected top-level type %s", type(data).__name__)
+        return []
+
+    result_sets = safe_get(data, 0, 1)
+    found_path = "data[0][1]"
+    if not (isinstance(result_sets, list) and any(_looks_like_business_entry(e) for e in result_sets[:8])):
+        logger.debug("maps_parser: data[0][1] missed — running structure scan")
+        result_sets, found_path = _scan_for_business_list(data)
+        if result_sets:
+            logger.info(
+                "maps_parser: structure scan found business list at %s (%d entries)",
+                found_path, len(result_sets),
+            )
+
+    if not result_sets:
+        logger.debug("maps_parser: could not locate business list in response")
+        return []
+
+    businesses = []
+    for entry in result_sets:
+        if not _looks_like_business_entry(entry):
+            continue
+        business = parse_business_block(entry[14])
+        if business and business.get("business_name"):
+            businesses.append(business)
+
+    logger.debug("maps_parser: extracted %d businesses from %s", len(businesses), found_path)
+    return businesses
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap (plain q=) document — viewport + CID extraction
+# ---------------------------------------------------------------------------
+
+_HEX_CID_RE = re.compile(r'"(0x[0-9a-f]+:0x[0-9a-f]+)"')
+
+
+def extract_viewport_from_maps_response(raw_json: str) -> tuple[float, float, float] | None:
+    """
+    Extract the geocoded viewport from a plain ``q=`` tbm=map response.
+
+    ``data[1][0]`` is ``[altitude_m, longitude, latitude]`` — the viewport
+    Google chose for the query. Returns (lat, lng, altitude) or None.
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return None
+
+    vp = safe_get(data, 1, 0)
+    if not (isinstance(vp, list) and len(vp) >= 3):
+        return None
+    altitude, lng, lat = vp[0], vp[1], vp[2]
+    if not all(isinstance(v, (int, float)) for v in (altitude, lng, lat)):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180 and altitude > 0):
+        return None
+    return float(lat), float(lng), float(altitude)
+
+
+def parse_cids_from_maps_response(raw_json: str) -> list[str]:
+    """
+    Extract hex CIDs from a plain ``q=`` tbm=map response (bootstrap format).
+
+    Known path: data[16][0][0][7][11][2] → list of [None, None, hex_cid]
+    entries. Falls back to a regex scan over the raw document when the path
+    moves. Returns strings like "0x0:0xHHHHHHHHHHHHHHHH", order preserved.
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return []
+
+    entries = safe_get(data, 16, 0, 0, 7, 11, 2)
+    cids: list[str] = []
+    if isinstance(entries, list):
+        for entry in entries:
+            cid = safe_get(entry, 2)
+            if isinstance(cid, str) and cid.startswith("0x"):
+                cids.append(cid)
+
+    if not cids:
+        # Path moved — regex scan keeps the fallback CID flow alive.
+        seen: set[str] = set()
+        for m in _HEX_CID_RE.finditer(raw_json):
+            cid = m.group(1)
+            if cid not in seen:
+                seen.add(cid)
+                cids.append(cid)
+        if cids:
+            logger.debug("parse_cids_from_maps_response: known path missed, regex found %d CIDs", len(cids))
+
+    logger.debug("parse_cids_from_maps_response: found %d CIDs", len(cids))
+    return cids
+
+
+# ---------------------------------------------------------------------------
+# Per-place detail endpoints (fallback flow)
+# ---------------------------------------------------------------------------
+
+def extract_preview_url_from_html(html: str) -> str | None:
+    """
+    Extract the /maps/preview/place URL from a Google Maps place page HTML.
+
+    Place pages (fetched via /maps?cid=) embed a <link> element in <head>
+    pointing to the JSON data API endpoint with all required parameters.
+    """
+    m = re.search(r'<link[^>]+href="(/maps/preview/place[^"]+)"', html)
+    if m:
+        url = "https://www.google.com" + m.group(1).replace("&amp;", "&")
+        logger.debug("extract_preview_url_from_html: found preview URL")
+        return url
+    logger.debug("extract_preview_url_from_html: no preview link found in HTML")
+    return None
+
+
+def parse_place_from_preview_json(raw_json: str, hex_cid: str = "") -> dict | None:
+    """
+    Parse a /maps/preview/place JSON response into a business dict.
+
+    The endpoint returns an XSSI-protected JSON array (strip the leading
+    ``)]}'`` before calling). The business block lives at ``data[6]`` and
+    uses the shared block schema (see module docstring).
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        logger.debug("parse_place_from_preview_json: JSON error: %s", exc)
+        return None
+
+    block = safe_get(data, 6)
+    business = parse_business_block(block, fallback_cid=hex_cid)
+    if business:
+        logger.debug("parse_place_from_preview_json: extracted '%s'", business["business_name"])
+    else:
+        logger.debug("parse_place_from_preview_json: no business block at data[6]")
+    return business
 
 
 def parse_place_from_html(html: str, hex_cid: str = "") -> dict | None:
     """
     Legacy fallback: extract basic business data from a Google Maps place HTML.
 
-    Google Maps is a JavaScript SPA; the initial HTML response does not contain
-    business data inline. This function only returns the business name (from
-    ``<title>``) as a last-resort fallback. For full data use the two-step approach:
-    extract_preview_url_from_html() → fetch → parse_place_from_preview_json().
+    The initial HTML of the Maps SPA only reliably exposes the business name
+    (via <title>). Used as a last resort when the preview endpoint fails.
     """
     title_m = re.search(r"<title>(.*?)(?:\s*[-–]\s*Google Maps)?</title>", html, re.IGNORECASE)
     if title_m:
@@ -381,6 +348,8 @@ def parse_place_from_html(html: str, hex_cid: str = "") -> dict | None:
                 "phone": None,
                 "website": None,
                 "maps_url": f"https://www.google.com/maps?cid={decimal}" if decimal else None,
+                "latitude": None,
+                "longitude": None,
             }
 
     logger.debug("parse_place_from_html: could not extract business data")

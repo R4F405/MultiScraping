@@ -9,23 +9,27 @@ from backend.storage import database as db
 
 
 @pytest.mark.asyncio
-async def test_fetch_cid_list_raises_maps_fetch_error_on_operational_exception(monkeypatch):
+async def test_http_get_raises_maps_fetch_error_on_operational_exception(monkeypatch):
     from backend.scraper import maps_client
 
-    async def _no_proxy():
+    async def _no_proxy(*_args, **_kwargs):
         return None
 
     def _raise(*_args, **_kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(maps_client.proxy_manager, "wait_for_available", _no_proxy)
-    # Asegura que `_fetch_cid_list` no toma el early-return por "no proxy"
-    # (eso depende de si proxy_manager._stats está vacío o no).
+    # Con _stats vacío, wait_for_available devuelve None sin bloquear: modo
+    # directo (sin proxy). El error de transporte debe convertirse igualmente.
     monkeypatch.setattr(maps_client.proxy_manager, "_stats", {})
     monkeypatch.setattr(maps_client.curl_requests, "get", _raise)
 
     with pytest.raises(MapsFetchError) as exc:
-        await maps_client._fetch_cid_list(query="dentistas", location="Madrid", start=0)
+        await maps_client._http_get(
+            maps_client._SEARCH_URL,
+            params={"q": "dentistas"},
+            headers=maps_client._SEARCH_HEADERS,
+        )
 
     assert exc.value.kind in ("connection", "unknown")
 
