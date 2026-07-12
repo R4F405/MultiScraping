@@ -186,7 +186,10 @@ async def _search_unique_businesses(
     pages_scanned = 0
     dropped_recent = 0
     dropped_in_job = 0
-    max_pages = max(3, min(200, target * 6))
+    stagnant_pages = 0
+    # Each page carries up to 20 results; allow margin for dedupe drops but
+    # cap the scan — Google exposes at most ~a few hundred results per query.
+    max_pages = max(3, min(60, (target // 20) + 10))
 
     while len(uniques) < target and pages_scanned < max_pages:
         if cancel_ev is not None and cancel_ev.is_set():
@@ -243,6 +246,7 @@ async def _search_unique_businesses(
 
         recent_ids = await db.get_recent_place_ids(candidate_place_ids, days=dedupe_days) if candidate_place_ids else set()
 
+        fresh_this_page = 0
         for business in batch:
             pid_raw = business.get("place_id")
             pid = str(pid_raw).strip() if pid_raw else ""
@@ -252,6 +256,7 @@ async def _search_unique_businesses(
                     dropped_in_job += 1
                     continue
                 seen_in_job.add(pid)
+                fresh_this_page += 1
 
                 if pid in recent_ids:
                     dropped_recent += 1
@@ -264,6 +269,18 @@ async def _search_unique_businesses(
         start += 20
         if len(batch) < 20:
             break
+        # Google repeats results near the end of the available set; stop
+        # instead of burning requests on pages with nothing new.
+        if fresh_this_page == 0:
+            stagnant_pages += 1
+            if stagnant_pages >= 2:
+                logger.info(
+                    "_search_unique_businesses: '%s' exhausted after %d pages (repeating results)",
+                    query, pages_scanned,
+                )
+                break
+        else:
+            stagnant_pages = 0
 
     logger.info(
         "Unique search query='%s' location='%s': uniques=%d target=%d pages=%d dropped_recent=%d dropped_in_job=%d",

@@ -60,6 +60,13 @@ class Settings:
     # Set API_KEY in .env to require X-API-Key header on all API requests
     api_key: str
 
+    # Google Maps transport: TLS fingerprint profile for curl_cffi
+    # ("chrome131" default; "none" disables impersonation — needed behind
+    # TLS-intercepting egress proxies that reject impersonated ClientHellos)
+    maps_impersonate: str
+    # Custom CA bundle path for TLS-intercepting proxies (empty = system CAs)
+    maps_ca_bundle: str
+
 
 def _parse_proxy_list(raw: str) -> list[str]:
     """Parse comma-separated proxy URLs, stripping whitespace."""
@@ -96,6 +103,8 @@ def _load_settings() -> Settings:
             os.getenv("EMAIL_SCRAPER_FORCE_DIRECT", "0").strip().lower() in ("1", "true", "yes")
         ),
         api_key=os.getenv("API_KEY", ""),
+        maps_impersonate=os.getenv("MAPS_IMPERSONATE", "chrome131"),
+        maps_ca_bundle=os.getenv("MAPS_CA_BUNDLE", ""),
     )
 
 
