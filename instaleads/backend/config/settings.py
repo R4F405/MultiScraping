@@ -29,6 +29,21 @@ class Settings:
     IG_HEALTH_CHECK_INTERVAL: int = int(os.getenv("IG_HEALTH_CHECK_INTERVAL", "3600"))
     IG_HEALTH_TEST_ACCOUNT: str = os.getenv("IG_HEALTH_TEST_ACCOUNT", "natgeo")
 
+    # Transport — curl_cffi TLS fingerprint profile ("none" to disable behind
+    # TLS-intercepting proxies) and optional custom CA bundle path.
+    IG_IMPERSONATE: str = os.getenv("IG_IMPERSONATE", "chrome131")
+    IG_CA_BUNDLE: str = os.getenv("IG_CA_BUNDLE", "")
+
+    # Followers mode (Modo B) — requires an authenticated session.
+    # Instagram returns followers in pages (~50–100 each); the scraper
+    # paginates via the max_id cursor to go well beyond the ~50 shown in the
+    # desktop web modal. These control page size and inter-page pacing.
+    IG_FOLLOWERS_PAGE_SIZE: int = int(os.getenv("IG_FOLLOWERS_PAGE_SIZE", "50"))
+    IG_FOLLOWERS_DELAY_MIN: float = float(os.getenv("IG_FOLLOWERS_DELAY_MIN", "2.0"))
+    IG_FOLLOWERS_DELAY_MAX: float = float(os.getenv("IG_FOLLOWERS_DELAY_MAX", "5.0"))
+    # Hard cap on followers collected per job (safety valve for huge accounts).
+    IG_FOLLOWERS_MAX_PER_JOB: int = int(os.getenv("IG_FOLLOWERS_MAX_PER_JOB", "5000"))
+
     # DB
     DB_PATH: str = os.path.join(os.path.dirname(__file__), "..", "..", "data", "instaleads.db")
 

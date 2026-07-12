@@ -72,6 +72,27 @@ export function initInstagramForm() {
   const dorkingProgressText = document.getElementById('ig-dorking-progress-text');
   const dorkingEmailsText = document.getElementById('ig-dorking-emails-text');
 
+  // Mode B — followers
+  const tabFollowers = document.getElementById('ig-tab-followers');
+  const panelDorking = document.getElementById('ig-panel-dorking');
+  const panelFollowers = document.getElementById('ig-panel-followers');
+  const followersSessionBanner = document.getElementById('ig-followers-session-banner');
+  const followersTarget = document.getElementById('ig-followers-target');
+  const followersMax = document.getElementById('ig-followers-max');
+  const followersEnrich = document.getElementById('ig-followers-enrich');
+  const followersStartBtn = document.getElementById('ig-followers-start-btn');
+  const followersCancelBtn = document.getElementById('ig-followers-cancel-btn');
+  const followersExportBtn = document.getElementById('ig-followers-export-btn');
+  const followersProgress = document.getElementById('ig-followers-progress');
+  const followersBar = document.getElementById('ig-followers-bar');
+  const followersProgressText = document.getElementById('ig-followers-progress-text');
+  const followersCountText = document.getElementById('ig-followers-count-text');
+
+  // Followers session availability (from /api/instagram/health).
+  let followersAvailable = false;
+  let followersJobId = null;
+  let followersPollInterval = null;
+
   // Results
   const btnTodos = document.getElementById('ig-btn-todos');
   const btnScrapeos = document.getElementById('ig-btn-scrapeos');
@@ -168,7 +189,15 @@ export function initInstagramForm() {
     const proxyLine = proxies > 0 ? `${proxies} proxies activos` : 'Sin proxies — conexión directa';
     if (healthDetails) healthDetails.textContent = proxyLine;
 
+    followersAvailable = Boolean(health?.followers_available ?? health?.session_active);
+    if (followersSessionBanner) followersSessionBanner.classList.toggle('hidden', followersAvailable);
+    updateFollowersButtonState();
+
     applyMaintenanceMode(Boolean(health?.maintenance_mode || status === 'broken'), health?.message || health?.last_error);
+  };
+
+  const updateFollowersButtonState = () => {
+    if (followersStartBtn) followersStartBtn.disabled = maintenanceMode || !followersAvailable;
   };
 
   const updateActionButtons = () => {
@@ -438,6 +467,154 @@ export function initInstagramForm() {
     } catch (err) {
       showAlert(`No se pudo cancelar: ${err.message}`, 'error');
       updateDorkingCancelUi(true, { cancelling: false });
+    }
+  });
+
+  // ── Mode switch (A: dorking / B: followers) ──────────────────────────────
+  const activeTabCls = 'px-4 py-2 rounded-lg text-sm font-medium transition bg-white text-slate-800 shadow-sm';
+  const idleTabCls = 'px-4 py-2 rounded-lg text-sm font-medium transition text-slate-500 hover:text-slate-700';
+  const switchMode = (mode) => {
+    const isFollowers = mode === 'followers';
+    if (tabDorking) tabDorking.className = isFollowers ? idleTabCls : activeTabCls;
+    if (tabFollowers) tabFollowers.className = isFollowers ? activeTabCls : idleTabCls;
+    panelDorking?.classList.toggle('hidden', isFollowers);
+    panelFollowers?.classList.toggle('hidden', !isFollowers);
+  };
+  tabDorking?.addEventListener('click', () => switchMode('dorking'));
+  tabFollowers?.addEventListener('click', () => switchMode('followers'));
+
+  // ── Followers progress + polling ─────────────────────────────────────────
+  const updateFollowersProgress = (job) => {
+    const total = Math.max(0, Number(job?.total ?? 0));
+    const progress = Math.max(0, Number(job?.progress ?? 0));
+    const emails = Math.max(0, Number(job?.emails_found ?? 0));
+    const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
+    followersProgress?.classList.remove('hidden');
+    if (followersBar) followersBar.style.width = `${Math.min(100, pct)}%`;
+    if (followersProgressText) followersProgressText.textContent = `${progress}/${total || '?'} seguidores`;
+    if (followersCountText) {
+      followersCountText.textContent = emails > 0 ? `${emails} con email` : `${progress} recopilados`;
+    }
+  };
+
+  const updateFollowersCancelUi = (visible, opts = {}) => {
+    if (!followersCancelBtn) return;
+    followersCancelBtn.classList.toggle('hidden', !visible);
+    if (opts.cancelling) {
+      followersCancelBtn.disabled = true;
+      followersCancelBtn.textContent = 'Cancelando…';
+    } else if (visible) {
+      followersCancelBtn.disabled = false;
+      followersCancelBtn.textContent = 'Cancelar scrapeo';
+    }
+  };
+
+  const makeFollowersPollFn = () => async () => {
+    const jobId = followersJobId;
+    if (!jobId) return;
+    try {
+      const res = await fetch(`${window.__BASE__}/api/instagram/jobs/${encodeURIComponent(jobId)}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      updateFollowersProgress(job);
+
+      const terminal = ['completed', 'completed_partial', 'cancelled', 'failed', 'auth_required'];
+      if (terminal.includes(job.status)) {
+        stopPoll(followersPollInterval);
+        followersPollInterval = null;
+        updateFollowersCancelUi(false);
+        hideProgress(followersProgress, followersBar);
+        if (followersExportBtn) followersExportBtn.disabled = false;
+        await loadResults(igView === 'todos' ? null : (displayedJobId || jobId));
+        if (igView === 'scrapeos') await renderJobsList();
+
+        const collected = Math.max(0, Number(job?.progress ?? 0));
+        const emails = Math.max(0, Number(job?.emails_found ?? 0));
+        if (job.status === 'completed') {
+          showAlert(`Seguidores extraídos: ${collected}${emails ? ` · ${emails} con email` : ''}.`, 'ok');
+        } else if (job.status === 'completed_partial') {
+          showAlert(`Extracción parcial: ${collected} seguidores recopilados antes de un bloqueo. Reintenta o añade proxies.`, 'warn');
+        } else if (job.status === 'cancelled') {
+          showAlert(`Scrapeo cancelado. Se conservan ${collected} seguidores.`, 'warn');
+        } else if (job.status === 'auth_required') {
+          showAlert('Sesión de Instagram no válida o ausente. Configura IG_SESSIONID en el backend.', 'error');
+        } else {
+          showAlert('La extracción de seguidores falló. Revisa los logs del backend.', 'error');
+        }
+      }
+    } catch (_) {}
+  };
+
+  // ── Mode B — followers ───────────────────────────────────────────────────
+  followersStartBtn?.addEventListener('click', async () => {
+    if (maintenanceMode) { showAlert('Instagram está en mantenimiento temporal.', 'warn'); return; }
+    if (!followersAvailable) {
+      showAlert('El modo Seguidores necesita una sesión de Instagram (IG_SESSIONID) configurada en el backend.', 'warn');
+      return;
+    }
+    hideAlert();
+    const target = (followersTarget?.value || '').trim().replace(/^@/, '');
+    if (!target) { showAlert('Introduce la cuenta objetivo (ej: @nike).'); return; }
+    const maxResults = clamp(followersMax?.value, 1, 50000, 200);
+    const enrich = Boolean(followersEnrich?.checked);
+
+    followersStartBtn.disabled = true;
+    followersStartBtn.textContent = 'Extrayendo...';
+    if (followersExportBtn) followersExportBtn.disabled = true;
+    hideProgress(followersProgress, followersBar);
+    allLeads = []; applyFilters();
+    if (followersPollInterval) { clearInterval(followersPollInterval); followersPollInterval = null; }
+    updateFollowersCancelUi(false);
+
+    try {
+      const res = await fetch(window.__BASE__ + '/api/instagram/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'followers', target, max_results: maxResults, enrich_emails: enrich }),
+      });
+      if (!res.ok) {
+        let msg = `Error ${res.status}`;
+        try { const err = await res.json(); msg = err?.detail || msg; } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      followersJobId = data.job_id;
+      updateFollowersProgress({ progress: 0, total: maxResults, emails_found: 0 });
+      if (data.status === 'running') updateFollowersCancelUi(true);
+      followersPollInterval = window.setInterval(makeFollowersPollFn(), 2000);
+    } catch (err) {
+      showAlert(`No se pudo iniciar la extracción de seguidores: ${err.message}`);
+    } finally {
+      followersStartBtn.textContent = 'Extraer seguidores';
+      updateFollowersButtonState();
+    }
+  });
+
+  followersExportBtn?.addEventListener('click', () => exportLeads(followersJobId));
+
+  followersCancelBtn?.addEventListener('click', async () => {
+    const jid = followersJobId;
+    if (!jid) return;
+    hideAlert();
+    updateFollowersCancelUi(true, { cancelling: true });
+    try {
+      const res = await fetch(
+        `${window.__BASE__}/api/instagram/jobs/${encodeURIComponent(jid)}/cancel`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        let msg = `Error ${res.status}`;
+        try {
+          const err = await res.json();
+          if (typeof err?.detail === 'string') msg = err.detail;
+          else if (Array.isArray(err?.detail)) msg = err.detail.map((d) => d.msg || d).join(' ');
+        } catch (_) {}
+        showAlert(msg, res.status === 503 ? 'warn' : 'error');
+        updateFollowersCancelUi(true, { cancelling: false });
+      }
+    } catch (err) {
+      showAlert(`No se pudo cancelar: ${err.message}`, 'error');
+      updateFollowersCancelUi(true, { cancelling: false });
     }
   });
 

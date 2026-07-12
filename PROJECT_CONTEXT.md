@@ -44,8 +44,10 @@ Usuario → Nginx:9090 (HTTPS)
 - `instaleads/backend/scraper/ig_rate_limiter.py` — `RateLimiter(mode)`: delay aleatorio + límite diario + backoff exponencial con lock asyncio
 - `instaleads/backend/scraper/ig_deduplicator.py` — `Deduplicator`: set en RAM cargado desde BD; skip duro por `username`, skip blando con ventana 3 días para `ig_skipped`
 - `instaleads/backend/scraper/ig_proxy_manager.py` — `IgProxyManager`: round-robin con cooldown 5min por proxy fallido
-- `instaleads/backend/scraper/ig_dorking.py` — modo sin sesión: búsqueda Google CSE → extrae perfiles públicos
-- `instaleads/backend/scraper/ig_followers.py` — modo autenticado: seguidores de cuenta objetivo via instagrapi
+- `instaleads/backend/scraper/ig_dorking.py` — modo sin sesión (Modo A): búsqueda Startpage/DuckDuckGo → extrae perfiles públicos
+- `instaleads/backend/scraper/ig_session.py` — sesión autenticada: carga `sessionid` desde `IG_SESSIONID`/`IG_SESSION_FILE`; deriva `ds_user_id`
+- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de cuenta objetivo vía API privada `friendships/{id}/followers/` con paginación por `max_id` (supera el límite de ~50 de la web de escritorio)
+- `instaleads/backend/scraper/ig_client.py` — `ig_get` (guest, adjunta sesión si existe) y `ig_get_authenticated` (API privada; lanza `IgAuthError` si falta/expira sesión)
 - `instaleads/backend/scraper/ig_health.py` — healthcheck con caché 2min; basa estado en contadores de BD (no consume cuota)
 - `instaleads/backend/storage/database.py` — aiosqlite, tablas: `ig_leads`, `ig_skipped`, `ig_scrape_jobs`, `ig_daily_stats`, `ig_health_log`
 
@@ -176,6 +178,10 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 ---
 
 ## Recent Changes Log
+
+- **2026-07-12:** Instagram — modo Seguidores (Modo B) restaurado y funcionando. Causa raíz del fallo: `web_profile_info` y la API privada devuelven 429/`require_login` sin sesión desde IPs de datacenter. Añadido `ig_session.py` (sesión vía `IG_SESSIONID`), `ig_get_authenticated` en `ig_client.py`, y `ig_followers.py` que pagina la lista completa de seguidores vía el cursor `max_id` de `friendships/{id}/followers/` (supera el límite de ~50 de la web de escritorio). Nueva UI "Modo B — Seguidores" con gate por sesión. Health check reporta `session_active`/`followers_available`.
+
+- **2026-07-12:** Google Maps — reparado el scraper con búsqueda `pb` paginada (PR #1). Ver historial de `mapleads`.
 
 - **2026-05-08:** Fix raíz: `initLinkedInForm()` se llamaba dos veces (app.js + linkedin.html). Cada click enviaba 2 POSTs → el primero 200, el segundo 409 → dos mensajes contradictorios en UI. Eliminada la llamada duplicada del template. Commit: `fd2018e`
 
