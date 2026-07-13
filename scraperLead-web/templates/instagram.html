@@ -104,6 +104,10 @@
                 class="px-4 py-2 rounded-lg text-sm font-medium transition bg-white text-slate-800 shadow-sm">
           Modo A — Dorking
         </button>
+        <button id="ig-tab-followers"
+                class="px-4 py-2 rounded-lg text-sm font-medium transition text-slate-500 hover:text-slate-700">
+          Modo B — Seguidores
+        </button>
       </div>
 
       <!-- Panel A: Dorking -->
@@ -157,6 +161,65 @@
                  style="width:0%;background:linear-gradient(90deg,#E1306C,#833AB4)"></div>
           </div>
         </div>
+      </div>
+
+      <!-- Panel B: Followers -->
+      <div id="ig-panel-followers" class="hidden">
+        <!-- Session-required banner (shown when no IG session is configured) -->
+        <div id="ig-followers-session-banner"
+             class="hidden mb-4 flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+          <svg class="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+          <span>El modo Seguidores requiere una <strong>sesión de Instagram</strong>. Configura la variable <code>IG_SESSIONID</code> en el backend (cookie <code>sessionid</code> de una cuenta con sesión iniciada).</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1.5">Cuenta objetivo</label>
+            <input id="ig-followers-target" type="text" placeholder="ej: @nike o nike"
+                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#E1306C]/30">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1.5">Máximo de seguidores</label>
+            <input id="ig-followers-max" type="number" value="200" min="1" max="50000"
+                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#E1306C]/30">
+          </div>
+        </div>
+        <label class="flex items-center gap-2 mb-5 text-xs text-slate-600 cursor-pointer select-none">
+          <input id="ig-followers-enrich" type="checkbox" class="rounded">
+          Enriquecer con email (más lento: consulta el perfil de cada seguidor)
+        </label>
+        <div class="flex items-center gap-3 flex-wrap">
+          <button id="ig-followers-start-btn"
+                  class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  style="background:linear-gradient(90deg,#E1306C,#833AB4)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Extraer seguidores
+          </button>
+          <button id="ig-followers-cancel-btn" type="button"
+                  class="hidden flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            Cancelar scrapeo
+          </button>
+          <button id="ig-followers-export-btn" disabled
+                  class="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Exportar CSV
+          </button>
+        </div>
+        <div id="ig-followers-progress" class="hidden mt-5 p-4 bg-slate-50 rounded-xl border border-slate-100">
+          <div class="flex items-center justify-between mb-2">
+            <p id="ig-followers-progress-text" class="text-xs font-semibold text-slate-600">Extrayendo…</p>
+            <p id="ig-followers-count-text" class="text-xs text-slate-400">0 seguidores</p>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2">
+            <div id="ig-followers-bar" class="h-2 rounded-full transition-all duration-500"
+                 style="width:0%;background:linear-gradient(90deg,#E1306C,#833AB4)"></div>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-400 leading-relaxed">
+          Extrae la lista <strong>completa</strong> de seguidores paginando más allá de los ~50 que muestra la web de escritorio.
+          Para cuentas grandes, aumenta el máximo y usa proxies para evitar bloqueos.
+        </p>
       </div>
 
     </div>
@@ -361,7 +424,7 @@
 </div>
 
 <script type="module">
-  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=23';
+  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=24';
 
   // ── Main view switcher (Scraper / Leads / Configuración) ──────────────────
   const views = {

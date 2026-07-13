@@ -9,11 +9,13 @@ from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import (
     DorkingRequest,
+    FollowersRequest,
     JobResponse,
     LimitsUpdate,
     SearchRequest,
 )
 from backend.config.settings import Settings
+from backend.scraper.ig_client import IgAuthError
 from backend.scraper.ig_health import run_health_check
 from backend.storage import database as db
 
@@ -153,7 +155,139 @@ async def start_search(body: SearchRequest):
             _schedule_dorking_job(niche, location, body.email_goal, job_id)
         return JobResponse(job_id=job_id, status="running")
 
+    if body.mode == "followers":
+        target = body.target.strip().lstrip("@")
+        if not target:
+            raise HTTPException(status_code=422, detail="target account is required for followers mode")
+        existing = await db.find_recent_job("followers", target, within_seconds=15)
+        if existing:
+            return JobResponse(job_id=existing["job_id"], status=existing["status"])
+        job_id = str(uuid.uuid4())
+        await db.upsert_job(job_id, "followers", target, body.max_results)
+        async with _cancel_registry_lock:
+            _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id)
+        return JobResponse(job_id=job_id, status="running")
+
     raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
+
+
+# ── Search: Followers (Modo B) ────────────────────────────────────────────────
+
+def _schedule_followers_job(target: str, max_results: int, enrich: bool, job_id: str) -> None:
+    """Start a followers scrape in the current event loop; register cancel Event."""
+    stop_event = asyncio.Event()
+    _job_cancel_events[job_id] = stop_event
+    task = asyncio.create_task(_run_followers_job(target, max_results, enrich, job_id, stop_event))
+    _jobs[job_id] = task
+    task.add_done_callback(lambda t, jid=job_id: _dorking_task_done(t, jid))
+
+
+async def _run_followers_job(
+    target: str,
+    max_results: int,
+    enrich: bool,
+    job_id: str,
+    stop_event: asyncio.Event,
+) -> None:
+    from backend.scraper.ig_deduplicator import Deduplicator
+    from backend.scraper.ig_followers import FollowersError, scrape_followers
+    from backend.scraper.ig_profile import get_profile
+
+    collected = 0
+    emails_found = 0
+    try:
+        dedup = Deduplicator()
+        await dedup.load_from_db()
+
+        try:
+            async for follower in scrape_followers(target, amount=max_results, stop_event=stop_event):
+                if stop_event.is_set():
+                    break
+
+                username = (follower.get("username") or "").strip()
+                if not username or dedup.should_skip(username):
+                    continue
+                dedup.mark_seen(username)
+
+                lead = {
+                    "instagram_id": follower.get("instagram_id"),
+                    "username": username,
+                    "full_name": follower.get("full_name"),
+                    "email": None,
+                    "email_source": None,
+                    "phone": None,
+                    "website": None,
+                    "bio": None,
+                    "follower_count": 0,
+                    # The followers endpoint doesn't expose is_business; only the
+                    # profile fetch (enrich) can determine it.
+                    "is_business": False,
+                }
+
+                if enrich and not follower.get("is_private"):
+                    try:
+                        profile = await get_profile(username)
+                    except Exception as exc:  # DailyLimitReached, network, etc.
+                        logger.warning("Followers enrich @%s failed: %s", username, exc)
+                        profile = None
+                    if profile and not profile.get("private"):
+                        lead.update({
+                            "instagram_id": profile.get("instagram_id") or lead["instagram_id"],
+                            "full_name": profile.get("full_name") or lead["full_name"],
+                            "email": profile.get("email"),
+                            "email_source": profile.get("email_source"),
+                            "phone": profile.get("phone"),
+                            "website": profile.get("website"),
+                            "bio": profile.get("bio"),
+                            "follower_count": profile.get("follower_count", 0),
+                            "is_business": profile.get("is_business", lead["is_business"]),
+                        })
+
+                if not lead.get("instagram_id"):
+                    # Followers endpoint always returns a pk; guard just in case.
+                    continue
+
+                await db.upsert_ig_lead(
+                    lead, job_id=job_id, source_type="followers", source_value=target
+                )
+                collected += 1
+                if lead.get("email"):
+                    emails_found += 1
+                await db.update_job_progress(job_id, collected, emails_found, collected)
+
+            if stop_event.is_set():
+                await db.finish_job(job_id, "cancelled")
+            else:
+                await db.finish_job(job_id, "completed")
+            logger.info(
+                "Followers job %s: @%s → %d followers, %d emails",
+                job_id[:8], target, collected, emails_found,
+            )
+        except IgAuthError as exc:
+            logger.error("Followers job %s: auth error: %s", job_id[:8], exc)
+            await db.finish_job(job_id, "auth_required")
+        except FollowersError as exc:
+            logger.error("Followers job %s: %s", job_id[:8], exc)
+            # Keep whatever was collected before failing.
+            await db.finish_job(job_id, "completed_partial" if collected else "failed")
+    except Exception as exc:
+        logger.error("Followers job %s failed: %s", job_id, exc)
+        await db.finish_job(job_id, "failed")
+    finally:
+        async with _cancel_registry_lock:
+            _job_cancel_events.pop(job_id, None)
+
+
+@router.post("/search/followers", response_model=JobResponse)
+async def start_followers(body: FollowersRequest):
+    target = body.target.strip().lstrip("@")
+    if not target:
+        raise HTTPException(status_code=422, detail="target account is required")
+    job_id = str(uuid.uuid4())
+    await db.upsert_job(job_id, "followers", target, body.max_results)
+    async with _cancel_registry_lock:
+        _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id)
+    return JobResponse(job_id=job_id, status="running")
 
 
 # ── Search: Dorking (Modo A) ──────────────────────────────────────────────────

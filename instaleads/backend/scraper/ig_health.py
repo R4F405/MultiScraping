@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from backend.config.settings import Settings
+from backend.scraper.ig_session import get_session
 from backend.storage import database as db
 
 _health_cache: dict | None = None
@@ -18,6 +19,9 @@ async def run_health_check() -> dict:
     daily_limit = Settings.IG_LIMIT_DAILY_UNAUTHENTICATED
     proxies_count = len(Settings.IG_PROXY_LIST)
 
+    session = get_session()
+    session_active = bool(session and session.authenticated)
+
     if used_today >= daily_limit:
         unauth_status = "rate_limited"
         unauth_message = f"Límite diario alcanzado ({used_today}/{daily_limit})"
@@ -26,13 +30,16 @@ async def run_health_check() -> dict:
         unauth_message = f"{used_today}/{daily_limit} requests hoy"
         if proxies_count:
             unauth_message += f" · {proxies_count} proxies activos"
+    unauth_message += " · sesión activa" if session_active else " · sin sesión (login requerido para followers)"
 
     result = {
         "status": "ok",
         "unauth_mode": unauth_status,
         "message": unauth_message,
         "proxy_count": proxies_count,
-        "fix_guide": None,
+        "session_active": session_active,
+        "followers_available": session_active,
+        "fix_guide": None if session_active else "Configura IG_SESSIONID para el modo Seguidores.",
         "checked_at": datetime.now().isoformat(),
     }
 
