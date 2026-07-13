@@ -106,6 +106,7 @@ async def get_settings():
     from backend.scraper.ig_client import effective_proxy_list
 
     sessionid = (store.get("IG_SESSIONID") or os.getenv("IG_SESSIONID", "")).strip()
+    guest_sessionid = (store.get("IG_GUEST_SESSIONID") or os.getenv("IG_GUEST_SESSIONID", "")).strip()
     proxies = effective_proxy_list()
 
     if store.has("IG_SESSIONID"):
@@ -114,6 +115,13 @@ async def get_settings():
         sess_source = "env"
     else:
         sess_source = "none"
+
+    if store.has("IG_GUEST_SESSIONID"):
+        guest_source = "db"
+    elif os.getenv("IG_GUEST_SESSIONID", "").strip():
+        guest_source = "env"
+    else:
+        guest_source = "none"
 
     if store.has("IG_PROXY_LIST"):
         proxy_source = "db"
@@ -128,6 +136,9 @@ async def get_settings():
         "ig_sessionid_set": bool(sessionid),
         "ig_sessionid_masked": _mask_secret(sessionid),
         "ig_sessionid_source": sess_source,
+        "ig_guest_sessionid_set": bool(guest_sessionid),
+        "ig_guest_sessionid_masked": _mask_secret(guest_sessionid),
+        "ig_guest_sessionid_source": guest_source,
         "proxy_list": "\n".join(proxies),
         "proxy_count": len(proxies),
         "proxy_source": proxy_source,
@@ -140,7 +151,7 @@ async def update_settings(body: SettingsUpdate):
     from backend.config.settings_store import store
     from backend.config.tunables import update_many
     from backend.scraper.ig_client import reload_proxies
-    from backend.scraper.ig_session import reload_session
+    from backend.scraper.ig_session import reload_guest_session, reload_session
 
     changed = []
 
@@ -152,6 +163,15 @@ async def update_settings(body: SettingsUpdate):
             store.delete("IG_SESSIONID")
         reload_session()
         changed.append("ig_sessionid")
+
+    if body.ig_guest_sessionid is not None:
+        value = body.ig_guest_sessionid.strip()
+        if value:
+            store.set("IG_GUEST_SESSIONID", value)
+        else:
+            store.delete("IG_GUEST_SESSIONID")
+        reload_guest_session()
+        changed.append("ig_guest_sessionid")
 
     if body.proxy_list is not None:
         # Accept newline- or comma-separated; store normalised as comma list.
@@ -252,7 +272,7 @@ async def start_search(body: SearchRequest):
         job_id = str(uuid.uuid4())
         await db.upsert_job(job_id, "followers", target, body.max_results)
         async with _cancel_registry_lock:
-            _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id)
+            _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id, body.reset_cursor)
         return JobResponse(job_id=job_id, status="running")
 
     raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
@@ -260,11 +280,15 @@ async def start_search(body: SearchRequest):
 
 # ── Search: Followers (Modo B) ────────────────────────────────────────────────
 
-def _schedule_followers_job(target: str, max_results: int, enrich: bool, job_id: str) -> None:
+def _schedule_followers_job(
+    target: str, max_results: int, enrich: bool, job_id: str, reset_cursor: bool = False
+) -> None:
     """Start a followers scrape in the current event loop; register cancel Event."""
     stop_event = asyncio.Event()
     _job_cancel_events[job_id] = stop_event
-    task = asyncio.create_task(_run_followers_job(target, max_results, enrich, job_id, stop_event))
+    task = asyncio.create_task(
+        _run_followers_job(target, max_results, enrich, job_id, stop_event, reset_cursor)
+    )
     _jobs[job_id] = task
     task.add_done_callback(lambda t, jid=job_id: _dorking_task_done(t, jid))
 
@@ -275,7 +299,14 @@ async def _run_followers_job(
     enrich: bool,
     job_id: str,
     stop_event: asyncio.Event,
+    reset_cursor: bool = False,
 ) -> None:
+    """Fase 1: pull the full list of usernames first (fast, authenticated,
+    single account). Fase 2 (optional): only once Fase 1 is done, go back
+    and fetch emails for the collected usernames — this can ride on a
+    separate guest session (see ig_session.get_enrichment_session) so the
+    high-volume per-profile checking never touches the main account.
+    """
     from backend.scraper.ig_deduplicator import Deduplicator
     from backend.scraper.ig_followers import FollowersError, scrape_followers
     from backend.scraper.ig_profile import get_profile
@@ -286,8 +317,11 @@ async def _run_followers_job(
         dedup = Deduplicator()
         await dedup.load_from_db()
 
+        # ── Fase 1: usernames ────────────────────────────────────────────
         try:
-            async for follower in scrape_followers(target, amount=max_results, stop_event=stop_event):
+            async for follower in scrape_followers(
+                target, amount=max_results, stop_event=stop_event, reset_cursor=reset_cursor
+            ):
                 if stop_event.is_set():
                     break
 
@@ -300,36 +334,8 @@ async def _run_followers_job(
                     "instagram_id": follower.get("instagram_id"),
                     "username": username,
                     "full_name": follower.get("full_name"),
-                    "email": None,
-                    "email_source": None,
-                    "phone": None,
-                    "website": None,
-                    "bio": None,
-                    "follower_count": 0,
-                    # The followers endpoint doesn't expose is_business; only the
-                    # profile fetch (enrich) can determine it.
-                    "is_business": False,
+                    "is_private": bool(follower.get("is_private")),
                 }
-
-                if enrich and not follower.get("is_private"):
-                    try:
-                        profile = await get_profile(username)
-                    except Exception as exc:  # DailyLimitReached, network, etc.
-                        logger.warning("Followers enrich @%s failed: %s", username, exc)
-                        profile = None
-                    if profile and not profile.get("private"):
-                        lead.update({
-                            "instagram_id": profile.get("instagram_id") or lead["instagram_id"],
-                            "full_name": profile.get("full_name") or lead["full_name"],
-                            "email": profile.get("email"),
-                            "email_source": profile.get("email_source"),
-                            "phone": profile.get("phone"),
-                            "website": profile.get("website"),
-                            "bio": profile.get("bio"),
-                            "follower_count": profile.get("follower_count", 0),
-                            "is_business": profile.get("is_business", lead["is_business"]),
-                        })
-
                 if not lead.get("instagram_id"):
                     # Followers endpoint always returns a pk; guard just in case.
                     continue
@@ -338,25 +344,100 @@ async def _run_followers_job(
                     lead, job_id=job_id, source_type="followers", source_value=target
                 )
                 collected += 1
-                if lead.get("email"):
-                    emails_found += 1
-                await db.update_job_progress(job_id, collected, emails_found, collected)
+                await db.update_job_progress(job_id, collected, emails_found, 0)
 
-            if stop_event.is_set():
-                await db.finish_job(job_id, "cancelled")
-            else:
-                await db.finish_job(job_id, "completed")
             logger.info(
-                "Followers job %s: @%s → %d followers, %d emails",
-                job_id[:8], target, collected, emails_found,
+                "Followers job %s: fase 1 done — @%s → %d usernames",
+                job_id[:8], target, collected,
             )
         except IgAuthError as exc:
             logger.error("Followers job %s: auth error: %s", job_id[:8], exc)
             await db.finish_job(job_id, "auth_required")
+            return
         except FollowersError as exc:
             logger.error("Followers job %s: %s", job_id[:8], exc)
-            # Keep whatever was collected before failing.
             await db.finish_job(job_id, "completed_partial" if collected else "failed")
+            return
+
+        # ── Fase 2: emails (only if requested and not cancelled) ────────
+        if enrich and not stop_event.is_set():
+            pending = await db.get_pending_email_leads(job_id)
+            logger.info(
+                "Followers job %s: fase 2 start — %d perfiles a comprobar", job_id[:8], len(pending)
+            )
+            checked = 0
+            for row in pending:
+                if stop_event.is_set():
+                    break
+
+                # Daily "unauth" quota is shared with Dorking mode and enforced
+                # inside ig_get's rate limiter — but a DailyLimitReached raised
+                # there gets swallowed by ig_client's retry loop and surfaces as
+                # a generic fetch failure, not this exception. Check proactively
+                # so we stop cleanly instead of burning 3 retries per lead.
+                daily_used = await db.get_daily_count("unauth")
+                if Settings.IG_LIMIT_DAILY_UNAUTHENTICATED and daily_used >= Settings.IG_LIMIT_DAILY_UNAUTHENTICATED:
+                    logger.warning(
+                        "Followers job %s: fase 2 stopped — daily unauth limit reached (%d/%d). "
+                        "%d perfiles quedan pendientes para la próxima vez.",
+                        job_id[:8], daily_used, Settings.IG_LIMIT_DAILY_UNAUTHENTICATED, len(pending) - checked,
+                    )
+                    break
+
+                username = row["username"]
+                try:
+                    profile = await get_profile(username)
+                except Exception as exc:
+                    logger.warning("Followers enrich @%s failed: %s", username, exc)
+                    profile = None
+
+                checked += 1
+
+                if profile is None:
+                    # Fetch genuinely failed (network/proxy/rate-limit) — leave
+                    # email_status as 'pending' so a later Fase 2 run retries it,
+                    # instead of wrongly recording it as "no email found".
+                    await db.update_job_progress(job_id, collected, emails_found, checked)
+                    continue
+
+                enrich_lead = {
+                    "instagram_id": row["instagram_id"],
+                    "username": username,
+                    "email_checked": True,
+                    "is_private": bool(profile.get("private")),
+                }
+                if not profile.get("private"):
+                    enrich_lead.update({
+                        "full_name": profile.get("full_name"),
+                        "email": profile.get("email"),
+                        "email_source": profile.get("email_source"),
+                        "phone": profile.get("phone"),
+                        "website": profile.get("website"),
+                        "bio": profile.get("bio"),
+                        "follower_count": profile.get("follower_count", 0),
+                        "is_business": profile.get("is_business", False),
+                    })
+                    if profile.get("email"):
+                        emails_found += 1
+
+                await db.upsert_ig_lead(
+                    enrich_lead, job_id=job_id, source_type="followers", source_value=target
+                )
+                await db.update_job_progress(job_id, collected, emails_found, checked)
+
+            logger.info(
+                "Followers job %s: fase 2 done — %d/%d perfiles comprobados, %d emails",
+                job_id[:8], checked, len(pending), emails_found,
+            )
+
+        if stop_event.is_set():
+            await db.finish_job(job_id, "cancelled")
+        else:
+            await db.finish_job(job_id, "completed")
+        logger.info(
+            "Followers job %s: @%s → %d followers, %d emails",
+            job_id[:8], target, collected, emails_found,
+        )
     except Exception as exc:
         logger.error("Followers job %s failed: %s", job_id, exc)
         await db.finish_job(job_id, "failed")
@@ -373,7 +454,7 @@ async def start_followers(body: FollowersRequest):
     job_id = str(uuid.uuid4())
     await db.upsert_job(job_id, "followers", target, body.max_results)
     async with _cancel_registry_lock:
-        _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id)
+        _schedule_followers_job(target, body.max_results, body.enrich_emails, job_id, body.reset_cursor)
     return JobResponse(job_id=job_id, status="running")
 
 

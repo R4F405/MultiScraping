@@ -2,6 +2,7 @@ import logging
 import re
 
 from backend.scraper.ig_client import ig_get
+from backend.scraper.ig_session import get_enrichment_session
 from backend.scraper.email_finder import find_email_in_website
 
 logger = logging.getLogger(__name__)
@@ -39,11 +40,16 @@ def _extract_follower_count(user: dict) -> int:
 async def get_profile(username: str) -> dict | None:
     """Fetch a public Instagram profile and extract all relevant fields.
 
+    Uses the guest account (Fase 2 enrichment session) when one is
+    configured, so the high-volume profile-checking traffic never rides on
+    the main account that pulled the followers list. Falls back to the main
+    session, then to fully anonymous, when no guest account is set up.
+
     Returns None for private profiles or fetch errors.
     The 'email' field may be None if no email was found anywhere.
     """
     url = PROFILE_URL.format(username=username)
-    data = await ig_get(url)
+    data = await ig_get(url, session=get_enrichment_session())
 
     if "error" in data:
         logger.debug("get_profile(%s): fetch error — %s", username, data.get("error"))

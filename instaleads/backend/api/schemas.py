@@ -8,6 +8,8 @@ class SearchRequest(BaseModel):
     # Followers mode only:
     max_results: int = Field(default=200, ge=1, le=50000)
     enrich_emails: bool = False
+    # Ignore the saved resume cursor for this account and start over.
+    reset_cursor: bool = False
 
 
 class DorkingRequest(BaseModel):
@@ -19,9 +21,13 @@ class DorkingRequest(BaseModel):
 class FollowersRequest(BaseModel):
     target: str  # target account username (with or without leading @)
     max_results: int = Field(default=200, ge=1, le=50000)
-    # When True, fetch each follower's profile to extract email (slower, more
-    # requests). When False (default) only the follower list is collected.
+    # When True, fetch each follower's profile to extract email in a second
+    # pass, after all usernames have been collected (slower, more requests).
+    # When False (default) only the follower list is collected.
     enrich_emails: bool = False
+    # Ignore the saved resume cursor for this account and start over from the
+    # first follower instead of continuing where a previous job left off.
+    reset_cursor: bool = False
 
 
 class LimitsUpdate(BaseModel):
@@ -32,6 +38,9 @@ class SettingsUpdate(BaseModel):
     # Only provided fields are updated. Empty string clears the DB override
     # (falls back to the .env value). Omitted (None) leaves the field untouched.
     ig_sessionid: str | None = None
+    # Optional secondary account used only for Fase 2 (email enrichment),
+    # kept separate from the main account that pulls the followers list.
+    ig_guest_sessionid: str | None = None
     proxy_list: str | None = None
     # Rate-limit / anti-ban knobs — see backend.config.tunables.TUNABLES for
     # the full list of accepted keys. Values are raw strings; empty clears.

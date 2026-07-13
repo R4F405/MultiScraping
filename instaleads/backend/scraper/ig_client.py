@@ -73,19 +73,22 @@ def _curl_extra_kwargs() -> dict:
     return kwargs
 
 
-async def ig_get(url: str, max_retries: int | None = None) -> dict:
+async def ig_get(url: str, max_retries: int | None = None, session=None) -> dict:
     """
     Unauthenticated/guest GET to Instagram with proxy rotation, rate limiting
     and retries.
 
-    When a session is configured (see :mod:`ig_session`) it is attached
-    automatically — Instagram now throttles logged-out requests to
+    ``session`` lets a caller pin a specific identity (e.g. a separate guest
+    account for email enrichment, see :func:`ig_session.get_enrichment_session`)
+    instead of the main account. When omitted, falls back to the main session
+    if one is configured — Instagram now throttles logged-out requests to
     near-uselessness, so an authenticated session dramatically improves the
     success rate even for "public" endpoints.
     """
     if max_retries is None:
         max_retries = Settings.IG_MAX_RETRIES
-    session = get_session()
+    if session is None:
+        session = get_session()
     return await _ig_request(url, session=session, max_retries=max_retries, require_auth=False)
 
 

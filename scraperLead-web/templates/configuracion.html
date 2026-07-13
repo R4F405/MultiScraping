@@ -54,6 +54,21 @@
       </div>
 
       <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold text-slate-800">Sesión de cuenta invitada (opcional)</h2>
+          <span id="ig-guest-session-source" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500"></span>
+        </div>
+        <p class="text-slate-500 text-xs mb-3">
+          Cuenta secundaria dedicada solo a comprobar emails (Fase 2), separada de la cuenta principal
+          que extrae la lista de seguidores. Recomendado si vas a sacar emails en volumen: así un aviso
+          en esta cuenta nunca afecta a la principal. Si lo dejas vacío, se usa la cuenta principal.
+        </p>
+        <input id="ig_guest_sessionid" type="text" spellcheck="false" autocomplete="off"
+          class="w-full font-mono text-xs rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none">
+        <p id="ig-guest-session-current" class="text-[11px] text-slate-400 mt-1"></p>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
         <h2 class="font-semibold text-slate-800 mb-1">Límites y antibaneo</h2>
         <p class="text-slate-500 text-xs mb-4">Controlan cuánto y a qué ritmo se scrapea. Vacío = usar el valor por defecto del sistema.</p>
         <div id="ig-limits" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
@@ -197,6 +212,11 @@
         ? "Sesión actual: " + d.ig_sessionid_masked
         : "No hay sesión configurada.";
 
+      setSourceBadge($("ig-guest-session-source"), d.ig_guest_sessionid_source);
+      $("ig-guest-session-current").textContent = d.ig_guest_sessionid_set
+        ? "Cuenta invitada actual: " + d.ig_guest_sessionid_masked
+        : "Sin cuenta invitada — Fase 2 usará la cuenta principal.";
+
       renderLimits($("ig-limits"), d.limits || {});
     } catch (e) {
       showAlert("No se pudo cargar la configuración de Instagram.", false);
@@ -217,6 +237,8 @@
     };
     const sess = $("ig_sessionid").value.trim();
     if (sess) payload.ig_sessionid = sess;
+    const guestSess = $("ig_guest_sessionid").value.trim();
+    if (guestSess) payload.ig_guest_sessionid = guestSess;
 
     try {
       const r = await fetch("/api/instagram/settings", {
@@ -228,6 +250,7 @@
       if (r.ok) {
         showAlert("Instagram: cambios guardados y aplicados en caliente.", true);
         $("ig_sessionid").value = "";
+        $("ig_guest_sessionid").value = "";
         await loadInstagram();
       } else {
         showAlert("Error al guardar Instagram: " + (d.detail || JSON.stringify(d)), false);

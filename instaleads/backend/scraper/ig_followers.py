@@ -205,9 +205,15 @@ async def scrape_followers(
     *,
     amount: int = 0,
     stop_event: asyncio.Event | None = None,
+    reset_cursor: bool = False,
 ) -> AsyncGenerator[dict, None]:
     """
     High-level helper: resolve the target account then yield its followers.
+
+    Automatically resumes from the GraphQL cursor saved on a previous run for
+    this same account (see :mod:`backend.storage.database` — table
+    ``ig_followers_cursor``), instead of re-walking the same first page every
+    time. Pass ``reset_cursor=True`` to start over from the beginning.
 
     Raises IgAuthError when no session is configured, FollowersError when the
     account cannot be resolved.
@@ -223,6 +229,30 @@ async def scrape_followers(
     if not user_id:
         raise FollowersError(f"Could not resolve @{target_username} (private, non-existent, or blocked).")
 
+    if reset_cursor:
+        await db.reset_followers_cursor(target_username)
+        start_cursor = ""
+    else:
+        start_cursor = await db.get_followers_cursor(target_username) or ""
+        if start_cursor:
+            logger.info("scrape_followers: @%s resuming from saved cursor", target_username)
+
     logger.info("scrape_followers: @%s → user_id=%s (amount=%s)", target_username, user_id, amount or "all")
-    async for follower in iter_followers(user_id, amount=amount, stop_event=stop_event):
+
+    last_saved_cursor = start_cursor
+    new_in_page = 0
+    async for follower in iter_followers(
+        user_id, amount=amount, stop_event=stop_event, start_cursor=start_cursor
+    ):
+        next_cursor = follower.get("_next_cursor") or ""
+        if next_cursor and next_cursor != last_saved_cursor:
+            # Crossed a page boundary — persist so a crash/cancel mid-run
+            # still resumes past everything already yielded.
+            await db.save_followers_cursor(target_username, next_cursor, collected_delta=new_in_page)
+            last_saved_cursor = next_cursor
+            new_in_page = 0
+        new_in_page += 1
         yield follower
+
+    if new_in_page:
+        await db.save_followers_cursor(target_username, last_saved_cursor, collected_delta=new_in_page)

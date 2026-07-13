@@ -86,13 +86,28 @@ async def init_db():
                 message    TEXT,
                 checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            -- Resume point per target account for the authenticated followers
+            -- list (Modo B). Instagram's GraphQL cursor lets a new job pick up
+            -- where the previous one on the same account left off, instead of
+            -- re-walking the same first page every time.
+            CREATE TABLE IF NOT EXISTS ig_followers_cursor (
+                username     TEXT PRIMARY KEY,
+                last_cursor  TEXT,
+                collected    INTEGER DEFAULT 0,
+                updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         # Safe migration for existing databases
-        try:
-            await db.execute("ALTER TABLE ig_scrape_jobs ADD COLUMN profiles_checked INTEGER DEFAULT 0")
-            await db.commit()
-        except Exception:
-            pass  # Column already exists
+        for stmt in (
+            "ALTER TABLE ig_scrape_jobs ADD COLUMN profiles_checked INTEGER DEFAULT 0",
+            "ALTER TABLE ig_leads ADD COLUMN is_private INTEGER DEFAULT 0",
+        ):
+            try:
+                await db.execute(stmt)
+                await db.commit()
+            except Exception:
+                pass  # Column already exists
     logger.info("Database initialized at %s", _db_path())
 
 
@@ -132,16 +147,40 @@ async def get_recent_skipped_usernames(cutoff_iso: str) -> set[str]:
 
 
 async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_value: str):
+    """Insert or update a lead.
+
+    ``email_status`` is derived automatically when not given explicitly:
+    'skipped' for private accounts, 'found'/'not_found' once enrichment has
+    actually run (``email_checked=True``), otherwise left as 'pending' so a
+    later enrichment pass (Fase 2) knows which leads still need a look.
+    """
+    email_checked = bool(profile.get("email_checked"))
+    is_private = bool(profile.get("is_private"))
+    if is_private:
+        email_status = "skipped"
+    elif email_checked:
+        email_status = "found" if profile.get("email") else "not_found"
+    else:
+        email_status = "pending"
+
     async with get_db() as db:
         await db.execute("""
             INSERT INTO ig_leads
-                (job_id, instagram_id, username, full_name, email, email_source,
-                 phone, website, bio, follower_count, is_business, source_type, source_value)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (job_id, instagram_id, username, full_name, email, email_source, email_status,
+                 phone, website, bio, follower_count, is_business, is_private, source_type, source_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(instagram_id) DO UPDATE SET
-                email        = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email ELSE ig_leads.email END,
-                email_source = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email_source ELSE ig_leads.email_source END,
-                scraped_at   = CURRENT_TIMESTAMP
+                full_name      = COALESCE(NULLIF(excluded.full_name, ''), ig_leads.full_name),
+                email          = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email ELSE ig_leads.email END,
+                email_source   = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email_source ELSE ig_leads.email_source END,
+                email_status   = CASE WHEN excluded.email_status != 'pending' THEN excluded.email_status ELSE ig_leads.email_status END,
+                phone          = COALESCE(NULLIF(excluded.phone, ''), ig_leads.phone),
+                website        = COALESCE(NULLIF(excluded.website, ''), ig_leads.website),
+                bio            = COALESCE(NULLIF(excluded.bio, ''), ig_leads.bio),
+                follower_count = CASE WHEN excluded.follower_count > 0 THEN excluded.follower_count ELSE ig_leads.follower_count END,
+                is_business    = excluded.is_business OR ig_leads.is_business,
+                is_private     = excluded.is_private,
+                scraped_at     = CURRENT_TIMESTAMP
         """, (
             job_id,
             profile.get("instagram_id"),
@@ -149,14 +188,57 @@ async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_va
             profile.get("full_name"),
             profile.get("email"),
             profile.get("email_source"),
+            email_status,
             profile.get("phone"),
             profile.get("website"),
             profile.get("bio"),
             profile.get("follower_count", 0),
             1 if profile.get("is_business") else 0,
+            1 if is_private else 0,
             source_type,
             source_value,
         ))
+        await db.commit()
+
+
+async def get_pending_email_leads(job_id: str) -> list[dict]:
+    """Leads from this job still needing an email enrichment pass (Fase 2):
+    not private, not already checked."""
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT username, instagram_id FROM ig_leads "
+            "WHERE job_id = ? AND is_private = 0 AND email_status = 'pending'",
+            (job_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def get_followers_cursor(username: str) -> str | None:
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT last_cursor FROM ig_followers_cursor WHERE username = ?", (username,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["last_cursor"] if row else None
+
+
+async def save_followers_cursor(username: str, cursor: str, collected_delta: int = 0) -> None:
+    async with get_db() as db:
+        await db.execute("""
+            INSERT INTO ig_followers_cursor (username, last_cursor, collected, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(username) DO UPDATE SET
+                last_cursor = excluded.last_cursor,
+                collected   = ig_followers_cursor.collected + ?,
+                updated_at  = CURRENT_TIMESTAMP
+        """, (username, cursor, collected_delta, collected_delta))
+        await db.commit()
+
+
+async def reset_followers_cursor(username: str) -> None:
+    async with get_db() as db:
+        await db.execute("DELETE FROM ig_followers_cursor WHERE username = ?", (username,))
         await db.commit()
 
 

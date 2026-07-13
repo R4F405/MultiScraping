@@ -137,9 +137,29 @@ def load_session() -> IgSession | None:
     return session
 
 
-# Module-level singleton, refreshable for tests / hot config reload.
+def load_guest_session() -> IgSession | None:
+    """Optional secondary account used to enrich emails (Fase 2), kept
+    separate from the main account that pulls the followers list — so a
+    flag/ban on the high-volume profile-checking identity never touches the
+    main authenticated session. Falls back to None (fully anonymous
+    requests) when unconfigured; :func:`get_enrichment_session` then falls
+    back further to the main session, preserving pre-existing behaviour.
+    """
+    from backend.config.settings_store import store
+
+    sessionid = (store.get("IG_GUEST_SESSIONID") or os.getenv("IG_GUEST_SESSIONID", "")).strip()
+    if not sessionid:
+        return None
+    session = IgSession(sessionid)
+    logger.info("Instagram guest session loaded (ds_user_id=%s)", session.ds_user_id or "unknown")
+    return session
+
+
+# Module-level singletons, refreshable for tests / hot config reload.
 _session: IgSession | None = None
 _loaded = False
+_guest_session: IgSession | None = None
+_guest_loaded = False
 
 
 def get_session() -> IgSession | None:
@@ -155,3 +175,25 @@ def reload_session() -> IgSession | None:
     _session = load_session()
     _loaded = True
     return _session
+
+
+def get_guest_session() -> IgSession | None:
+    global _guest_session, _guest_loaded
+    if not _guest_loaded:
+        _guest_session = load_guest_session()
+        _guest_loaded = True
+    return _guest_session
+
+
+def reload_guest_session() -> IgSession | None:
+    global _guest_session, _guest_loaded
+    _guest_session = load_guest_session()
+    _guest_loaded = True
+    return _guest_session
+
+
+def get_enrichment_session() -> IgSession | None:
+    """Session to use for Fase 2 (email enrichment): prefer the guest
+    account when configured, else fall back to the main session so nothing
+    changes for setups without a second account."""
+    return get_guest_session() or get_session()
