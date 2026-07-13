@@ -28,6 +28,16 @@ class LimitsUpdate(BaseModel):
     daily_unauth: int | None = None
 
 
+class SettingsUpdate(BaseModel):
+    # Only provided fields are updated. Empty string clears the DB override
+    # (falls back to the .env value). Omitted (None) leaves the field untouched.
+    ig_sessionid: str | None = None
+    proxy_list: str | None = None
+    # Rate-limit / anti-ban knobs — see backend.config.tunables.TUNABLES for
+    # the full list of accepted keys. Values are raw strings; empty clears.
+    limits: dict[str, str] | None = None
+
+
 class JobResponse(BaseModel):
     job_id: str
     status: str

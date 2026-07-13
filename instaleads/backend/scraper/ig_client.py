@@ -34,8 +34,25 @@ BASE_HEADERS = {
 
 _rate_limiter = RateLimiter(mode="unauth")
 
-if Settings.IG_PROXY_LIST:
-    ig_proxy_manager.init(Settings.IG_PROXY_LIST)
+
+def effective_proxy_list() -> list[str]:
+    """Proxy URLs from the encrypted settings store (panel) if set, else env."""
+    from backend.config.settings_store import store
+
+    raw = store.get("IG_PROXY_LIST")
+    if raw is not None:
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    return Settings.IG_PROXY_LIST
+
+
+def reload_proxies() -> int:
+    """Re-init the proxy manager from current config. Returns proxy count."""
+    proxies = effective_proxy_list()
+    ig_proxy_manager.init(proxies)
+    return len(proxies)
+
+
+reload_proxies()
 
 
 def _curl_extra_kwargs() -> dict:
@@ -56,7 +73,7 @@ def _curl_extra_kwargs() -> dict:
     return kwargs
 
 
-async def ig_get(url: str, max_retries: int = Settings.IG_MAX_RETRIES) -> dict:
+async def ig_get(url: str, max_retries: int | None = None) -> dict:
     """
     Unauthenticated/guest GET to Instagram with proxy rotation, rate limiting
     and retries.
@@ -66,11 +83,13 @@ async def ig_get(url: str, max_retries: int = Settings.IG_MAX_RETRIES) -> dict:
     near-uselessness, so an authenticated session dramatically improves the
     success rate even for "public" endpoints.
     """
+    if max_retries is None:
+        max_retries = Settings.IG_MAX_RETRIES
     session = get_session()
     return await _ig_request(url, session=session, max_retries=max_retries, require_auth=False)
 
 
-async def ig_get_authenticated(url: str, max_retries: int = Settings.IG_MAX_RETRIES) -> dict:
+async def ig_get_authenticated(url: str, max_retries: int | None = None) -> dict:
     """
     Authenticated GET against Instagram's private web API.
 
@@ -78,6 +97,8 @@ async def ig_get_authenticated(url: str, max_retries: int = Settings.IG_MAX_RETR
     rejects the session (login_required), so callers can surface a clear
     "configure IG_SESSIONID" message instead of silently returning nothing.
     """
+    if max_retries is None:
+        max_retries = Settings.IG_MAX_RETRIES
     session = get_session()
     if session is None or not session.authenticated:
         raise IgAuthError(

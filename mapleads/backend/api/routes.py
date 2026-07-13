@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import Response
 
-from backend.api.schemas import EmailProbeRequest, JobLocationResponse, JobResponse, LeadResponse, SearchRequest
+from backend.api.schemas import EmailProbeRequest, JobLocationResponse, JobResponse, LeadResponse, SearchRequest, SettingsUpdate
 from backend.config.settings import settings
 from backend.proxy.proxy_manager import proxy_manager, set_current_job
 from backend.scraper.category_catalog import clear_category_catalog_cache, search_categories
@@ -578,6 +578,56 @@ async def health():
 @router.get("/proxy/status")
 async def get_proxy_status():
     return proxy_manager.get_status()
+
+
+# ── Settings (encrypted store, editable from the panel) ───────────────────────
+
+@router.get("/settings")
+async def get_settings():
+    """Current effective proxy config. Proxies are returned in full so the
+    panel can show/edit them (the panel is behind auth)."""
+    from backend.config.settings_store import store
+
+    proxies = proxy_manager._effective_proxy_list()
+    if store.has("PROXY_LIST"):
+        proxy_source = "db"
+    elif settings.proxy_list:
+        proxy_source = "env"
+    else:
+        proxy_source = "none"
+
+    from backend.config.tunables import describe_all
+
+    return {
+        "proxy_list": "\n".join(proxies),
+        "proxy_count": len(proxies),
+        "proxy_source": proxy_source,
+        "limits": describe_all(),
+    }
+
+
+@router.put("/settings")
+async def update_settings(body: SettingsUpdate):
+    from backend.config.settings_store import store
+    from backend.config.tunables import update_many
+
+    changed = []
+    if body.proxy_list is not None:
+        parts = [p.strip() for p in body.proxy_list.replace("\n", ",").split(",") if p.strip()]
+        if parts:
+            store.set("PROXY_LIST", ",".join(parts))
+        else:
+            store.delete("PROXY_LIST")
+        proxy_manager.reload()
+        changed.append("proxy_list")
+
+    if body.limits:
+        try:
+            changed += update_many(body.limits)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Valor inválido en límites: {exc}")
+
+    return {"status": "ok", "changed": changed}
 
 
 @router.get("/network/check")

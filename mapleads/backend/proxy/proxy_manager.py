@@ -90,6 +90,25 @@ class ProxyManager:
         except Exception as exc:
             logger.warning("ProxyManager: could not save daily state: %s", exc)
 
+    def _effective_proxy_list(self) -> list[str]:
+        """Proxy URLs from the encrypted settings store (panel) if set, else env."""
+        from backend.config.settings_store import store
+
+        raw = store.get("PROXY_LIST")
+        if raw is not None:
+            return [p.strip() for p in raw.split(",") if p.strip()]
+        return settings.proxy_list
+
+    def reload(self) -> int:
+        """Rebuild the proxy pool from current config (called after a panel edit).
+
+        Returns the number of proxies now configured.
+        """
+        self._initialized = False
+        self._stats = {}
+        self._ensure_initialized()
+        return len(self._stats)
+
     def _ensure_initialized(self) -> None:
         """Lazy init — build proxy list on first use (settings loaded by then)."""
         if self._initialized:
@@ -98,8 +117,9 @@ class ProxyManager:
         self._load_daily_state()
 
         # PROXY_LIST takes priority over host/port (needed for Webshare static proxies)
-        if settings.proxy_list:
-            for url in settings.proxy_list:
+        proxy_list = self._effective_proxy_list()
+        if proxy_list:
+            for url in proxy_list:
                 self._stats[url] = ProxyStats(url=url)
             logger.info("ProxyManager: initialized with %d proxies from PROXY_LIST", len(self._stats))
             return

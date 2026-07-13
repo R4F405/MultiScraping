@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+import os
 import uuid
 import logging
 
@@ -13,6 +14,7 @@ from backend.api.schemas import (
     JobResponse,
     LimitsUpdate,
     SearchRequest,
+    SettingsUpdate,
 )
 from backend.config.settings import Settings
 from backend.scraper.ig_client import IgAuthError
@@ -83,6 +85,91 @@ async def update_limits(body: LimitsUpdate):
     if body.daily_unauth is not None:
         Settings.IG_LIMIT_DAILY_UNAUTHENTICATED = body.daily_unauth
     return {"status": "updated"}
+
+
+# ── Settings (encrypted store, editable from the panel) ───────────────────────
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "••••"
+    return f"{value[:4]}…{value[-4:]}"
+
+
+@router.get("/settings")
+async def get_settings():
+    """Current effective config, with the session id masked. Proxies are
+    returned in full so the panel can show/edit them (the panel is behind auth,
+    same trust level as the old .env)."""
+    from backend.config.settings_store import store
+    from backend.scraper.ig_client import effective_proxy_list
+
+    sessionid = (store.get("IG_SESSIONID") or os.getenv("IG_SESSIONID", "")).strip()
+    proxies = effective_proxy_list()
+
+    if store.has("IG_SESSIONID"):
+        sess_source = "db"
+    elif os.getenv("IG_SESSIONID", "").strip():
+        sess_source = "env"
+    else:
+        sess_source = "none"
+
+    if store.has("IG_PROXY_LIST"):
+        proxy_source = "db"
+    elif Settings.IG_PROXY_LIST:
+        proxy_source = "env"
+    else:
+        proxy_source = "none"
+
+    from backend.config.tunables import describe_all
+
+    return {
+        "ig_sessionid_set": bool(sessionid),
+        "ig_sessionid_masked": _mask_secret(sessionid),
+        "ig_sessionid_source": sess_source,
+        "proxy_list": "\n".join(proxies),
+        "proxy_count": len(proxies),
+        "proxy_source": proxy_source,
+        "limits": describe_all(),
+    }
+
+
+@router.put("/settings")
+async def update_settings(body: SettingsUpdate):
+    from backend.config.settings_store import store
+    from backend.config.tunables import update_many
+    from backend.scraper.ig_client import reload_proxies
+    from backend.scraper.ig_session import reload_session
+
+    changed = []
+
+    if body.ig_sessionid is not None:
+        value = body.ig_sessionid.strip()
+        if value:
+            store.set("IG_SESSIONID", value)
+        else:
+            store.delete("IG_SESSIONID")
+        reload_session()
+        changed.append("ig_sessionid")
+
+    if body.proxy_list is not None:
+        # Accept newline- or comma-separated; store normalised as comma list.
+        parts = [p.strip() for p in body.proxy_list.replace("\n", ",").split(",") if p.strip()]
+        if parts:
+            store.set("IG_PROXY_LIST", ",".join(parts))
+        else:
+            store.delete("IG_PROXY_LIST")
+        count = reload_proxies()
+        changed.append("proxy_list")
+
+    if body.limits:
+        try:
+            changed += update_many(body.limits)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Valor inválido en límites: {exc}")
+
+    return {"status": "ok", "changed": changed}
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

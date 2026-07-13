@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración — Scraper Lead{% endblock %}
+
+{% block content %}
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 mb-1">Configuración</h1>
+    <p class="text-slate-500 text-sm">
+      Credenciales y límites guardados <strong>cifrados en la base de datos</strong> de cada servicio.
+      Sustituyen a los valores del <code>.env</code> y se aplican al instante, sin reiniciar contenedores.
+    </p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-1 mb-6 border-b border-slate-200">
+    <button data-tab="instagram" class="config-tab px-4 py-2.5 text-sm font-medium border-b-2 border-blue-600 text-blue-600">
+      Instagram
+    </button>
+    <button data-tab="maps" class="config-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700">
+      Google Maps
+    </button>
+  </div>
+
+  <div id="config-alert" class="hidden mb-4 rounded-lg px-4 py-3 text-sm max-w-3xl"></div>
+
+  <!-- ── Instagram panel ─────────────────────────────────────────────────── -->
+  <div id="panel-instagram" class="config-panel space-y-6 max-w-3xl">
+    <form id="form-instagram">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold text-slate-800">Proxies</h2>
+          <span id="ig-proxy-source" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500"></span>
+        </div>
+        <p class="text-slate-500 text-xs mb-3">Una URL por línea, formato <code>http://usuario:pass@host:puerto</code>. Solo para Instagram.</p>
+        <textarea id="ig_proxy_list" rows="6" spellcheck="false"
+          class="w-full font-mono text-xs rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
+          placeholder="http://usuario:pass@host:puerto"></textarea>
+        <p id="ig-proxy-count" class="text-[11px] text-slate-400 mt-1"></p>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold text-slate-800">Sesión de Instagram</h2>
+          <span id="ig-session-source" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500"></span>
+        </div>
+        <p class="text-slate-500 text-xs mb-3">
+          Cookie <code>sessionid</code> de una cuenta con sesión iniciada. Necesaria para el modo Seguidores.
+          Déjalo vacío para no cambiar el valor actual.
+        </p>
+        <input id="ig_sessionid" type="text" spellcheck="false" autocomplete="off"
+          class="w-full font-mono text-xs rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none">
+        <p id="ig-session-current" class="text-[11px] text-slate-400 mt-1"></p>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <h2 class="font-semibold text-slate-800 mb-1">Límites y antibaneo</h2>
+        <p class="text-slate-500 text-xs mb-4">Controlan cuánto y a qué ritmo se scrapea. Vacío = usar el valor por defecto del sistema.</p>
+        <div id="ig-limits" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit" class="config-save bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition disabled:opacity-50">
+          Guardar Instagram
+        </button>
+        <span class="config-status text-sm text-slate-400"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Google Maps panel ───────────────────────────────────────────────── -->
+  <div id="panel-maps" class="config-panel hidden space-y-6 max-w-3xl">
+    <form id="form-maps">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold text-slate-800">Proxies</h2>
+          <span id="maps-proxy-source" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500"></span>
+        </div>
+        <p class="text-slate-500 text-xs mb-3">Una URL por línea, formato <code>http://usuario:pass@host:puerto</code>. Solo para Google Maps.</p>
+        <textarea id="maps_proxy_list" rows="6" spellcheck="false"
+          class="w-full font-mono text-xs rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
+          placeholder="http://usuario:pass@host:puerto"></textarea>
+        <p id="maps-proxy-count" class="text-[11px] text-slate-400 mt-1"></p>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <h2 class="font-semibold text-slate-800 mb-1">Límites y antibaneo</h2>
+        <p class="text-slate-500 text-xs mb-4">Controlan cuánto y a qué ritmo se scrapea. Vacío = usar el valor por defecto del sistema.</p>
+        <div id="maps-limits" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit" class="config-save bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition disabled:opacity-50">
+          Guardar Google Maps
+        </button>
+        <span class="config-status text-sm text-slate-400"></span>
+      </div>
+    </form>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+
+  const SOURCE_LABEL = {
+    db:  { text: "Guardado (cifrado)", cls: "bg-emerald-100 text-emerald-700" },
+    env: { text: "Desde .env",        cls: "bg-amber-100 text-amber-700" },
+    none:{ text: "Sin configurar",    cls: "bg-slate-100 text-slate-500" },
+  };
+
+  function setSourceBadge(el, source) {
+    const s = SOURCE_LABEL[source] || SOURCE_LABEL.none;
+    el.textContent = s.text;
+    el.className = "text-[11px] px-2 py-0.5 rounded-full " + s.cls;
+  }
+
+  function showAlert(msg, ok) {
+    const el = $("config-alert");
+    el.textContent = msg;
+    el.className = "mb-4 rounded-lg px-4 py-3 text-sm max-w-3xl " +
+      (ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+          : "bg-red-50 text-red-700 border border-red-200");
+    el.classList.remove("hidden");
+  }
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  document.querySelectorAll(".config-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".config-tab").forEach((b) => {
+        b.classList.remove("border-blue-600", "text-blue-600");
+        b.classList.add("border-transparent", "text-slate-500");
+      });
+      btn.classList.add("border-blue-600", "text-blue-600");
+      btn.classList.remove("border-transparent", "text-slate-500");
+      document.querySelectorAll(".config-panel").forEach((p) => p.classList.add("hidden"));
+      $("panel-" + btn.dataset.tab).classList.remove("hidden");
+    });
+  });
+
+  // ── Dynamic limits form ──────────────────────────────────────────────────
+  function renderLimits(container, limits) {
+    container.innerHTML = "";
+    for (const [key, spec] of Object.entries(limits)) {
+      const wrap = document.createElement("div");
+      const inputType = spec.type === "bool" ? "checkbox" : "number";
+      const step = spec.type === "float" ? "any" : "1";
+
+      if (spec.type === "bool") {
+        wrap.className = "flex items-start gap-2.5 pt-1";
+        wrap.innerHTML = `
+          <input type="checkbox" data-key="${key}" class="limit-input mt-1"
+                 ${spec.value ? "checked" : ""}>
+          <div>
+            <label class="text-sm text-slate-700 font-medium">${spec.label}</label>
+            ${spec.help ? `<p class="text-[11px] text-slate-400">${spec.help}</p>` : ""}
+          </div>`;
+      } else {
+        wrap.innerHTML = `
+          <label class="text-sm text-slate-700 font-medium block mb-1">${spec.label}</label>
+          <input type="${inputType}" step="${step}" data-key="${key}"
+                 class="limit-input w-full text-sm rounded-lg border border-slate-300 px-3 py-1.5 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
+                 placeholder="por defecto: ${spec.default}" value="${spec.value ?? ""}">
+          ${spec.help ? `<p class="text-[11px] text-slate-400 mt-1">${spec.help}</p>` : ""}
+          <p class="text-[10px] text-slate-300 mt-0.5">${key} · ${spec.source === "db" ? "guardado" : "por defecto"}</p>`;
+      }
+      container.appendChild(wrap);
+    }
+  }
+
+  function collectLimits(container) {
+    const out = {};
+    container.querySelectorAll(".limit-input").forEach((el) => {
+      const key = el.dataset.key;
+      if (el.type === "checkbox") {
+        out[key] = el.checked ? "1" : "0";
+      } else {
+        out[key] = el.value.trim();
+      }
+    });
+    return out;
+  }
+
+  // ── Instagram ─────────────────────────────────────────────────────────────
+  async function loadInstagram() {
+    try {
+      const r = await fetch("/api/instagram/settings");
+      const d = await r.json();
+
+      $("ig_proxy_list").value = d.proxy_list || "";
+      setSourceBadge($("ig-proxy-source"), d.proxy_source);
+      $("ig-proxy-count").textContent = (d.proxy_count || 0) + " proxies configurados";
+
+      setSourceBadge($("ig-session-source"), d.ig_sessionid_source);
+      $("ig-session-current").textContent = d.ig_sessionid_set
+        ? "Sesión actual: " + d.ig_sessionid_masked
+        : "No hay sesión configurada.";
+
+      renderLimits($("ig-limits"), d.limits || {});
+    } catch (e) {
+      showAlert("No se pudo cargar la configuración de Instagram.", false);
+    }
+  }
+
+  $("form-instagram").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const form = ev.target;
+    const btn = form.querySelector(".config-save");
+    const status = form.querySelector(".config-status");
+    btn.disabled = true;
+    status.textContent = "Guardando…";
+
+    const payload = {
+      proxy_list: $("ig_proxy_list").value,
+      limits: collectLimits($("ig-limits")),
+    };
+    const sess = $("ig_sessionid").value.trim();
+    if (sess) payload.ig_sessionid = sess;
+
+    try {
+      const r = await fetch("/api/instagram/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        showAlert("Instagram: cambios guardados y aplicados en caliente.", true);
+        $("ig_sessionid").value = "";
+        await loadInstagram();
+      } else {
+        showAlert("Error al guardar Instagram: " + (d.detail || JSON.stringify(d)), false);
+      }
+    } catch (e) {
+      showAlert("Error de red al guardar Instagram.", false);
+    } finally {
+      btn.disabled = false;
+      status.textContent = "";
+    }
+  });
+
+  // ── Google Maps ───────────────────────────────────────────────────────────
+  async function loadMaps() {
+    try {
+      const r = await fetch("/api/maps/settings");
+      const d = await r.json();
+
+      $("maps_proxy_list").value = d.proxy_list || "";
+      setSourceBadge($("maps-proxy-source"), d.proxy_source);
+      $("maps-proxy-count").textContent = (d.proxy_count || 0) + " proxies configurados";
+
+      renderLimits($("maps-limits"), d.limits || {});
+    } catch (e) {
+      showAlert("No se pudo cargar la configuración de Google Maps.", false);
+    }
+  }
+
+  $("form-maps").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const form = ev.target;
+    const btn = form.querySelector(".config-save");
+    const status = form.querySelector(".config-status");
+    btn.disabled = true;
+    status.textContent = "Guardando…";
+
+    const payload = {
+      proxy_list: $("maps_proxy_list").value,
+      limits: collectLimits($("maps-limits")),
+    };
+
+    try {
+      const r = await fetch("/api/maps/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        showAlert("Google Maps: cambios guardados y aplicados en caliente.", true);
+        await loadMaps();
+      } else {
+        showAlert("Error al guardar Google Maps: " + (d.detail || JSON.stringify(d)), false);
+      }
+    } catch (e) {
+      showAlert("Error de red al guardar Google Maps.", false);
+    } finally {
+      btn.disabled = false;
+      status.textContent = "";
+    }
+  });
+
+  loadInstagram();
+  loadMaps();
+</script>
+{% endblock %}

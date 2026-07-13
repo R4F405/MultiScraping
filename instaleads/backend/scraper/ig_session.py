@@ -106,10 +106,16 @@ def _load_from_file(path: str) -> dict | None:
 
 
 def load_session() -> IgSession | None:
-    """Build an :class:`IgSession` from configuration, or None if unconfigured."""
-    sessionid = os.getenv("IG_SESSIONID", "").strip()
-    csrftoken = os.getenv("IG_CSRFTOKEN", "").strip()
-    ds_user_id = os.getenv("IG_DS_USER_ID", "").strip()
+    """Build an :class:`IgSession` from configuration, or None if unconfigured.
+
+    The session id is read from the encrypted settings store first (set via the
+    web panel), falling back to the ``IG_SESSIONID`` env var / ``.env``.
+    """
+    from backend.config.settings_store import store
+
+    sessionid = (store.get("IG_SESSIONID") or os.getenv("IG_SESSIONID", "")).strip()
+    csrftoken = (store.get("IG_CSRFTOKEN") or os.getenv("IG_CSRFTOKEN", "")).strip()
+    ds_user_id = (store.get("IG_DS_USER_ID") or os.getenv("IG_DS_USER_ID", "")).strip()
 
     if not sessionid:
         session_file = os.getenv("IG_SESSION_FILE", "").strip()

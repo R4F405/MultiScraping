@@ -398,6 +398,9 @@ async def _proxy_to(target_url: str, request: Request) -> Response:
             elif method == "POST":
                 body = await request.body()
                 r = await client.post(url, content=body, headers=headers, timeout=PROXY_TIMEOUT)
+            elif method == "PUT":
+                body = await request.body()
+                r = await client.put(url, content=body, headers=headers, timeout=PROXY_TIMEOUT)
             elif method == "DELETE":
                 r = await client.delete(url, headers=headers, timeout=PROXY_TIMEOUT)
             else:
@@ -719,6 +722,37 @@ async def li_account_stats(username: str, request: Request):
 @app.post("/api/linkedin/data/reset")
 async def li_data_reset(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/data/reset", request)
+
+
+# ── Configuración: credenciales editables desde el panel (cifradas en la BD) ──
+
+@app.get("/configuracion")
+async def configuracion(request: Request):
+    return templates.TemplateResponse("configuracion.html", {"request": request})
+
+
+# Each platform's settings live entirely in its own backend now — the gateway
+# is a thin authenticated pass-through, no aggregation/merging. This is what
+# lets Instagram and Google Maps have fully independent proxy pools and limits.
+
+@app.get("/api/instagram/settings")
+async def ig_settings_get(request: Request):
+    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/settings", request)
+
+
+@app.put("/api/instagram/settings")
+async def ig_settings_put(request: Request):
+    return await _proxy_to(f"{INSTALEADS_URL}/api/instagram/settings", request)
+
+
+@app.get("/api/maps/settings")
+async def maps_settings_get(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/settings", request)
+
+
+@app.put("/api/maps/settings")
+async def maps_settings_put(request: Request):
+    return await _proxy_to(f"{MAPLEADS_URL}/api/settings", request)
 
 
 if __name__ == "__main__":
