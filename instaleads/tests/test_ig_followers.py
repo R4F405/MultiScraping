@@ -1,7 +1,7 @@
 """
 Tests for the followers scraper — the core requirement is proving that
 pagination goes *beyond* the ~50 followers the desktop web shows, by walking
-the max_id cursor across pages.
+the GraphQL end_cursor across pages.
 """
 import asyncio
 
@@ -12,22 +12,52 @@ from backend.scraper.ig_client import IgAuthError
 from backend.scraper.ig_followers import FollowersError, iter_followers, scrape_followers
 
 
-def _make_page(start: int, count: int, next_max_id: str | None):
-    """Build a fake followers-endpoint response with `count` users."""
-    users = [
+@pytest.fixture(autouse=True)
+def _stub_daily_counter(monkeypatch):
+    """iter_followers now consults the per-day followers counter; stub it to 0
+    (unlimited) and no-op the increment so unit tests stay DB-free."""
+    async def _zero(mode):
+        return 0
+
+    async def _noop(mode):
+        return None
+
+    monkeypatch.setattr(ig_followers.db, "get_daily_count", _zero)
+    monkeypatch.setattr(ig_followers.db, "increment_daily_count", _noop)
+
+
+def _make_page(start: int, count: int, end_cursor: str | None):
+    """Build a fake GraphQL followers response with `count` users.
+
+    ``end_cursor`` present ⇒ has_next_page True (more pages available);
+    absent ⇒ last page.
+    """
+    edges = [
         {
-            "pk": str(1000 + i),
-            "username": f"user{i}",
-            "full_name": f"User {i}",
-            "is_private": False,
-            "is_verified": False,
+            "node": {
+                "id": str(1000 + i),
+                "username": f"user{i}",
+                "full_name": f"User {i}",
+                "is_private": False,
+                "is_verified": False,
+            }
         }
         for i in range(start, start + count)
     ]
-    resp = {"users": users, "status": "ok"}
-    if next_max_id:
-        resp["next_max_id"] = next_max_id
-    return resp
+    return {
+        "data": {
+            "user": {
+                "edge_followed_by": {
+                    "edges": edges,
+                    "page_info": {
+                        "has_next_page": bool(end_cursor),
+                        "end_cursor": end_cursor,
+                    },
+                }
+            }
+        },
+        "status": "ok",
+    }
 
 
 @pytest.mark.asyncio
@@ -54,10 +84,11 @@ async def test_iter_followers_paginates_beyond_50(monkeypatch):
 
     assert len(collected) == 250
     assert len({f["username"] for f in collected}) == 250
-    # First request has no max_id; subsequent requests carry the cursor.
-    assert "max_id" not in calls[0]
-    assert "max_id=cursor1" in calls[1]
-    assert "max_id=cursor4" in calls[4]
+    # First request has no cursor; subsequent requests carry the end_cursor
+    # inside the URL-encoded GraphQL variables ("after":"cursorN").
+    assert "after" not in calls[0]
+    assert "cursor1" in calls[1]
+    assert "cursor4" in calls[4]
 
 
 @pytest.mark.asyncio
@@ -78,6 +109,27 @@ async def test_iter_followers_respects_amount_cap(monkeypatch):
     assert len(collected) == 70
     # Should stop after the 2nd page (only 2 requests needed for 70).
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_iter_followers_stops_at_daily_cap(monkeypatch):
+    """When the per-day followers cap is already reached, no page is fetched."""
+    calls = []
+
+    async def fake_get(url):
+        calls.append(url)
+        return _make_page(0, 50, "c1")
+
+    async def at_cap(mode):
+        return 1500
+
+    monkeypatch.setattr(ig_followers, "ig_get_authenticated", fake_get)
+    monkeypatch.setattr(ig_followers.db, "get_daily_count", at_cap)
+    monkeypatch.setattr(ig_followers.Settings, "IG_LIMIT_DAILY_FOLLOWERS", 1500)
+
+    collected = [f async for f in iter_followers("999", amount=100)]
+    assert collected == []
+    assert calls == []  # capped before any request
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,13 @@ class Settings:
         p.strip() for p in os.getenv("IG_PROXY_LIST", "").split(",") if p.strip()
     ]
     IG_PROXY_ERROR_COOLDOWN: int = int(os.getenv("IG_PROXY_ERROR_COOLDOWN", "300"))
+    # Anti-ban: an authenticated session should stick to ONE proxy instead of
+    # rotating. A single logged-in account hopping across 10 IPs/countries in
+    # seconds is a stronger ban signal than a stable IP. Disable to fall back
+    # to round-robin for authenticated requests too.
+    IG_SESSION_PINNED_PROXY: bool = os.getenv(
+        "IG_SESSION_PINNED_PROXY", "1"
+    ).strip().lower() not in ("0", "false", "off", "no", "")
 
     # Rate limiting — unauthenticated (Modo A)
     # Con proxies activos el límite sube automáticamente (10 IPs × 50 req = 500)
@@ -43,6 +50,14 @@ class Settings:
     IG_FOLLOWERS_DELAY_MAX: float = float(os.getenv("IG_FOLLOWERS_DELAY_MAX", "5.0"))
     # Hard cap on followers collected per job (safety valve for huge accounts).
     IG_FOLLOWERS_MAX_PER_JOB: int = int(os.getenv("IG_FOLLOWERS_MAX_PER_JOB", "5000"))
+    # Anti-ban: per-day cap on followers fetched by the authenticated session
+    # (counted across all jobs). Keeps the account under a believable volume.
+    # 0 = disabled. Default ~1500/day is a conservative, human-plausible ceiling.
+    IG_LIMIT_DAILY_FOLLOWERS: int = int(os.getenv("IG_LIMIT_DAILY_FOLLOWERS", "1500"))
+    # Anti-ban: every N followers, pause for a longer rest to break the steady
+    # request cadence a bot would show. 0 = disabled.
+    IG_FOLLOWERS_REST_EVERY: int = int(os.getenv("IG_FOLLOWERS_REST_EVERY", "500"))
+    IG_FOLLOWERS_REST_SECONDS: float = float(os.getenv("IG_FOLLOWERS_REST_SECONDS", "45.0"))
 
     # DB
     DB_PATH: str = os.path.join(os.path.dirname(__file__), "..", "..", "data", "instaleads.db")

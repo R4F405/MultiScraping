@@ -98,8 +98,18 @@ async def _ig_request(url: str, *, session, max_retries: int, require_auth: bool
 
     last_status: int | None = None
 
+    # Anti-ban: an authenticated session sticks to one pinned proxy (stable IP
+    # per account) instead of rotating; guest requests keep round-robin.
+    pin_proxy = (
+        require_auth
+        and Settings.IG_SESSION_PINNED_PROXY
+        and session is not None
+        and session.authenticated
+    )
+    session_key = (getattr(session, "ds_user_id", None) or "session") if pin_proxy else ""
+
     for attempt in range(max_retries):
-        proxy = ig_proxy_manager.get_next()
+        proxy = ig_proxy_manager.get_pinned(session_key) if pin_proxy else ig_proxy_manager.get_next()
         proxies = {"https": proxy, "http": proxy} if proxy else None
 
         try:

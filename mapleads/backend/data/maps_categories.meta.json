@@ -1,20 +1,38 @@
 {
-  "catalog_version": "local-derived-places-2026-04-16",
-  "catalog_path": "/Users/miquelroca/Desktop/practicas/leads/mapleads/backend/data/maps_categories.json",
-  "meta_path": "/Users/miquelroca/Desktop/practicas/leads/mapleads/backend/data/maps_categories.meta.json",
-  "updated_at": "2026-04-16T10:31:16.455001+00:00",
+  "catalog_version": "local-derived-places-2026-07-13",
+  "catalog_path": "/home/rafa-fedora/Proyectos/MultiScraping/mapleads/backend/data/maps_categories.json",
+  "meta_path": "/home/rafa-fedora/Proyectos/MultiScraping/mapleads/backend/data/maps_categories.meta.json",
+  "updated_at": "2026-07-13T07:36:01.436656+00:00",
   "source_urls": [
     "https://developers.google.com/maps/documentation/places/web-service/legacy/supported_types",
     "https://developers.google.com/maps/documentation/places/web-service/place-types"
   ],
-  "extracted_types_count": 0,
+  "extracted_types_count": 521,
   "existing_types_count": 566,
   "catalog_types_count": 566,
-  "preview_types": [],
-  "fetch_errors": [
-    "https://developers.google.com/maps/documentation/places/web-service/legacy/supported_types => 403 Forbidden",
-    "https://developers.google.com/maps/documentation/places/web-service/place-types => 403 Forbidden"
+  "preview_types": [
+    "academic_department",
+    "acai_shop",
+    "accounting",
+    "address",
+    "administrative_area_level_1",
+    "administrative_area_level_2",
+    "administrative_area_level_3",
+    "administrative_area_level_4",
+    "administrative_area_level_5",
+    "administrative_area_level_6",
+    "administrative_area_level_7",
+    "adventure_sports_center",
+    "afghani_restaurant",
+    "african_restaurant",
+    "aircraft_rental_service",
+    "airport",
+    "airstrip",
+    "american_restaurant",
+    "amphitheatre",
+    "amusement_center"
   ],
+  "fetch_errors": [],
   "hybrid_summary": {
     "gbp_categories_count": 15,
     "mapping_entries_count": 15,

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -38,6 +39,27 @@ class IgProxyManager:
             return earliest.url
         stat = available[self._index % len(available)]
         self._index += 1
+        stat.requests += 1
+        return stat.url
+
+    def get_pinned(self, key: str) -> str | None:
+        """Stable proxy for an authenticated session.
+
+        Maps ``key`` (e.g. the account's ds_user_id) deterministically to a
+        single proxy, so one logged-in account keeps the same egress IP instead
+        of hopping across all of them — the latter is a strong ban signal.
+
+        Only falls back to another proxy when the pinned one is in error
+        cooldown; otherwise it always returns the same IP for a given key.
+        """
+        if not self._stats:
+            return None
+        idx = int(hashlib.md5(key.encode()).hexdigest(), 16) % len(self._stats)
+        stat = self._stats[idx]
+        if not stat.available:
+            available = [s for s in self._stats if s.available]
+            if available:
+                stat = available[0]
         stat.requests += 1
         return stat.url
 
