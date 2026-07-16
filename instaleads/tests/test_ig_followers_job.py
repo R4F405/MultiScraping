@@ -30,7 +30,7 @@ async def test_run_followers_job_saves_leads(monkeypatch, file_db):
     job_id = "flw-job-1"
     await db.upsert_job(job_id, "followers", "targetacc", 5)
 
-    async def fake_scrape(target, amount, stop_event=None):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
         assert target == "targetacc"
         for i in range(5):
             yield {
@@ -63,7 +63,7 @@ async def test_run_followers_job_enriches_email(monkeypatch, file_db):
     job_id = "flw-job-enrich"
     await db.upsert_job(job_id, "followers", "acc2", 2)
 
-    async def fake_scrape(target, amount, stop_event=None):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
         yield {"instagram_id": "1", "username": "withemail", "full_name": "A", "is_private": False}
         yield {"instagram_id": "2", "username": "noemail", "full_name": "B", "is_private": False}
 
@@ -100,7 +100,7 @@ async def test_run_followers_job_auth_error(monkeypatch, file_db):
     job_id = "flw-job-auth"
     await db.upsert_job(job_id, "followers", "acc3", 5)
 
-    async def fake_scrape(target, amount, stop_event=None):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
         raise IgAuthError("no session")
         yield  # pragma: no cover
 
@@ -117,7 +117,7 @@ async def test_run_followers_job_auth_error(monkeypatch, file_db):
 async def test_followers_endpoint_schedules_job(monkeypatch, file_db):
     scheduled = {}
 
-    def fake_schedule(target, max_results, enrich, job_id):
+    def fake_schedule(target, max_results, enrich, job_id, reset_cursor=False):
         scheduled["target"] = target
         scheduled["max_results"] = max_results
         scheduled["enrich"] = enrich
@@ -142,7 +142,7 @@ async def test_followers_endpoint_schedules_job(monkeypatch, file_db):
 async def test_search_endpoint_followers_mode(monkeypatch, file_db):
     scheduled = {}
 
-    def fake_schedule(target, max_results, enrich, job_id):
+    def fake_schedule(target, max_results, enrich, job_id, reset_cursor=False):
         scheduled["target"] = target
 
     monkeypatch.setattr("backend.api.routes._schedule_followers_job", fake_schedule)
