@@ -66,6 +66,17 @@ export function initLinkedInForm() {
   const captchaIframe= $('li-captcha-iframe');
   const accountsList= $('li-accounts-list');
 
+  // Import-session (cookies) panel
+  const importToggle   = $('li-import-toggle');
+  const importChevron  = $('li-import-chevron');
+  const importBody     = $('li-import-body');
+  const importUsername = $('li-import-username');
+  const importName     = $('li-import-name');
+  const importCookies  = $('li-import-cookies');
+  const importAlert    = $('li-import-alert');
+  const importBtn      = $('li-import-btn');
+  const importStatus   = $('li-import-status');
+
   const historyBody  = $('li-history-body');
   const reloadHistory= $('li-reload-history');
 
@@ -493,6 +504,71 @@ export function initLinkedInForm() {
       addBtn.textContent = 'Iniciar sesión';
     }
   });
+
+  // ── Importar sesión con cookies (evita CAPTCHA en servidores) ───────────
+  if (importToggle && importBody) {
+    importToggle.addEventListener('click', () => {
+      const hidden = importBody.classList.toggle('hidden');
+      if (importChevron) importChevron.textContent = hidden ? '▸' : '▾';
+    });
+  }
+
+  if (importBtn) {
+    importBtn.addEventListener('click', async () => {
+      if (importAlert) { importAlert.classList.add('hidden'); importAlert.textContent = ''; }
+      if (importStatus) { importStatus.classList.add('hidden'); importStatus.textContent = ''; }
+
+      const username = (importUsername?.value || '').trim();
+      const cookiesJson = (importCookies?.value || '').trim();
+
+      const showImportAlert = (msg) => {
+        if (!importAlert) return;
+        importAlert.textContent = msg;
+        importAlert.classList.remove('hidden');
+      };
+
+      if (!username) { showImportAlert('Indica un nombre de cuenta.'); return; }
+      if (!cookiesJson) { showImportAlert('Pega el JSON de cookies exportado de Cookie-Editor.'); return; }
+      try {
+        JSON.parse(cookiesJson);
+      } catch {
+        showImportAlert('El texto pegado no es un JSON válido. Usa «Export as JSON» en Cookie-Editor.');
+        return;
+      }
+
+      importBtn.disabled = true;
+      importBtn.textContent = 'Importando…';
+      try {
+        const r = await fetch(window.__BASE__ + '/api/linkedin/accounts/import-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username,
+            cookies_json: cookiesJson,
+            display_name: (importName?.value || '').trim(),
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showImportAlert(data.detail || 'No se pudo importar la sesión.');
+        } else {
+          if (importStatus) {
+            importStatus.textContent = `✅ ${data.message || 'Sesión importada.'}`;
+            importStatus.classList.remove('hidden');
+          }
+          if (importUsername) importUsername.value = '';
+          if (importName) importName.value = '';
+          if (importCookies) importCookies.value = '';
+          loadAccounts();
+        }
+      } catch {
+        showImportAlert('Error de red al conectar con el backend.');
+      } finally {
+        importBtn.disabled = false;
+        importBtn.textContent = 'Importar sesión';
+      }
+    });
+  }
 
   if (codeSubmit) {
     codeSubmit.addEventListener('click', async () => {

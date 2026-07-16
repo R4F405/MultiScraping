@@ -704,6 +704,11 @@ async def li_accounts_add(request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts", request)
 
 
+@app.post("/api/linkedin/accounts/import-session")
+async def li_accounts_import_session(request: Request):
+    return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/import-session", request)
+
+
 @app.delete("/api/linkedin/accounts/{username}")
 async def li_accounts_delete(username: str, request: Request):
     return await _proxy_to(f"{LINKEDINLEADS_URL}/api/linkedin/accounts/{username}", request)

@@ -272,6 +272,47 @@
       </div>
     </div>
 
+    <!-- Import session via cookies — reliable alternative that avoids CAPTCHA on datacenter IPs -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+      <div class="flex items-center justify-between cursor-pointer" id="li-import-toggle">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-700">Importar sesión con cookies <span class="ml-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">recomendado en servidor</span></h2>
+          <p class="text-xs text-slate-500 mt-1">Si el login con email/contraseña falla por CAPTCHA (habitual en servidores), importa tu sesión sin navegador.</p>
+        </div>
+        <span id="li-import-chevron" class="text-slate-400 text-lg select-none">▸</span>
+      </div>
+
+      <div id="li-import-body" class="hidden mt-4">
+        <ol class="text-xs text-slate-600 list-decimal list-inside space-y-1 mb-4 bg-slate-50 border border-slate-100 rounded-xl p-3">
+          <li>Inicia sesión en <strong>linkedin.com</strong> desde tu propio navegador (tu IP normal, sin CAPTCHA).</li>
+          <li>Instala la extensión <strong>Cookie-Editor</strong> (Chrome/Firefox) y ábrela estando en linkedin.com.</li>
+          <li>Pulsa <strong>Export → Export as JSON</strong> (copia todas las cookies al portapapeles).</li>
+          <li>Pega el JSON abajo, indica un nombre de cuenta y pulsa <strong>Importar sesión</strong>.</li>
+        </ol>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Nombre de cuenta *</label>
+            <input id="li-import-username" type="text" placeholder="mi-cuenta"
+                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Nombre visible (opcional)</label>
+            <input id="li-import-name" type="text" placeholder="Mi cuenta personal"
+                   class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30">
+          </div>
+        </div>
+        <label class="block text-xs font-medium text-slate-500 mb-1">Cookies (JSON exportado de Cookie-Editor) *</label>
+        <textarea id="li-import-cookies" rows="5" placeholder='[{"name":"li_at","value":"AQED...","domain":".linkedin.com"}, ...]'
+                  class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#0077B5]/30"></textarea>
+        <div id="li-import-alert" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mt-3"></div>
+        <button id="li-import-btn"
+                class="mt-4 px-5 py-2.5 rounded-xl bg-[#0077B5] hover:bg-[#006099] text-white text-sm font-semibold transition disabled:opacity-50">
+          Importar sesión
+        </button>
+        <p id="li-import-status" class="hidden mt-2 text-xs text-slate-500"></p>
+      </div>
+    </div>
+
 
     <!-- Reset scraping data -->
     <div class="bg-amber-50/80 rounded-2xl border border-amber-200 shadow-sm p-6 mb-4">

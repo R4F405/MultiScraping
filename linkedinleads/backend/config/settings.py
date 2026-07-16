@@ -8,7 +8,10 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent.parent   # linkedinleads/
 _BACKEND_DIR = Path(__file__).resolve().parent.parent      # linkedinleads/backend/
 DATA_DIR = _BACKEND_DIR / "data"                           # linkedinleads/backend/data/ — mismo que db.py
-SESSIONS_DIR = BASE_DIR / "sessions"                       # linkedinleads/sessions/
+# Respetar la env var SESSIONS_DIR igual que scraper.py: si no coinciden, la UI
+# buscaría los .pkl en un directorio distinto al que el scraper escribe/lee, y
+# siempre mostraría "sesión caducada/no existe" aunque el login haya funcionado.
+SESSIONS_DIR = Path(os.getenv("SESSIONS_DIR") or (BASE_DIR / "sessions"))   # linkedinleads/sessions/
 OUTPUT_DIR = BASE_DIR / "output"
 LOGS_DIR = BASE_DIR / "logs"
 
