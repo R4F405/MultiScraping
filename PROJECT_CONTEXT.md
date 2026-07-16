@@ -46,7 +46,7 @@ Usuario → Nginx:9090 (HTTPS)
 - `instaleads/backend/scraper/ig_proxy_manager.py` — `IgProxyManager`: round-robin con cooldown 5min por proxy fallido
 - `instaleads/backend/scraper/ig_dorking.py` — modo sin sesión (Modo A): búsqueda Startpage/DuckDuckGo → extrae perfiles públicos
 - `instaleads/backend/scraper/ig_session.py` — sesión autenticada: carga `sessionid` desde `IG_SESSIONID`/`IG_SESSION_FILE`; deriva `ds_user_id`
-- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de cuenta objetivo vía API privada `friendships/{id}/followers/` con paginación por `max_id` (supera el límite de ~50 de la web de escritorio)
+- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de cuenta objetivo. **Primario:** API privada web `GET /api/v1/friendships/{id}/followers/?count=N&search_surface=follow_list_page`, paginada por el cursor `next_max_id` (es lo que usa la propia web logueada de IG en 2026; `search_surface=follow_list_page` evita el recorte a ~50 de `should_limit_list_of_followers`). **Fallback:** GraphQL `query_hash` (hash de instagrapi `37479f2b…`) paginado por `end_cursor`, si el endpoint privado falla o llega recortado en la primera página. Cursores de resume etiquetados por estrategia (`v1:`/`gql:`)
 - `instaleads/backend/scraper/ig_client.py` — `ig_get` (guest, adjunta sesión si existe) y `ig_get_authenticated` (API privada; lanza `IgAuthError` si falta/expira sesión)
 - `instaleads/backend/scraper/ig_health.py` — healthcheck con caché 2min; basa estado en contadores de BD (no consume cuota)
 - `instaleads/backend/storage/database.py` — aiosqlite, tablas: `ig_leads`, `ig_skipped`, `ig_scrape_jobs`, `ig_daily_stats`, `ig_health_log`
@@ -153,14 +153,12 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 
 | Módulo | Tests | Estado |
 |---|---|---|
-| instaleads | 24 | **3 fallan** |
+| instaleads | 58 | Todos pasan |
 | mapleads | 117 | **1 falla** |
 | linkedinleads | 173 | Todos pasan |
 | scraperLead-web | 0 | Sin cobertura |
 
 **Tests rotos conocidos:**
-- `instaleads/tests/test_ig_health.py` (2): mockean `ig_get` que ya no existe.
-- `instaleads/tests/test_ig_profile.py::test_get_profile_extracts_business_email`: `example.com` filtrado por `_is_junk_email()`.
 - `mapleads/tests/test_routes.py::test_leads_all_dedupes_by_place_id_keeps_most_recent`: asume deduplicación eliminada por diseño.
 
 ---
@@ -178,6 +176,8 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 ---
 
 ## Recent Changes Log
+
+- **2026-07-16:** Instagram — modo Seguidores (Modo B) reparado (dejó de funcionar). Causa raíz: el endpoint GraphQL `query_hash` (`c76146de…`) que usaba `ig_followers.py` fue retirado/degradado por Instagram y devolvía errores/vacío, así que Fase 1 (lista de seguidores) no recogía nada y en consecuencia Fase 2 (sacar correos) no tenía perfiles que enriquecer. Solución: `iter_followers` ahora usa como **primario** la API privada web `GET /api/v1/friendships/{id}/followers/?count=N&search_surface=follow_list_page` (lo que llama la propia web logueada de IG en 2026), paginando por `next_max_id` con la cookie `sessionid` existente; el parámetro `search_surface=follow_list_page` evita el recorte a ~50 (`should_limit_list_of_followers`). Se conserva **GraphQL como fallback** con el `query_hash` vigente de instagrapi (`37479f2b…`, `user_followers_gql_chunk`), con conmutación automática si el endpoint privado falla o llega recortado en la primera página. Cursores de resume etiquetados por estrategia (`v1:`/`gql:`) para no mezclar cursores incompatibles; los cursores heredados sin etiqueta reinician desde el principio. Fase 2 (correos vía `web_profile_info`: `business_email` → regex en bio → scrape de la web enlazada) no cambia y vuelve a tener perfiles que comprobar. Además se arreglaron 6 tests rotos por deriva de firmas (`reset_cursor`) y por BD sin inicializar en `:memory:`; toda la suite de instaleads pasa (58 tests).
 
 - **2026-07-12:** Instagram — modo Seguidores (Modo B) restaurado y funcionando. Causa raíz del fallo: `web_profile_info` y la API privada devuelven 429/`require_login` sin sesión desde IPs de datacenter. Añadido `ig_session.py` (sesión vía `IG_SESSIONID`), `ig_get_authenticated` en `ig_client.py`, y `ig_followers.py` que pagina la lista completa de seguidores vía el cursor `max_id` de `friendships/{id}/followers/` (supera el límite de ~50 de la web de escritorio). Nueva UI "Modo B — Seguidores" con gate por sesión. Health check reporta `session_active`/`followers_available`.
 
