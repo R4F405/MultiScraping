@@ -21,6 +21,7 @@ so the account user-id can be parsed from it when not given explicitly.
 import json
 import logging
 import os
+import re
 from urllib.parse import unquote
 
 from backend.config.settings import Settings
@@ -29,11 +30,18 @@ logger = logging.getLogger(__name__)
 
 IG_APP_ID = Settings.IG_APP_ID
 
-_BASE_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+
+def web_user_agent() -> str:
+    """Desktop Chrome UA whose major version matches the curl_cffi TLS
+    profile (IG_IMPERSONATE=chrome146 → Chrome/146), so the TLS fingerprint
+    and the UA never contradict each other."""
+    match = re.match(r"chrome(\d+)", (Settings.IG_IMPERSONATE or "").strip().lower())
+    major = match.group(1) if match else "146"
+    return (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.0.0 Safari/537.36"
+    )
 
 
 def _parse_ds_user_id(sessionid: str) -> str | None:
@@ -83,7 +91,7 @@ class IgSession:
             "x-ig-app-id": IG_APP_ID,
             "x-csrftoken": self.csrftoken,
             "x-requested-with": "XMLHttpRequest",
-            "User-Agent": _BASE_UA,
+            "User-Agent": web_user_agent(),
             "Accept": "*/*",
             "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
             "Referer": "https://www.instagram.com/",

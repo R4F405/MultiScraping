@@ -46,8 +46,10 @@ Usuario → Nginx:9090 (HTTPS)
 - `instaleads/backend/scraper/ig_proxy_manager.py` — `IgProxyManager`: round-robin con cooldown 5min por proxy fallido
 - `instaleads/backend/scraper/ig_dorking.py` — modo sin sesión (Modo A): búsqueda Startpage/DuckDuckGo → extrae perfiles públicos
 - `instaleads/backend/scraper/ig_session.py` — sesión autenticada: carga `sessionid` desde `IG_SESSIONID`/`IG_SESSION_FILE`; deriva `ds_user_id`
-- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de cuenta objetivo vía API privada `friendships/{id}/followers/` con paginación por `max_id` (supera el límite de ~50 de la web de escritorio)
-- `instaleads/backend/scraper/ig_client.py` — `ig_get` (guest, adjunta sesión si existe) y `ig_get_authenticated` (API privada; lanza `IgAuthError` si falta/expira sesión)
+- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de la cuenta objetivo. Cadena de endpoints (sept. 2026, igual que instagrapi 3.0.14): `v1` API móvil `i.instagram.com/api/v1/friendships/{id}/followers/` (`max_id`) → `gql` GraphQL privada `FollowersList` (doc_id `IG_FOLLOWERS_DOC_ID`) si v1 responde `should_limit_list_of_followers` o falla → `web` v1 de www (tope ~50). Cursor guardado como `"<estrategia>:<max_id>"`
+- `instaleads/backend/scraper/ig_mobile.py` — identidad Android (UA, `X-IG-*`, device ids estables por cuenta) y `Authorization: Bearer IGT:2:<b64>` construido a partir del mismo `IG_SESSIONID`
+- `instaleads/backend/scraper/ig_profile.py` — `get_profile(username, user_id, mobile=True)`: `users/{id}/info/` móvil → `public_email`, `public_phone_number`(+`public_phone_country_code`), `contact_phone_number`; fallback `web_profile_info`; además email/teléfono en bio, enlaces `wa.me` y web enlazada
+- `instaleads/backend/scraper/ig_client.py` — `ig_get` (guest/web), `ig_get_authenticated` (web con sesión), `ig_mobile_get` / `ig_mobile_graphql` (API móvil). Clasifica respuestas: `login_required` → `IgAuthError`, `challenge_required` → `IgChallengeError`, "Espera unos minutos"/429/`feedback_required` → backoff (no mata la sesión)
 - `instaleads/backend/scraper/ig_health.py` — healthcheck con caché 2min; basa estado en contadores de BD (no consume cuota)
 - `instaleads/backend/storage/database.py` — aiosqlite, tablas: `ig_leads`, `ig_skipped`, `ig_scrape_jobs`, `ig_daily_stats`, `ig_health_log`
 
@@ -79,7 +81,7 @@ Usuario → Nginx:9090 (HTTPS)
 | linkedinleads | contacts, contact_queue, runs, accounts, trigger_log |
 
 **Servicios externos:**
-- **Instagram** (instagrapi) — requiere sesión autenticada para modo `followers`; modo `dorking` usa Google CSE sin sesión
+- **Instagram** — API móvil privada (`i.instagram.com`, cabeceras/versiones de instagrapi 3.0.14) con el `sessionid` de la cuenta para el modo `followers`; modo `dorking` usa buscadores sin sesión
 - **Google Maps** — curl_cffi con TLS fingerprinting; sin auth oficial
 - **LinkedIn** — Playwright stealth; sesión en `.pkl`; overlay contact-info via SPA click; CAPTCHA via noVNC
 - **Hunter.io** — enriquecimiento email LinkedIn: endpoint `email-finder` (no `domain-search`) con nombre + apellido + score ≥50 (`HUNTER_API_KEY`)
@@ -153,14 +155,12 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 
 | Módulo | Tests | Estado |
 |---|---|---|
-| instaleads | 24 | **3 fallan** |
+| instaleads | 84 | Todos pasan |
 | mapleads | 117 | **1 falla** |
 | linkedinleads | 173 | Todos pasan |
 | scraperLead-web | 0 | Sin cobertura |
 
 **Tests rotos conocidos:**
-- `instaleads/tests/test_ig_health.py` (2): mockean `ig_get` que ya no existe.
-- `instaleads/tests/test_ig_profile.py::test_get_profile_extracts_business_email`: `example.com` filtrado por `_is_junk_email()`.
 - `mapleads/tests/test_routes.py::test_leads_all_dedupes_by_place_id_keeps_most_recent`: asume deduplicación eliminada por diseño.
 
 ---
@@ -178,6 +178,8 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 ---
 
 ## Recent Changes Log
+
+- **2026-09-25:** Instagram — modo Seguidores reparado. Causa raíz: la consulta GraphQL web `query_hash` de seguidores devuelve desde sept. 2026 el `count` correcto pero `edges: []` (instagrapi issue #2798), así que los jobs terminaban con 0 seguidores; y `web_profile_info` ya casi no da email/teléfono (400/429 en IPs de datacenter). Ahora: lista de seguidores por la API móvil v1 → GraphQL privada `FollowersList` → web v1; enriquecimiento (Fase 2) por `users/{id}/info/` móvil con email **y teléfono** (+ `wa.me`, bio, web). Nuevas columnas `phone_source`, `category`, `city` (leads) y `phones_found`, `enrich_total`, `status_detail` (jobs). Fase 2 recoge también seguidores pendientes de jobs anteriores de la misma cuenta. Ritmo propio para Fase 2 (`IG_ENRICH_DELAY_*`, `IG_LIMIT_DAILY_PROFILES`, descansos) editable desde el panel. UI: columna Teléfono, progreso de Fase 2 y motivo de parada. Cursores antiguos (formato GraphQL) se descartan automáticamente.
 
 - **2026-07-12:** Instagram — modo Seguidores (Modo B) restaurado y funcionando. Causa raíz del fallo: `web_profile_info` y la API privada devuelven 429/`require_login` sin sesión desde IPs de datacenter. Añadido `ig_session.py` (sesión vía `IG_SESSIONID`), `ig_get_authenticated` en `ig_client.py`, y `ig_followers.py` que pagina la lista completa de seguidores vía el cursor `max_id` de `friendships/{id}/followers/` (supera el límite de ~50 de la web de escritorio). Nueva UI "Modo B — Seguidores" con gate por sesión. Health check reporta `session_active`/`followers_available`.
 

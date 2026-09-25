@@ -1,41 +1,46 @@
 """
 Followers scraper (Modo B) — authenticated.
 
-Instagram's desktop web only reveals a small slice of an account's followers
-(~50 at a time in the modal) and requires you to scroll to load more.
+State of Instagram as of September 2026 (see instagrapi issue #2798 / PR #2801
+and instagrapi 3.0.14):
 
-The private mobile endpoint ``/api/v1/friendships/{user_id}/followers/`` refuses
-to paginate for most sessions: it responds with ``should_limit_list_of_followers:
-true``, ``has_more: false`` and **no** ``next_max_id`` cursor, so it caps every
-scrape at the first ~50 followers regardless of the account size.
+* The legacy web GraphQL ``/graphql/query/?query_hash=…`` followers query —
+  what this module used before — now returns the right ``count`` but
+  **always-empty** ``edges`` and ``has_next_page: false``. That is why jobs
+  finished with 0 followers.
+* What still works, in order of preference (the same chain instagrapi uses):
 
-The web GraphQL endpoint is not subject to that limit and keeps paginating:
+  1. ``v1``  — Android private API
+     ``GET i.instagram.com/api/v1/friendships/{id}/followers/`` paginated with
+     ``max_id`` / ``next_max_id``.
+  2. ``gql`` — Android private GraphQL ``FollowersList``
+     (``POST i.instagram.com/graphql/query``, root field
+     ``xdt_api__v1__friendships__followers``). Used when v1 answers with
+     ``should_limit_list_of_followers`` or fails. Same ``max_id`` cursor.
+  3. ``web`` — ``www.instagram.com/api/v1/friendships/{id}/followers/`` with
+     the browser session. Last resort; Instagram caps it at ~50 for most
+     sessions.
 
-    GET /graphql/query/?query_hash={hash}&variables={"id","first","after"}
+The cursor is persisted as ``"<strategy>:<max_id>"`` so a later job on the
+same account resumes where the previous one stopped.
 
-Each response carries ``edge_followed_by.page_info.end_cursor`` and
-``has_next_page``. This module walks that cursor until it is exhausted (or a
-target/limit is reached), so it collects the **full** followers list rather than
-the ~50 the desktop UI and the mobile endpoint expose.
-
-The endpoint requires an authenticated session (see :mod:`ig_session`).
-
-Typical flow:
-  1. resolve the target account's numeric user id (``web_profile_info``)
-  2. iterate followers via the cursor, yielding lightweight follower records
-     (``id``, ``username``, ``full_name``, ``is_private``…)
-  3. optionally enrich each follower with a full profile fetch to extract email
+The endpoints require an authenticated session (see :mod:`ig_session`).
 """
 
 import asyncio
-import json
 import logging
 import random
 from typing import AsyncGenerator
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from backend.config.settings import Settings
-from backend.scraper.ig_client import IgAuthError, ig_get_authenticated
+from backend.scraper import ig_mobile
+from backend.scraper.ig_client import (
+    IgAuthError,
+    ig_get_authenticated,
+    ig_mobile_get,
+    ig_mobile_graphql,
+)
 from backend.scraper.ig_session import get_session
 from backend.storage import database as db
 
@@ -45,56 +50,160 @@ logger = logging.getLogger(__name__)
 # separate from the "unauth" dorking counter so its cap is account-scoped).
 _FOLLOWERS_DAILY_MODE = "followers"
 
-_PROFILE_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-# GraphQL followers query. Unlike the mobile endpoint it is not capped by
-# ``should_limit_list_of_followers`` and keeps handing back an end_cursor.
-_FOLLOWERS_QUERY_HASH = "c76146de99bb02f6415203be841dd25a"
-_GRAPHQL_URL = "https://www.instagram.com/graphql/query/?query_hash={query_hash}&variables={variables}"
+STRATEGIES = ("v1", "gql", "web")
 
-
-def _followers_page_url(user_id: str, page_size: int, after: str = "") -> str:
-    """Build the GraphQL followers URL for one page (optionally after a cursor)."""
-    variables: dict = {
-        "id": user_id,
-        "include_reel": False,
-        "fetch_mutual": False,
-        "first": page_size,
-    }
-    if after:
-        variables["after"] = after
-    encoded = quote(json.dumps(variables, separators=(",", ":")))
-    return _GRAPHQL_URL.format(query_hash=_FOLLOWERS_QUERY_HASH, variables=encoded)
+_WEB_PROFILE_URL = "https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+_WEB_FOLLOWERS_URL = "https://www.instagram.com/api/v1/friendships/{user_id}/followers/?{query}"
+_GQL_FRIENDLY_NAME = "FollowersList"
+_GQL_ROOT_FIELD = "xdt_api__v1__friendships__followers"
 
 
 class FollowersError(RuntimeError):
     """Non-auth operational failure while scraping followers."""
 
 
+def encode_cursor(strategy: str, max_id: str) -> str:
+    return f"{strategy}:{max_id}" if max_id else ""
+
+
+def decode_cursor(raw: str | None) -> tuple[str, str]:
+    """``"v1:QVFB…"`` → ``("v1", "QVFB…")``. Cursors saved by the old
+    query_hash implementation carry no prefix and can't be resumed by the
+    current endpoints → start over (the deduplicator skips known users)."""
+    if not raw:
+        return "v1", ""
+    strategy, sep, max_id = raw.partition(":")
+    if sep and strategy in STRATEGIES and max_id:
+        return strategy, max_id
+    logger.info("Discarding legacy followers cursor (pre-Sept-2026 GraphQL format)")
+    return "v1", ""
+
+
 async def resolve_user_id(username: str) -> str | None:
-    """Resolve an Instagram username to its numeric user id via the web API."""
+    """Resolve an Instagram username to its numeric user id.
+
+    Tries the mobile ``usernameinfo`` endpoint first, then ``web_profile_info``
+    through the mobile host, then the web host (increasingly 400/429 on
+    datacenter IPs in 2026).
+    """
     username = username.strip().lstrip("@")
     if not username:
         return None
-    data = await ig_get_authenticated(_PROFILE_URL.format(username=quote(username)))
-    if data.get("error"):
-        logger.warning("resolve_user_id(%s): %s", username, data.get("error"))
+    safe = quote(username)
+
+    data = await ig_mobile_get(f"users/{safe}/usernameinfo/")
+    user = data.get("user") if not data.get("error") else None
+    if user and (user.get("pk") or user.get("id")):
+        if user.get("is_private"):
+            logger.warning("resolve_user_id(%s): target is private — only works if you follow it", username)
+        return str(user.get("pk") or user.get("id"))
+    if data.get("error") == "not_found":
         return None
-    user = data.get("data", {}).get("user")
-    if not user:
-        return None
-    return user.get("id")
+
+    for fetch in (
+        lambda: ig_mobile_get("users/web_profile_info/", params={"username": username}),
+        lambda: ig_get_authenticated(_WEB_PROFILE_URL.format(username=safe)),
+    ):
+        data = await fetch()
+        if data.get("error"):
+            logger.warning("resolve_user_id(%s): %s", username, data.get("error"))
+            continue
+        user = (data.get("data") or {}).get("user")
+        if user and user.get("id"):
+            return str(user["id"])
+    return None
 
 
 def _normalize_follower(entry: dict) -> dict:
-    """Normalize a follower entry from the followers endpoint."""
+    """Normalize a follower entry (mobile ``users[]`` or legacy GraphQL node)."""
     return {
-        "instagram_id": str(entry.get("pk") or entry.get("id") or "") or None,
+        "instagram_id": str(entry.get("pk") or entry.get("pk_id") or entry.get("id") or "") or None,
         "username": entry.get("username"),
         "full_name": entry.get("full_name"),
         "is_private": bool(entry.get("is_private")),
         "is_verified": bool(entry.get("is_verified")),
         "profile_pic_url": entry.get("profile_pic_url"),
     }
+
+
+def _gql_root(data: dict) -> dict:
+    payload = data.get("data") if isinstance(data.get("data"), dict) else data
+    root = payload.get(_GQL_ROOT_FIELD)
+    if isinstance(root, dict):
+        return root
+    for key, value in payload.items():
+        if _GQL_ROOT_FIELD in str(key) and isinstance(value, dict):
+            return value
+    return {}
+
+
+async def _fetch_page(
+    strategy: str, user_id: str, page_size: int, max_id: str, rank_token: str
+) -> tuple[list[dict], str, bool] | None:
+    """Fetch one page with ``strategy``.
+
+    Returns ``(users, next_max_id, limited)`` or ``None`` when that strategy
+    failed (so the caller moves on to the next one). ``IgAuthError``
+    propagates: a dead session won't be fixed by another endpoint.
+    """
+    if strategy == "v1":
+        params = {
+            "count": page_size,
+            "rank_token": rank_token,
+            "search_surface": "follow_list_page",
+            "query": "",
+            "enable_groups": "true",
+        }
+        if max_id:
+            params["max_id"] = max_id
+        data = await ig_mobile_get(f"friendships/{user_id}/followers/", params=params)
+        if data.get("error") or not isinstance(data.get("users"), list):
+            logger.warning("followers v1(%s): %s", user_id, data.get("error") or "no users in payload")
+            return None
+        return data["users"], str(data.get("next_max_id") or ""), bool(data.get("should_limit_list_of_followers"))
+
+    if strategy == "gql":
+        variables = {
+            "user_id": str(user_id),
+            "skip_suggested_users": True,
+            "skip_more_groups_available": True,
+            "skip_friendship_followers_fields": True,
+            "request_data": {"rank_token": rank_token, "enableGroups": True},
+            "skip_page_size": True,
+            "skip_pending_admins": True,
+            "skip_has_more": True,
+            "search_surface": "follow_list_page",
+            "query": "",
+            "skip_big_list": True,
+            "include_unseen_count": True,
+        }
+        if max_id:
+            variables["max_id"] = max_id
+        data = await ig_mobile_graphql(
+            _GQL_FRIENDLY_NAME,
+            _GQL_ROOT_FIELD,
+            variables,
+            Settings.IG_FOLLOWERS_DOC_ID,
+            extra_headers={"X-FB-RMD": "state=URL_ELIGIBLE"},
+        )
+        if data.get("error") or data.get("errors"):
+            logger.warning("followers gql(%s): %s", user_id, data.get("error") or data.get("errors"))
+            return None
+        root = _gql_root(data)
+        if not isinstance(root.get("users"), list):
+            logger.warning("followers gql(%s): missing %s payload", user_id, _GQL_ROOT_FIELD)
+            return None
+        return root["users"], str(root.get("next_max_id") or ""), False
+
+    # web
+    query = {"count": 12, "search_surface": "follow_list_page"}
+    if max_id:
+        query["max_id"] = max_id
+    data = await ig_get_authenticated(_WEB_FOLLOWERS_URL.format(user_id=user_id, query=urlencode(query)))
+    if data.get("error") or not isinstance(data.get("users"), list):
+        logger.warning("followers web(%s): %s", user_id, data.get("error") or "no users in payload")
+        return None
+    return data["users"], str(data.get("next_max_id") or ""), bool(data.get("should_limit_list_of_followers"))
 
 
 async def iter_followers(
@@ -114,21 +223,23 @@ async def iter_followers(
             IG_FOLLOWERS_MAX_PER_JOB).
         page_size: followers requested per page (Instagram may return fewer).
         stop_event: cooperative cancellation checked between pages.
-        start_cursor: resume from a previously saved GraphQL cursor (checkpointing).
+        start_cursor: resume point saved by a previous run (``strategy:max_id``).
 
     Each yielded dict also carries ``_next_cursor`` so callers can persist the
     cursor for resume-after-throttle.
 
     Raises:
-        IgAuthError: no/invalid session.
-        FollowersError: repeated operational failures.
+        IgAuthError: no/invalid session (or challenge required).
+        FollowersError: every strategy failed before anything was collected.
     """
     page_size = page_size or Settings.IG_FOLLOWERS_PAGE_SIZE
     hard_cap = Settings.IG_FOLLOWERS_MAX_PER_JOB
     limit = amount if amount and amount > 0 else hard_cap
     limit = min(limit, hard_cap)
 
-    cursor = start_cursor
+    strategy, max_id = decode_cursor(start_cursor)
+    token = ig_mobile.rank_token(get_session())
+    seen: set[str] = set()
     yielded = 0
     empty_pages = 0
     rested_at = 0
@@ -147,43 +258,56 @@ async def iter_followers(
             )
             return
 
-        url = _followers_page_url(user_id, page_size, cursor)
-        data = await ig_get_authenticated(url)
+        page = await _fetch_page(strategy, user_id, page_size, max_id, token)
         await db.increment_daily_count(_FOLLOWERS_DAILY_MODE)
 
-        if data.get("error"):
-            # Transient (max_retries_exceeded) — surface as operational error so
-            # the caller can decide whether partial results are acceptable.
-            raise FollowersError(f"followers fetch failed: {data.get('error')}")
+        if page is None:
+            nxt = STRATEGIES.index(strategy) + 1
+            if nxt >= len(STRATEGIES):
+                raise FollowersError(
+                    f"followers fetch failed with every endpoint ({', '.join(STRATEGIES)}) "
+                    f"after {yielded} followers"
+                )
+            logger.info("iter_followers(%s): %s failed → falling back to %s", user_id, strategy, STRATEGIES[nxt])
+            strategy = STRATEGIES[nxt]
+            continue
 
-        edge = (data.get("data") or {}).get("user", {}).get("edge_followed_by") or {}
-        edges = edge.get("edges") or []
-        page_info = edge.get("page_info") or {}
-        next_cursor = page_info.get("end_cursor") or ""
-        has_next = bool(page_info.get("has_next_page"))
-
-        if not edges:
-            empty_pages += 1
-            if empty_pages >= 2 or not has_next or not next_cursor:
-                logger.debug("iter_followers(%s): no more followers (yielded=%d)", user_id, yielded)
-                return
-        else:
-            empty_pages = 0
-
-        for entry in edges:
-            follower = _normalize_follower(entry.get("node") or {})
-            follower["_next_cursor"] = next_cursor
+        users, next_max_id, limited = page
+        fresh = 0
+        cursor_out = encode_cursor(strategy, next_max_id)
+        for entry in users:
+            follower = _normalize_follower(entry)
+            key = follower["instagram_id"] or follower["username"]
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            fresh += 1
+            follower["_next_cursor"] = cursor_out
             yield follower
             yielded += 1
             if yielded >= limit:
                 logger.info("iter_followers(%s): reached limit %d", user_id, limit)
                 return
 
-        if not has_next or not next_cursor:
+        if limited and not next_max_id and strategy == "v1":
+            # Instagram capped the v1 list for this session: re-read this
+            # same page through private GraphQL, which keeps paginating.
+            logger.info(
+                "iter_followers(%s): v1 list limited (should_limit_list_of_followers) after %d — "
+                "switching to private GraphQL", user_id, yielded,
+            )
+            strategy = "gql"
+            continue
+
+        if not next_max_id:
             logger.debug("iter_followers(%s): cursor exhausted at %d followers", user_id, yielded)
             return
 
-        cursor = next_cursor
+        empty_pages = empty_pages + 1 if fresh == 0 else 0
+        if empty_pages >= 2:
+            logger.debug("iter_followers(%s): two pages without new followers — stopping", user_id)
+            return
+        max_id = next_max_id
 
         # Anti-ban: longer rest every N followers to break the steady cadence.
         rest_every = Settings.IG_FOLLOWERS_REST_EVERY
@@ -210,8 +334,8 @@ async def scrape_followers(
     """
     High-level helper: resolve the target account then yield its followers.
 
-    Automatically resumes from the GraphQL cursor saved on a previous run for
-    this same account (see :mod:`backend.storage.database` — table
+    Automatically resumes from the cursor saved on a previous run for this
+    same account (see :mod:`backend.storage.database` — table
     ``ig_followers_cursor``), instead of re-walking the same first page every
     time. Pass ``reset_cursor=True`` to start over from the beginning.
 
