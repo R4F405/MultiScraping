@@ -488,12 +488,24 @@ export function initInstagramForm() {
     const total = Math.max(0, Number(job?.total ?? 0));
     const progress = Math.max(0, Number(job?.progress ?? 0));
     const emails = Math.max(0, Number(job?.emails_found ?? 0));
-    const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
+    const phones = Math.max(0, Number(job?.phones_found ?? 0));
+    const enrichTotal = Math.max(0, Number(job?.enrich_total ?? 0));
+    const checked = Math.max(0, Number(job?.profiles_checked ?? 0));
     followersProgress?.classList.remove('hidden');
-    if (followersBar) followersBar.style.width = `${Math.min(100, pct)}%`;
-    if (followersProgressText) followersProgressText.textContent = `${progress}/${total || '?'} seguidores`;
+    if (enrichTotal > 0) {
+      // Fase 2: per-profile email/phone lookup.
+      const pct = Math.round((checked / enrichTotal) * 100);
+      if (followersBar) followersBar.style.width = `${Math.min(100, pct)}%`;
+      if (followersProgressText) followersProgressText.textContent = `${checked}/${enrichTotal} perfiles analizados`;
+    } else {
+      const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
+      if (followersBar) followersBar.style.width = `${Math.min(100, pct)}%`;
+      if (followersProgressText) followersProgressText.textContent = `${progress}/${total || '?'} seguidores`;
+    }
     if (followersCountText) {
-      followersCountText.textContent = emails > 0 ? `${emails} con email` : `${progress} recopilados`;
+      followersCountText.textContent = (emails || phones)
+        ? `${emails} con email · ${phones} con teléfono`
+        : `${progress} recopilados`;
     }
   };
 
@@ -530,16 +542,23 @@ export function initInstagramForm() {
 
         const collected = Math.max(0, Number(job?.progress ?? 0));
         const emails = Math.max(0, Number(job?.emails_found ?? 0));
+        const phones = Math.max(0, Number(job?.phones_found ?? 0));
+        const found = (emails || phones) ? ` · ${emails} con email · ${phones} con teléfono` : '';
+        const detail = safeText(job?.status_detail, '');
         if (job.status === 'completed') {
-          showAlert(`Seguidores extraídos: ${collected}${emails ? ` · ${emails} con email` : ''}.`, 'ok');
+          showAlert(`Seguidores extraídos: ${collected}${found}.`, 'ok');
         } else if (job.status === 'completed_partial') {
-          showAlert(`Extracción parcial: ${collected} seguidores recopilados antes de un bloqueo. Reintenta o añade proxies.`, 'warn');
+          showAlert(detail
+            ? `Extracción parcial (${collected} seguidores${found}). ${detail}`
+            : `Extracción parcial: ${collected} seguidores recopilados antes de un bloqueo. Reintenta o añade proxies.`, 'warn');
         } else if (job.status === 'cancelled') {
-          showAlert(`Scrapeo cancelado. Se conservan ${collected} seguidores.`, 'warn');
+          showAlert(`Scrapeo cancelado. Se conservan ${collected} seguidores${found}.`, 'warn');
         } else if (job.status === 'auth_required') {
-          showAlert('Sesión de Instagram no válida o ausente. Configura IG_SESSIONID en el backend.', 'error');
+          showAlert(detail
+            ? `Sesión de Instagram no válida: ${detail}`
+            : 'Sesión de Instagram no válida o ausente. Configura IG_SESSIONID en el backend.', 'error');
         } else {
-          showAlert('La extracción de seguidores falló. Revisa los logs del backend.', 'error');
+          showAlert(`La extracción de seguidores falló${detail ? `: ${detail}` : '. Revisa los logs del backend.'}`, 'error');
         }
       }
     } catch (_) {}
@@ -621,12 +640,14 @@ export function initInstagramForm() {
   // ── Export ────────────────────────────────────────────────────────────
   const exportLeads = (jobId) => {
     if (!filteredLeads.length) return;
-    const cols = ['Username','Nombre','Email','Estado email','Seguidores','Tipo cuenta','Fuente email','Origen','Web'];
+    const cols = ['Username','Nombre','Email','Estado email','Teléfono','Fuente teléfono','Seguidores','Tipo cuenta','Categoría','Ciudad','Fuente email','Origen','Web'];
     const esc = (v) => `"${(v ?? '').toString().replace(/"/g, '""')}"`;
     const rows = filteredLeads.map((l) => [
       l.username, l.full_name, l.email, l.email_status,
+      l.phone, l.phone_source,
       l.follower_count ?? l.followers_count ?? 0,
       Boolean(l.is_business) ? 'Business' : 'Personal',
+      l.category, l.city,
       l.email_source, l.source_type, l.website,
     ].map(esc).join(','));
     const blob = new Blob(['\uFEFF' + [cols.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -670,10 +691,13 @@ export function initInstagramForm() {
     usernameLink.textContent = username;
     usernameLink.title = username;
     usernameTd.appendChild(usernameLink);
-    // Column order: Usuario | Nombre | Email | Seguidores | Tipo | Fuente | Web
+    // Column order: Usuario | Nombre | Email | Teléfono | Seguidores | Tipo | Fuente | Web
     tr.appendChild(usernameTd);
     tr.appendChild(cell('px-4 py-3 text-slate-600 max-w-[200px] truncate', fullName, fullName));
     tr.appendChild(cell(`px-4 py-3 ${emailStatusClass(lead.email_status)}`, email));
+    const phone = safeText(lead.phone, '');
+    tr.appendChild(cell('px-4 py-3 text-slate-700 tabular-nums whitespace-nowrap', phone || '—',
+      phone && lead.phone_source ? `Fuente: ${safeText(lead.phone_source)}` : null));
     tr.appendChild(cell('px-4 py-3 text-slate-600 tabular-nums', followers));
 
     const bizTd = document.createElement('td');

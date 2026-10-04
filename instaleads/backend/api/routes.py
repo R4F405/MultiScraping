@@ -303,21 +303,25 @@ async def _run_followers_job(
 ) -> None:
     """Fase 1: pull the full list of usernames first (fast, authenticated,
     single account). Fase 2 (optional): only once Fase 1 is done, go back
-    and fetch emails for the collected usernames — this can ride on a
+    and fetch email/phone for the collected usernames — this can ride on a
     separate guest session (see ig_session.get_enrichment_session) so the
     high-volume per-profile checking never touches the main account.
     """
     from backend.scraper.ig_deduplicator import Deduplicator
     from backend.scraper.ig_followers import FollowersError, scrape_followers
     from backend.scraper.ig_profile import get_profile
+    from backend.scraper.ig_rate_limiter import DailyLimitReached
 
     collected = 0
     emails_found = 0
+    phones_found = 0
+    checked = 0
     try:
         dedup = Deduplicator()
         await dedup.load_from_db()
 
         # ── Fase 1: usernames ────────────────────────────────────────────
+        phase1_detail = None
         try:
             async for follower in scrape_followers(
                 target, amount=max_results, stop_event=stop_event, reset_cursor=reset_cursor
@@ -352,41 +356,78 @@ async def _run_followers_job(
             )
         except IgAuthError as exc:
             logger.error("Followers job %s: auth error: %s", job_id[:8], exc)
-            await db.finish_job(job_id, "auth_required")
+            await db.finish_job(job_id, "auth_required", str(exc))
             return
         except FollowersError as exc:
             logger.error("Followers job %s: %s", job_id[:8], exc)
-            await db.finish_job(job_id, "completed_partial" if collected else "failed")
-            return
+            if not collected and not enrich:
+                await db.finish_job(job_id, "failed", str(exc))
+                return
+            # Keep going: Fase 2 can still enrich what was collected (and
+            # leftovers from earlier runs on this same account).
+            phase1_detail = (
+                f"Instagram cortó la lista de seguidores tras {collected}: {exc}. "
+                "Vuelve a lanzar la búsqueda más tarde; continuará donde se quedó."
+            )
 
-        # ── Fase 2: emails (only if requested and not cancelled) ────────
+        # ── Fase 2: email + phone (only if requested and not cancelled) ──
+        phase2_detail = None
+        auth_failed = False
         if enrich and not stop_event.is_set():
+            claimed = await db.claim_pending_follower_leads(job_id, target)
+            if claimed:
+                logger.info(
+                    "Followers job %s: %d seguidores pendientes de jobs anteriores de @%s añadidos a fase 2",
+                    job_id[:8], claimed, target,
+                )
             pending = await db.get_pending_email_leads(job_id)
+            await db.set_job_enrich_total(job_id, len(pending))
             logger.info(
                 "Followers job %s: fase 2 start — %d perfiles a comprobar", job_id[:8], len(pending)
             )
-            checked = 0
+            rested_at = 0
             for row in pending:
                 if stop_event.is_set():
                     break
 
-                # Daily "unauth" quota is shared with Dorking mode and enforced
-                # inside ig_get's rate limiter — but a DailyLimitReached raised
-                # there gets swallowed by ig_client's retry loop and surfaces as
-                # a generic fetch failure, not this exception. Check proactively
-                # so we stop cleanly instead of burning 3 retries per lead.
-                daily_used = await db.get_daily_count("unauth")
-                if Settings.IG_LIMIT_DAILY_UNAUTHENTICATED and daily_used >= Settings.IG_LIMIT_DAILY_UNAUTHENTICATED:
-                    logger.warning(
-                        "Followers job %s: fase 2 stopped — daily unauth limit reached (%d/%d). "
-                        "%d perfiles quedan pendientes para la próxima vez.",
-                        job_id[:8], daily_used, Settings.IG_LIMIT_DAILY_UNAUTHENTICATED, len(pending) - checked,
+                daily_cap = Settings.IG_LIMIT_DAILY_PROFILES
+                daily_used = await db.get_daily_count("enrich")
+                if daily_cap and daily_used >= daily_cap:
+                    phase2_detail = (
+                        f"Límite diario de perfiles alcanzado ({daily_used}/{daily_cap}). "
+                        f"Quedan {len(pending) - checked} perfiles pendientes: relanza la búsqueda "
+                        "mañana y se continuará con ellos."
                     )
+                    logger.warning("Followers job %s: fase 2 stopped — %s", job_id[:8], phase2_detail)
                     break
+
+                rest_every = Settings.IG_ENRICH_REST_EVERY
+                if rest_every and checked and checked - rested_at >= rest_every:
+                    rested_at = checked
+                    logger.info(
+                        "Followers job %s: descanso de %.0fs tras %d perfiles",
+                        job_id[:8], Settings.IG_ENRICH_REST_SECONDS, checked,
+                    )
+                    await asyncio.sleep(Settings.IG_ENRICH_REST_SECONDS)
 
                 username = row["username"]
                 try:
-                    profile = await get_profile(username)
+                    profile = await get_profile(
+                        username, user_id=row["instagram_id"], mobile=True, strict_auth=True
+                    )
+                except DailyLimitReached:
+                    phase2_detail = (
+                        f"Límite diario de perfiles alcanzado ({Settings.IG_LIMIT_DAILY_PROFILES}). "
+                        f"Quedan {len(pending) - checked} perfiles pendientes: relanza la búsqueda mañana."
+                    )
+                    break
+                except IgAuthError as exc:
+                    auth_failed = True
+                    phase2_detail = (
+                        f"La sesión usada para enriquecer dejó de ser válida tras {checked} perfiles: {exc}"
+                    )
+                    logger.error("Followers job %s: fase 2 auth error: %s", job_id[:8], exc)
+                    break
                 except Exception as exc:
                     logger.warning("Followers enrich @%s failed: %s", username, exc)
                     profile = None
@@ -397,7 +438,7 @@ async def _run_followers_job(
                     # Fetch genuinely failed (network/proxy/rate-limit) — leave
                     # email_status as 'pending' so a later Fase 2 run retries it,
                     # instead of wrongly recording it as "no email found".
-                    await db.update_job_progress(job_id, collected, emails_found, checked)
+                    await db.update_job_progress(job_id, collected, emails_found, checked, phones_found)
                     continue
 
                 enrich_lead = {
@@ -412,35 +453,47 @@ async def _run_followers_job(
                         "email": profile.get("email"),
                         "email_source": profile.get("email_source"),
                         "phone": profile.get("phone"),
+                        "phone_source": profile.get("phone_source"),
                         "website": profile.get("website"),
                         "bio": profile.get("bio"),
+                        "category": profile.get("category"),
+                        "city": profile.get("city"),
                         "follower_count": profile.get("follower_count", 0),
                         "is_business": profile.get("is_business", False),
                     })
                     if profile.get("email"):
                         emails_found += 1
+                    if profile.get("phone"):
+                        phones_found += 1
 
                 await db.upsert_ig_lead(
                     enrich_lead, job_id=job_id, source_type="followers", source_value=target
                 )
-                await db.update_job_progress(job_id, collected, emails_found, checked)
+                await db.update_job_progress(job_id, collected, emails_found, checked, phones_found)
 
             logger.info(
-                "Followers job %s: fase 2 done — %d/%d perfiles comprobados, %d emails",
-                job_id[:8], checked, len(pending), emails_found,
+                "Followers job %s: fase 2 done — %d/%d perfiles comprobados, %d emails, %d teléfonos",
+                job_id[:8], checked, len(pending), emails_found, phones_found,
             )
 
+        detail = " ".join(d for d in (phase1_detail, phase2_detail) if d) or None
         if stop_event.is_set():
-            await db.finish_job(job_id, "cancelled")
+            await db.finish_job(job_id, "cancelled", detail)
+        elif auth_failed and not emails_found and not phones_found:
+            await db.finish_job(job_id, "auth_required", detail)
+        elif phase1_detail and not collected and not checked:
+            await db.finish_job(job_id, "failed", detail)
+        elif detail:
+            await db.finish_job(job_id, "completed_partial", detail)
         else:
             await db.finish_job(job_id, "completed")
         logger.info(
-            "Followers job %s: @%s → %d followers, %d emails",
-            job_id[:8], target, collected, emails_found,
+            "Followers job %s: @%s → %d followers, %d emails, %d teléfonos",
+            job_id[:8], target, collected, emails_found, phones_found,
         )
     except Exception as exc:
         logger.error("Followers job %s failed: %s", job_id, exc)
-        await db.finish_job(job_id, "failed")
+        await db.finish_job(job_id, "failed", str(exc))
     finally:
         async with _cancel_registry_lock:
             _job_cancel_events.pop(job_id, None)
@@ -531,6 +584,13 @@ async def get_leads_by_job(job_id: str):
 
 # ── Export ────────────────────────────────────────────────────────────────────
 
+_CSV_FIELDS = [
+    "username", "full_name", "email", "email_source", "phone", "phone_source",
+    "website", "category", "city", "follower_count", "is_business",
+    "source_type", "source_value", "scraped_at",
+]
+
+
 @router.get("/export/{job_id}")
 async def export_csv(job_id: str):
     leads = await db.get_leads_by_job(job_id)
@@ -540,8 +600,7 @@ async def export_csv(job_id: str):
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["username", "full_name", "email", "email_source", "phone",
-                    "website", "follower_count", "is_business", "source_type", "source_value", "scraped_at"],
+        fieldnames=_CSV_FIELDS,
     )
     writer.writeheader()
     for lead in leads:
@@ -564,8 +623,7 @@ async def export_all_csv():
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["username", "full_name", "email", "email_source", "phone",
-                    "website", "follower_count", "is_business", "source_type", "source_value", "scraped_at"],
+        fieldnames=_CSV_FIELDS,
     )
     writer.writeheader()
     for lead in leads:

@@ -102,6 +102,12 @@ async def init_db():
         for stmt in (
             "ALTER TABLE ig_scrape_jobs ADD COLUMN profiles_checked INTEGER DEFAULT 0",
             "ALTER TABLE ig_leads ADD COLUMN is_private INTEGER DEFAULT 0",
+            "ALTER TABLE ig_leads ADD COLUMN phone_source TEXT",
+            "ALTER TABLE ig_leads ADD COLUMN category TEXT",
+            "ALTER TABLE ig_leads ADD COLUMN city TEXT",
+            "ALTER TABLE ig_scrape_jobs ADD COLUMN phones_found INTEGER DEFAULT 0",
+            "ALTER TABLE ig_scrape_jobs ADD COLUMN enrich_total INTEGER DEFAULT 0",
+            "ALTER TABLE ig_scrape_jobs ADD COLUMN status_detail TEXT",
         ):
             try:
                 await db.execute(stmt)
@@ -167,16 +173,20 @@ async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_va
         await db.execute("""
             INSERT INTO ig_leads
                 (job_id, instagram_id, username, full_name, email, email_source, email_status,
-                 phone, website, bio, follower_count, is_business, is_private, source_type, source_value)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 phone, phone_source, website, bio, category, city, follower_count, is_business,
+                 is_private, source_type, source_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(instagram_id) DO UPDATE SET
                 full_name      = COALESCE(NULLIF(excluded.full_name, ''), ig_leads.full_name),
                 email          = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email ELSE ig_leads.email END,
                 email_source   = CASE WHEN excluded.email IS NOT NULL AND excluded.email != '' THEN excluded.email_source ELSE ig_leads.email_source END,
                 email_status   = CASE WHEN excluded.email_status != 'pending' THEN excluded.email_status ELSE ig_leads.email_status END,
                 phone          = COALESCE(NULLIF(excluded.phone, ''), ig_leads.phone),
+                phone_source   = CASE WHEN excluded.phone IS NOT NULL AND excluded.phone != '' THEN excluded.phone_source ELSE ig_leads.phone_source END,
                 website        = COALESCE(NULLIF(excluded.website, ''), ig_leads.website),
                 bio            = COALESCE(NULLIF(excluded.bio, ''), ig_leads.bio),
+                category       = COALESCE(NULLIF(excluded.category, ''), ig_leads.category),
+                city           = COALESCE(NULLIF(excluded.city, ''), ig_leads.city),
                 follower_count = CASE WHEN excluded.follower_count > 0 THEN excluded.follower_count ELSE ig_leads.follower_count END,
                 is_business    = excluded.is_business OR ig_leads.is_business,
                 is_private     = excluded.is_private,
@@ -190,8 +200,11 @@ async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_va
             profile.get("email_source"),
             email_status,
             profile.get("phone"),
+            profile.get("phone_source"),
             profile.get("website"),
             profile.get("bio"),
+            profile.get("category"),
+            profile.get("city"),
             profile.get("follower_count", 0),
             1 if profile.get("is_business") else 0,
             1 if is_private else 0,
@@ -199,6 +212,22 @@ async def upsert_ig_lead(profile: dict, job_id: str, source_type: str, source_va
             source_value,
         ))
         await db.commit()
+
+
+async def claim_pending_follower_leads(job_id: str, target: str) -> int:
+    """Attach to ``job_id`` the followers of ``target`` that earlier jobs
+    collected but never enriched (cancelled, throttled, daily cap…), so this
+    job's Fase 2 finishes them and its export includes them. Returns how many
+    leads were claimed from other jobs."""
+    async with get_db() as db:
+        cur = await db.execute(
+            "UPDATE ig_leads SET job_id = ? "
+            "WHERE source_type = 'followers' AND source_value = ? AND is_private = 0 "
+            "AND email_status = 'pending' AND (job_id IS NULL OR job_id != ?)",
+            (job_id, target, job_id),
+        )
+        await db.commit()
+        return cur.rowcount or 0
 
 
 async def get_pending_email_leads(job_id: str) -> list[dict]:
@@ -260,19 +289,33 @@ async def upsert_job(job_id: str, mode: str, target: str, max_results: int):
         await db.commit()
 
 
-async def update_job_progress(job_id: str, progress: int, emails_found: int, profiles_checked: int = 0):
+async def update_job_progress(
+    job_id: str, progress: int, emails_found: int, profiles_checked: int = 0, phones_found: int = 0
+):
     async with get_db() as db:
         await db.execute("""
-            UPDATE ig_scrape_jobs SET progress = ?, emails_found = ?, profiles_checked = ? WHERE job_id = ?
-        """, (progress, emails_found, profiles_checked, job_id))
+            UPDATE ig_scrape_jobs
+               SET progress = ?, emails_found = ?, profiles_checked = ?, phones_found = ?
+             WHERE job_id = ?
+        """, (progress, emails_found, profiles_checked, phones_found, job_id))
         await db.commit()
 
 
-async def finish_job(job_id: str, status: str = "done"):
+async def set_job_enrich_total(job_id: str, enrich_total: int):
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE ig_scrape_jobs SET enrich_total = ? WHERE job_id = ?", (enrich_total, job_id)
+        )
+        await db.commit()
+
+
+async def finish_job(job_id: str, status: str = "done", detail: str | None = None):
+    """Close a job. ``detail`` is a human-readable reason shown by the UI
+    (why it stopped early, what to do next)."""
     async with get_db() as db:
         await db.execute("""
-            UPDATE ig_scrape_jobs SET status = ?, finished_at = ? WHERE job_id = ?
-        """, (status, datetime.now().isoformat(), job_id))
+            UPDATE ig_scrape_jobs SET status = ?, status_detail = ?, finished_at = ? WHERE job_id = ?
+        """, (status, detail, datetime.now().isoformat(), job_id))
         await db.commit()
 
 

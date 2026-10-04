@@ -50,3 +50,29 @@ def test_reset_backoff():
     limiter._backoff = 999
     limiter.reset_backoff()
     assert limiter._backoff == Settings.IG_BACKOFF_INITIAL
+
+
+@pytest.mark.asyncio
+async def test_enrich_mode_uses_profile_cap():
+    limiter = RateLimiter(mode="enrich")
+    with (
+        patch.object(Settings, "IG_LIMIT_DAILY_PROFILES", 5),
+        patch("backend.scraper.ig_rate_limiter.db.get_daily_count", new=AsyncMock(return_value=5)),
+    ):
+        with pytest.raises(DailyLimitReached):
+            await limiter.check_and_wait()
+
+
+@pytest.mark.asyncio
+async def test_auth_mode_has_no_cap_nor_delay():
+    limiter = RateLimiter(mode="auth")
+    count = AsyncMock(return_value=10**9)
+    sleep = AsyncMock()
+    with (
+        patch("backend.scraper.ig_rate_limiter.db.get_daily_count", new=count),
+        patch("asyncio.sleep", new=sleep),
+    ):
+        await limiter.check_and_wait()
+        await limiter.check_and_wait()
+    count.assert_not_awaited()
+    sleep.assert_not_awaited()

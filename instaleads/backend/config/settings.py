@@ -37,13 +37,35 @@ class Settings:
     IG_HEALTH_TEST_ACCOUNT: str = os.getenv("IG_HEALTH_TEST_ACCOUNT", "natgeo")
 
     # Transport — curl_cffi TLS fingerprint profile ("none" to disable behind
-    # TLS-intercepting proxies) and optional custom CA bundle path.
-    IG_IMPERSONATE: str = os.getenv("IG_IMPERSONATE", "chrome131")
+    # TLS-intercepting proxies) and optional custom CA bundle path. The web
+    # User-Agent's Chrome version is derived from this profile so TLS and UA
+    # always agree.
+    IG_IMPERSONATE: str = os.getenv("IG_IMPERSONATE", "chrome146")
     IG_CA_BUNDLE: str = os.getenv("IG_CA_BUNDLE", "")
 
+    # Mobile (Android app) private API — i.instagram.com. Since Sept 2026 this
+    # is the only surface that still lists followers and returns contact info
+    # (public_email / public_phone_number). Defaults mirror instagrapi 3.0.14
+    # (2026-09-24); override from .env when Instagram rotates them.
+    IG_MOBILE_APP_ID: str = os.getenv("IG_MOBILE_APP_ID", "567067343352427")
+    IG_MOBILE_APP_VERSION: str = os.getenv("IG_MOBILE_APP_VERSION", "448.0.0.0.20")
+    IG_MOBILE_VERSION_CODE: str = os.getenv("IG_MOBILE_VERSION_CODE", "1065560286")
+    IG_MOBILE_BLOKS_VERSION_ID: str = os.getenv(
+        "IG_MOBILE_BLOKS_VERSION_ID",
+        "0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432",
+    )
+    IG_MOBILE_LOCALE: str = os.getenv("IG_MOBILE_LOCALE", "es_ES")
+    IG_MOBILE_TIMEZONE_OFFSET: int = int(os.getenv("IG_MOBILE_TIMEZONE_OFFSET", "7200"))
+    # TLS profile for mobile requests. Empty = curl's own TLS (the Android app
+    # is not a browser, so a Chrome fingerprint would not match its UA).
+    IG_MOBILE_IMPERSONATE: str = os.getenv("IG_MOBILE_IMPERSONATE", "")
+    # Private GraphQL "FollowersList" doc id — fallback when the v1 endpoint
+    # answers with should_limit_list_of_followers.
+    IG_FOLLOWERS_DOC_ID: str = os.getenv("IG_FOLLOWERS_DOC_ID", "284797047911918316998205836755")
+
     # Followers mode (Modo B) — requires an authenticated session.
-    # Instagram returns followers in pages (~50–100 each); the scraper
-    # paginates via the max_id cursor to go well beyond the ~50 shown in the
+    # Instagram returns followers in pages; the scraper paginates via the
+    # max_id cursor of the mobile API to go well beyond the ~50 shown in the
     # desktop web modal. These control page size and inter-page pacing.
     IG_FOLLOWERS_PAGE_SIZE: int = int(os.getenv("IG_FOLLOWERS_PAGE_SIZE", "50"))
     IG_FOLLOWERS_DELAY_MIN: float = float(os.getenv("IG_FOLLOWERS_DELAY_MIN", "2.0"))
@@ -58,6 +80,15 @@ class Settings:
     # request cadence a bot would show. 0 = disabled.
     IG_FOLLOWERS_REST_EVERY: int = int(os.getenv("IG_FOLLOWERS_REST_EVERY", "500"))
     IG_FOLLOWERS_REST_SECONDS: float = float(os.getenv("IG_FOLLOWERS_REST_SECONDS", "45.0"))
+
+    # Fase 2 (email/phone enrichment) — one profile lookup per follower. This
+    # is the request Instagram rate-limits hardest per account, so it gets its
+    # own pacing and daily cap (counted across all jobs). 0 = no cap.
+    IG_ENRICH_DELAY_MIN: float = float(os.getenv("IG_ENRICH_DELAY_MIN", "8.0"))
+    IG_ENRICH_DELAY_MAX: float = float(os.getenv("IG_ENRICH_DELAY_MAX", "15.0"))
+    IG_LIMIT_DAILY_PROFILES: int = int(os.getenv("IG_LIMIT_DAILY_PROFILES", "500"))
+    IG_ENRICH_REST_EVERY: int = int(os.getenv("IG_ENRICH_REST_EVERY", "100"))
+    IG_ENRICH_REST_SECONDS: float = float(os.getenv("IG_ENRICH_REST_SECONDS", "90.0"))
 
     # DB
     DB_PATH: str = os.path.join(os.path.dirname(__file__), "..", "..", "data", "instaleads.db")

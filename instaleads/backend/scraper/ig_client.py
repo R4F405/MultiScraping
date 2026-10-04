@@ -1,13 +1,15 @@
 import asyncio
 import functools
 import logging
+from urllib.parse import urljoin
 
 import curl_cffi.requests as curl_requests
 
 from backend.config.settings import Settings
+from backend.scraper import ig_mobile
 from backend.scraper.ig_proxy_manager import ig_proxy_manager
-from backend.scraper.ig_rate_limiter import RateLimiter
-from backend.scraper.ig_session import get_session
+from backend.scraper.ig_rate_limiter import DailyLimitReached, RateLimiter
+from backend.scraper.ig_session import get_session, web_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -18,21 +20,32 @@ class IgAuthError(RuntimeError):
     """Raised when Instagram rejects the request for lack of a valid session."""
 
 
-BASE_HEADERS = {
-    "x-ig-app-id": IG_APP_ID,
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://www.instagram.com/",
-    "Origin": "https://www.instagram.com",
-}
+class IgChallengeError(IgAuthError):
+    """The account must pass a checkpoint/challenge before it can be used again
+    (open Instagram with it in a browser/app, complete it, copy a new sessionid)."""
 
+
+def _base_headers() -> dict:
+    return {
+        "x-ig-app-id": IG_APP_ID,
+        "User-Agent": web_user_agent(),
+        "Accept": "*/*",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.instagram.com/",
+        "Origin": "https://www.instagram.com",
+    }
+
+
+# Kept for backwards compatibility (imported by older code/tests).
+BASE_HEADERS = _base_headers()
+
+# unauth: guest/web lookups + dorking. auth: followers list pages (the
+# iterator paces them itself, so only backoff applies). enrich: one profile
+# lookup per follower in Fase 2 — its own delay and daily cap.
 _rate_limiter = RateLimiter(mode="unauth")
+_auth_rate_limiter = RateLimiter(mode="auth")
+_enrich_rate_limiter = RateLimiter(mode="enrich")
 
 
 def effective_proxy_list() -> list[str]:
@@ -55,17 +68,17 @@ def reload_proxies() -> int:
 reload_proxies()
 
 
-def _curl_extra_kwargs() -> dict:
+def _curl_extra_kwargs(impersonate: str | None = None) -> dict:
     """
     Transport tweaks for curl_cffi.
 
-    IG_IMPERSONATE selects the browser TLS fingerprint profile (default
-    chrome131); "none"/"off" disables it (needed behind TLS-intercepting
-    egress proxies that reject impersonated ClientHellos). IG_CA_BUNDLE
-    points curl at a custom CA bundle for such proxies.
+    ``impersonate`` selects the browser TLS fingerprint profile (defaults to
+    IG_IMPERSONATE); "none"/"off"/"" disables it (needed behind
+    TLS-intercepting egress proxies that reject impersonated ClientHellos).
+    IG_CA_BUNDLE points curl at a custom CA bundle for such proxies.
     """
     kwargs: dict = {}
-    imp = (Settings.IG_IMPERSONATE or "").strip()
+    imp = (Settings.IG_IMPERSONATE if impersonate is None else impersonate or "").strip()
     if imp and imp.lower() not in ("none", "off", "0", "false"):
         kwargs["impersonate"] = imp
     if Settings.IG_CA_BUNDLE:
@@ -92,6 +105,16 @@ async def ig_get(url: str, max_retries: int | None = None, session=None) -> dict
     return await _ig_request(url, session=session, max_retries=max_retries, require_auth=False)
 
 
+def _require_session(session):
+    session = session if session is not None else get_session()
+    if session is None or not session.authenticated:
+        raise IgAuthError(
+            "No Instagram session configured. Set IG_SESSIONID (or IG_SESSION_FILE) "
+            "to scrape followers or private-API endpoints."
+        )
+    return session
+
+
 async def ig_get_authenticated(url: str, max_retries: int | None = None) -> dict:
     """
     Authenticated GET against Instagram's private web API.
@@ -102,23 +125,145 @@ async def ig_get_authenticated(url: str, max_retries: int | None = None) -> dict
     """
     if max_retries is None:
         max_retries = Settings.IG_MAX_RETRIES
-    session = get_session()
-    if session is None or not session.authenticated:
-        raise IgAuthError(
-            "No Instagram session configured. Set IG_SESSIONID (or IG_SESSION_FILE) "
-            "to scrape followers or private-API endpoints."
-        )
-    return await _ig_request(url, session=session, max_retries=max_retries, require_auth=True)
+    session = _require_session(None)
+    return await _ig_request(
+        url, session=session, max_retries=max_retries, require_auth=True,
+        limiter=_auth_rate_limiter,
+    )
 
 
-async def _ig_request(url: str, *, session, max_retries: int, require_auth: bool) -> dict:
+async def ig_mobile_get(
+    endpoint: str,
+    params: dict | None = None,
+    *,
+    session=None,
+    max_retries: int | None = None,
+    purpose: str = "auth",
+) -> dict:
+    """
+    Authenticated GET against the Android private API
+    (``https://i.instagram.com/api/v1/<endpoint>``).
+
+    ``purpose`` picks the rate limiter: ``"auth"`` for followers pages (paced
+    by the caller) or ``"enrich"`` for per-profile lookups (own delay + cap).
+    """
+    if max_retries is None:
+        max_retries = Settings.IG_MAX_RETRIES
+    session = _require_session(session)
+    url = urljoin(ig_mobile.MOBILE_API_BASE, endpoint.lstrip("/"))
+    return await _ig_request(
+        url,
+        session=session,
+        max_retries=max_retries,
+        require_auth=True,
+        params=params,
+        headers=ig_mobile.mobile_headers(session),
+        cookies={},
+        limiter=_enrich_rate_limiter if purpose == "enrich" else _auth_rate_limiter,
+        impersonate=Settings.IG_MOBILE_IMPERSONATE,
+    )
+
+
+async def ig_mobile_graphql(
+    friendly_name: str,
+    root_field: str,
+    variables: dict,
+    doc_id: str,
+    *,
+    session=None,
+    extra_headers: dict | None = None,
+    max_retries: int | None = None,
+) -> dict:
+    """POST to the Android app's private GraphQL (``i.instagram.com/graphql/query``)."""
+    if max_retries is None:
+        max_retries = Settings.IG_MAX_RETRIES
+    session = _require_session(session)
+    headers = ig_mobile.graphql_headers(session, friendly_name, root_field, doc_id)
+    if extra_headers:
+        headers.update(extra_headers)
+    return await _ig_request(
+        ig_mobile.MOBILE_GRAPHQL_URL,
+        session=session,
+        max_retries=max_retries,
+        require_auth=True,
+        method="POST",
+        data=ig_mobile.graphql_form(friendly_name, variables, doc_id),
+        headers=headers,
+        cookies={},
+        limiter=_auth_rate_limiter,
+        impersonate=Settings.IG_MOBILE_IMPERSONATE,
+    )
+
+
+# ── Response classification ──────────────────────────────────────────────────
+
+def _json_or_none(response) -> dict | None:
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _message(payload: dict | None) -> str:
+    return str((payload or {}).get("message") or "").strip()
+
+
+def _is_challenge(payload: dict | None) -> bool:
+    if not payload:
+        return False
+    msg = _message(payload).lower()
+    return (
+        msg in ("challenge_required", "checkpoint_required")
+        or bool(payload.get("checkpoint_url"))
+        or (isinstance(payload.get("challenge"), dict) and bool(payload["challenge"]))
+    )
+
+
+def _is_throttle(status: int, payload: dict | None) -> bool:
+    """429s and the "Please wait a few minutes" family. The message is
+    localized by Accept-Language ("Espera unos minutos…"), hence 'minut'."""
+    if status == 429:
+        return True
+    if not payload:
+        return False
+    msg = _message(payload).lower()
+    return (
+        bool(payload.get("spam"))
+        or payload.get("error_type") == "rate_limit_error"
+        or "feedback_required" in msg
+        or "minut" in msg
+    )
+
+
+def _is_login_required(status: int, payload: dict | None) -> bool:
+    if _message(payload) == "login_required":
+        return True
+    return status == 401 or bool((payload or {}).get("require_login"))
+
+
+async def _ig_request(
+    url: str,
+    *,
+    session,
+    max_retries: int,
+    require_auth: bool,
+    method: str = "GET",
+    params: dict | None = None,
+    data: dict | None = None,
+    headers: dict | None = None,
+    cookies: dict | None = None,
+    limiter: RateLimiter | None = None,
+    impersonate: str | None = None,
+) -> dict:
     loop = asyncio.get_running_loop()
+    limiter = limiter or _rate_limiter
 
-    headers = dict(BASE_HEADERS)
-    cookies = None
-    if session is not None and session.authenticated:
-        headers.update(session.headers())
-        cookies = session.cookies()
+    if headers is None:
+        headers = _base_headers()
+        if session is not None and session.authenticated:
+            headers.update(session.headers())
+            cookies = session.cookies()
 
     last_status: int | None = None
 
@@ -135,76 +280,93 @@ async def _ig_request(url: str, *, session, max_retries: int, require_auth: bool
     for attempt in range(max_retries):
         proxy = ig_proxy_manager.get_pinned(session_key) if pin_proxy else ig_proxy_manager.get_next()
         proxies = {"https": proxy, "http": proxy} if proxy else None
+        via = proxy[:35] if proxy else "direct"
 
         try:
-            await _rate_limiter.check_and_wait()
+            await limiter.check_and_wait()
 
             fn = functools.partial(
-                curl_requests.get,
+                curl_requests.request,
+                method,
                 url,
+                params=params,
+                data=data,
                 headers=headers,
-                cookies=cookies,
+                cookies=cookies or None,
                 proxies=proxies,
-                timeout=15,
-                **_curl_extra_kwargs(),
+                timeout=20,
+                **_curl_extra_kwargs(impersonate),
             )
             response = await loop.run_in_executor(None, fn)
-            last_status = response.status_code
+            status = response.status_code
+            last_status = status
+            payload = _json_or_none(response)
+            message = _message(payload)
 
-            if response.status_code == 401:
+            if _is_challenge(payload):
+                logger.warning("challenge/checkpoint on attempt %d via %s: %s", attempt + 1, via, message)
+                if require_auth:
+                    raise IgChallengeError(
+                        "Instagram pide verificar la cuenta (challenge/checkpoint). Abre Instagram con "
+                        "esa cuenta, completa la verificación y pega un sessionid nuevo en el panel."
+                    )
+                if proxy:
+                    ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
+                continue
+
+            if _is_throttle(status, payload):
                 logger.warning(
-                    "HTTP 401 on attempt %d via %s",
-                    attempt + 1,
-                    proxy[:35] if proxy else "direct",
+                    "throttled (HTTP %d%s) on attempt %d via %s — backing off",
+                    status, f": {message}" if message else "", attempt + 1, via,
                 )
                 if proxy:
                     ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
-                if require_auth:
-                    # 401 with a session means the session is invalid/expired.
-                    raise IgAuthError("Instagram returned 401 — session invalid or expired")
+                await limiter.on_rate_limited()
                 continue
 
-            if response.status_code == 429:
-                logger.warning("429 on attempt %d — backing off", attempt + 1)
-                if proxy:
-                    ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
-                await _rate_limiter.on_rate_limited()
-                continue
-
-            if response.status_code == 404:
-                return {"error": "not_found", "status_code": 404}
-
-            if response.status_code != 200:
-                logger.warning("HTTP %d on attempt %d for %s", response.status_code, attempt + 1, url)
-                continue
-
-            data = response.json()
-
-            if data.get("require_login") or data.get("message") == "login_required":
-                logger.warning("require_login on attempt %d", attempt + 1)
+            if _is_login_required(status, payload):
+                logger.warning("login required (HTTP %d) on attempt %d via %s", status, attempt + 1, via)
                 if proxy:
                     ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
                 if require_auth:
                     raise IgAuthError("Instagram returned login_required — session invalid or expired")
-                await _rate_limiter.on_rate_limited()
+                await limiter.on_rate_limited()
                 continue
 
-            if data.get("status") == "fail":
-                logger.warning("status=fail on attempt %d: %s", attempt + 1, data.get("message"))
+            low = message.lower()
+            if status == 404 or "user not found" in low:
+                return {"error": "not_found", "status_code": status}
+
+            if "not authorized to view user" in low:
+                return {"error": "private", "status_code": status}
+
+            if status != 200:
+                logger.warning(
+                    "HTTP %d on attempt %d for %s%s",
+                    status, attempt + 1, url, f": {message}" if message else "",
+                )
+                continue
+
+            if payload is None:
+                logger.warning("non-JSON 200 on attempt %d for %s", attempt + 1, url)
+                continue
+
+            if payload.get("status") == "fail":
+                logger.warning("status=fail on attempt %d: %s", attempt + 1, message)
                 if proxy:
                     ig_proxy_manager.report_error(proxy, Settings.IG_PROXY_ERROR_COOLDOWN)
-                await _rate_limiter.on_rate_limited()
+                await limiter.on_rate_limited()
                 continue
 
-            _rate_limiter.reset_backoff()
+            limiter.reset_backoff()
             if proxy:
                 ig_proxy_manager.report_success(proxy)
-            return data
+            return payload
 
-        except IgAuthError:
+        except (IgAuthError, DailyLimitReached):
             raise
         except Exception as e:
-            logger.error("ig_get attempt %d failed: %s", attempt + 1, e)
+            logger.error("ig request attempt %d failed: %s", attempt + 1, e)
             if proxy:
                 ig_proxy_manager.report_error(proxy)
 

@@ -186,7 +186,7 @@
         </div>
         <label class="flex items-center gap-2 mb-5 text-xs text-slate-600 cursor-pointer select-none">
           <input id="ig-followers-enrich" type="checkbox" class="rounded">
-          Enriquecer con email (más lento: consulta el perfil de cada seguidor)
+          Enriquecer con email y teléfono (más lento: consulta el perfil de cada seguidor)
         </label>
         <div class="flex items-center gap-3 flex-wrap">
           <button id="ig-followers-start-btn"
@@ -311,6 +311,7 @@
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Usuario</th>
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Nombre</th>
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Email</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Teléfono</th>
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Seguidores</th>
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Tipo</th>
               <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Fuente</th>
@@ -319,7 +320,7 @@
           </thead>
           <tbody id="ig-results-tbody">
             <tr>
-              <td colspan="7" class="text-center text-slate-400 py-10 text-sm">
+              <td colspan="8" class="text-center text-slate-400 py-10 text-sm">
                 Ve a la vista <strong>Scraper</strong>, inicia una búsqueda y luego vuelve aquí para ver los resultados.
               </td>
             </tr>
@@ -424,7 +425,7 @@
 </div>
 
 <script type="module">
-  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=24';
+  import { initInstagramForm } from '{{ url_for("static", path="js/modules/instagram-form.js") }}?v=25';
 
   // ── Main view switcher (Scraper / Leads / Configuración) ──────────────────
   const views = {
