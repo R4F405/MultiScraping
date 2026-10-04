@@ -1,0 +1,100 @@
+# Docker Compose para desplegar en Coolify (build pack "Docker Compose").
+#
+# Diferencias con docker-compose.yml (pensado para el VPS con certbot):
+#   - Sin puertos publicados en el host: Coolify (Traefik) enruta el dominio
+#     al servicio `nginx` (puerto 80) y gestiona el SSL automáticamente.
+#   - nginx sin certificados propios; config "horneada" en la imagen.
+#   - Sin redes personalizadas: Coolify crea la red del stack y conecta su proxy.
+#   - Incluye tiktokleads (lo usa el panel web).
+#
+# Las variables de entorno se definen en Coolify → Environment Variables;
+# Coolify las escribe en un .env junto a este fichero al desplegar.
+
+services:
+
+  mapleads:
+    build: ./mapleads
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_PATH: /app/data/mapleads.db
+    volumes:
+      - mapleads_data:/app/data
+
+  instaleads:
+    build: ./instaleads
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_PATH: /app/data/instaleads.db
+    volumes:
+      - instaleads_data:/app/data
+
+  linkedinleads:
+    build: ./linkedinleads
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_PATH: /app/data/contacts.db
+      SESSIONS_DIR: /app/sessions
+    volumes:
+      - linkedin_sessions:/app/sessions
+      - linkedin_data:/app/data
+      - linkedin_logs:/app/logs
+      - linkedin_output:/app/output
+
+  tiktokleads:
+    build: ./tiktokleads
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TIKTOKLEADS_DB_PATH: /app/data/tiktokleads.db
+    volumes:
+      - tiktokleads_data:/app/data
+
+  scraperleadweb:
+    build: ./scraperLead-web
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MAPLEADS_API_URL: http://mapleads:8001
+      INSTALEADS_API_URL: http://instaleads:8002
+      LINKEDINLEADS_API_URL: http://linkedinleads:8003
+      TIKTOKLEADS_API_URL: http://tiktokleads:8004
+    depends_on:
+      - mapleads
+      - instaleads
+      - linkedinleads
+      - tiktokleads
+
+  # Punto de entrada público: en Coolify asigna el dominio a ESTE servicio
+  # (p. ej. https://scraper.tudominio.com). Enruta / al panel y /novnc/ al
+  # navegador remoto de linkedinleads.
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile.coolify
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - scraperleadweb
+
+volumes:
+  mapleads_data:
+  instaleads_data:
+  linkedin_sessions:
+  linkedin_data:
+  linkedin_logs:
+  linkedin_output:
+  tiktokleads_data:
