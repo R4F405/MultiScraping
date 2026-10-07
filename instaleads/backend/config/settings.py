@@ -45,14 +45,14 @@ class Settings:
 
     # Mobile (Android app) private API — i.instagram.com. Since Sept 2026 this
     # is the only surface that still lists followers and returns contact info
-    # (public_email / public_phone_number). Defaults mirror instagrapi 3.0.14
-    # (2026-09-24); override from .env when Instagram rotates them.
+    # (public_email / public_phone_number). Defaults mirror instagrapi 3.0.20
+    # (2026-10-04); override from .env when Instagram rotates them.
     IG_MOBILE_APP_ID: str = os.getenv("IG_MOBILE_APP_ID", "567067343352427")
-    IG_MOBILE_APP_VERSION: str = os.getenv("IG_MOBILE_APP_VERSION", "448.0.0.0.20")
-    IG_MOBILE_VERSION_CODE: str = os.getenv("IG_MOBILE_VERSION_CODE", "1065560286")
+    IG_MOBILE_APP_VERSION: str = os.getenv("IG_MOBILE_APP_VERSION", "449.0.0.52.84")
+    IG_MOBILE_VERSION_CODE: str = os.getenv("IG_MOBILE_VERSION_CODE", "1079242191")
     IG_MOBILE_BLOKS_VERSION_ID: str = os.getenv(
         "IG_MOBILE_BLOKS_VERSION_ID",
-        "0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432",
+        "799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b",
     )
     IG_MOBILE_LOCALE: str = os.getenv("IG_MOBILE_LOCALE", "es_ES")
     IG_MOBILE_TIMEZONE_OFFSET: int = int(os.getenv("IG_MOBILE_TIMEZONE_OFFSET", "7200"))
@@ -80,6 +80,19 @@ class Settings:
     # request cadence a bot would show. 0 = disabled.
     IG_FOLLOWERS_REST_EVERY: int = int(os.getenv("IG_FOLLOWERS_REST_EVERY", "500"))
     IG_FOLLOWERS_REST_SECONDS: float = float(os.getenv("IG_FOLLOWERS_REST_SECONDS", "45.0"))
+    # Since Sept 2026 Instagram caps the browsable followers list of many
+    # accounts at ~50 on every endpoint (instagrapi issue #2811). When that
+    # happens the scraper searches *inside* the followers list by username
+    # prefixes (a, b, … then ma, mb, … for prefixes that hit the cap) and
+    # merges the results. Depth = longest prefix tried (6 ≈ 80% of a 16k
+    # account in simulation; deeper = more coverage, more requests);
+    # saturation = results at which a prefix counts as capped until the real
+    # per-search cap has been observed.
+    IG_FOLLOWERS_SEARCH_FALLBACK: bool = os.getenv(
+        "IG_FOLLOWERS_SEARCH_FALLBACK", "1"
+    ).strip().lower() not in ("0", "false", "off", "no", "")
+    IG_FOLLOWERS_SEARCH_MAX_DEPTH: int = int(os.getenv("IG_FOLLOWERS_SEARCH_MAX_DEPTH", "6"))
+    IG_FOLLOWERS_SEARCH_SATURATION: int = int(os.getenv("IG_FOLLOWERS_SEARCH_SATURATION", "40"))
 
     # Fase 2 (email/phone enrichment) — one profile lookup per follower. This
     # is the request Instagram rate-limits hardest per account, so it gets its

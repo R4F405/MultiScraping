@@ -46,6 +46,13 @@ TUNABLES: list[Tunable] = [
             "Rompe el ritmo constante de peticiones. 0 = desactivado."),
     Tunable("IG_FOLLOWERS_REST_SECONDS", "IG_FOLLOWERS_REST_SECONDS", "float",
             "Duración del descanso largo (s)"),
+    Tunable("IG_FOLLOWERS_SEARCH_FALLBACK", "IG_FOLLOWERS_SEARCH_FALLBACK", "bool",
+            "Buscar por letras si Instagram limita la lista",
+            "Cuando Instagram solo deja ver ~50 seguidores, busca dentro de la lista por prefijos "
+            "(a, b, … ma, mb, …) para sacar el resto. Hace muchas más peticiones."),
+    Tunable("IG_FOLLOWERS_SEARCH_MAX_DEPTH", "IG_FOLLOWERS_SEARCH_MAX_DEPTH", "int",
+            "Longitud máxima del prefijo de búsqueda",
+            "Más largo = más seguidores encontrados pero más peticiones (6 ≈ 80% de una cuenta de 16.000)."),
     Tunable("IG_LIMIT_DAILY_PROFILES", "IG_LIMIT_DAILY_PROFILES", "int",
             "Máximo de perfiles enriquecidos al día",
             "Consultas de email/teléfono (una por seguidor) sumando todas las búsquedas. 0 = sin límite."),
