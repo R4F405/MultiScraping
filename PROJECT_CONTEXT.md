@@ -46,7 +46,7 @@ Usuario → Nginx:9090 (HTTPS)
 - `instaleads/backend/scraper/ig_proxy_manager.py` — `IgProxyManager`: round-robin con cooldown 5min por proxy fallido
 - `instaleads/backend/scraper/ig_dorking.py` — modo sin sesión (Modo A): búsqueda Startpage/DuckDuckGo → extrae perfiles públicos
 - `instaleads/backend/scraper/ig_session.py` — sesión autenticada: carga `sessionid` desde `IG_SESSIONID`/`IG_SESSION_FILE`; deriva `ds_user_id`
-- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de la cuenta objetivo. Cadena de endpoints (sept. 2026, igual que instagrapi 3.0.14): `v1` API móvil `i.instagram.com/api/v1/friendships/{id}/followers/` (`max_id`) → `gql` GraphQL privada `FollowersList` (doc_id `IG_FOLLOWERS_DOC_ID`) si v1 responde `should_limit_list_of_followers` o falla → `web` v1 de www (tope ~50). Cursor guardado como `"<estrategia>:<max_id>"`
+- `instaleads/backend/scraper/ig_followers.py` — modo autenticado (Modo B): seguidores de la cuenta objetivo. Recorre fuentes mientras tenga menos seguidores únicos que el `follower_count` real de la cuenta: `v1` API móvil `friendships/{id}/followers/` (`max_id`) → `gql` GraphQL privada `FollowersList` → `web` v1 de www → `v1_earliest` / `v1_latest` (orden) → `search`: búsqueda dentro de la lista por prefijos de username (DFS `a…_`, se subdivide el prefijo cuando devuelve el tope; `IG_FOLLOWERS_SEARCH_MAX_DEPTH`). Cursor `"<fuente>:<max_id|prefijo>"`; se resetea al terminar el recorrido. `report` por fuente → `describe_report()` → `status_detail` del job
 - `instaleads/backend/scraper/ig_mobile.py` — identidad Android (UA, `X-IG-*`, device ids estables por cuenta) y `Authorization: Bearer IGT:2:<b64>` construido a partir del mismo `IG_SESSIONID`
 - `instaleads/backend/scraper/ig_profile.py` — `get_profile(username, user_id, mobile=True)`: `users/{id}/info/` móvil → `public_email`, `public_phone_number`(+`public_phone_country_code`), `contact_phone_number`; fallback `web_profile_info`; además email/teléfono en bio, enlaces `wa.me` y web enlazada
 - `instaleads/backend/scraper/ig_client.py` — `ig_get` (guest/web), `ig_get_authenticated` (web con sesión), `ig_mobile_get` / `ig_mobile_graphql` (API móvil). Clasifica respuestas: `login_required` → `IgAuthError`, `challenge_required` → `IgChallengeError`, "Espera unos minutos"/429/`feedback_required` → backoff (no mata la sesión)
@@ -155,7 +155,7 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 
 | Módulo | Tests | Estado |
 |---|---|---|
-| instaleads | 84 | Todos pasan |
+| instaleads | 91 | Todos pasan |
 | mapleads | 117 | **1 falla** |
 | linkedinleads | 173 | Todos pasan |
 | scraperLead-web | 0 | Sin cobertura |
@@ -178,6 +178,8 @@ LinkedIn bloquea IPs de datacenter (OVH) con reCAPTCHA en `/login`. La solución
 ---
 
 ## Recent Changes Log
+
+- **2026-10-07:** Instagram — la lista de seguidores se quedaba en 50: Instagram corta en ~50 la lista de muchas cuentas en *todos* los endpoints (v1, GraphQL privada, web; instagrapi issue #2811, sin solución upstream) y el scraper paraba en silencio con estado `completed`. Ahora el iterador sigue probando fuentes hasta llegar al `follower_count` real y, como último recurso, busca dentro de la lista por prefijos (lo que hace la caja de búsqueda de la app, `search_followers_v1`), subdividiendo los prefijos que devuelven el tope (umbral adaptativo). Simulación 16k seguidores con tope 50: ~80% recuperado con ~7.800 peticiones (profundidad 6). El job queda `completed_partial` con el detalle por fuente cuando no se llega al total. App móvil → 449.0.0.52.84 (instagrapi 3.0.20).
 
 - **2026-09-25:** Instagram — modo Seguidores reparado. Causa raíz: la consulta GraphQL web `query_hash` de seguidores devuelve desde sept. 2026 el `count` correcto pero `edges: []` (instagrapi issue #2798), así que los jobs terminaban con 0 seguidores; y `web_profile_info` ya casi no da email/teléfono (400/429 en IPs de datacenter). Ahora: lista de seguidores por la API móvil v1 → GraphQL privada `FollowersList` → web v1; enriquecimiento (Fase 2) por `users/{id}/info/` móvil con email **y teléfono** (+ `wa.me`, bio, web). Nuevas columnas `phone_source`, `category`, `city` (leads) y `phones_found`, `enrich_total`, `status_detail` (jobs). Fase 2 recoge también seguidores pendientes de jobs anteriores de la misma cuenta. Ritmo propio para Fase 2 (`IG_ENRICH_DELAY_*`, `IG_LIMIT_DAILY_PROFILES`, descansos) editable desde el panel. UI: columna Teléfono, progreso de Fase 2 y motivo de parada. Cursores antiguos (formato GraphQL) se descartan automáticamente.
 

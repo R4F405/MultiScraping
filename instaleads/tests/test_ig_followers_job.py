@@ -30,7 +30,7 @@ async def test_run_followers_job_saves_leads(monkeypatch, file_db):
     job_id = "flw-job-1"
     await db.upsert_job(job_id, "followers", "targetacc", 5)
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         assert target == "targetacc"
         for i in range(5):
             yield {
@@ -63,7 +63,7 @@ async def test_run_followers_job_enriches_email(monkeypatch, file_db):
     job_id = "flw-job-enrich"
     await db.upsert_job(job_id, "followers", "acc2", 2)
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         yield {"instagram_id": "1", "username": "withemail", "full_name": "A", "is_private": False}
         yield {"instagram_id": "2", "username": "noemail", "full_name": "B", "is_private": False}
 
@@ -118,7 +118,7 @@ async def test_run_followers_job_auth_error(monkeypatch, file_db):
     job_id = "flw-job-auth"
     await db.upsert_job(job_id, "followers", "acc3", 5)
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         raise IgAuthError("no session")
         yield  # pragma: no cover
 
@@ -201,7 +201,7 @@ async def test_fase2_picks_up_pending_leads_from_earlier_jobs(monkeypatch, file_
     job_id = "new-job"
     await db.upsert_job(job_id, "followers", "acc4", 5)
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         yield {"instagram_id": "42", "username": "fresh", "is_private": False}
 
     async def fake_get_profile(username, user_id=None, **kwargs):
@@ -227,7 +227,7 @@ async def test_fase2_stops_at_daily_profile_cap(monkeypatch, file_db):
     job_id = "flw-cap"
     await db.upsert_job(job_id, "followers", "acc5", 3)
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         for i in range(3):
             yield {"instagram_id": str(500 + i), "username": f"capped{i}", "is_private": False}
 
@@ -259,7 +259,7 @@ async def test_fase2_stops_when_session_dies(monkeypatch, file_db):
     await db.upsert_job(job_id, "followers", "acc6", 2)
     calls = []
 
-    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False):
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, **kwargs):
         for i in range(2):
             yield {"instagram_id": str(600 + i), "username": f"d{i}", "is_private": False}
 
@@ -276,3 +276,32 @@ async def test_fase2_stops_when_session_dies(monkeypatch, file_db):
     job = await db.get_job(job_id)
     assert job["status"] == "auth_required"
     assert "sesión" in job["status_detail"]
+
+
+@pytest.mark.asyncio
+async def test_short_followers_list_is_explained_in_job(monkeypatch, file_db):
+    """Instagram capped the list: the job must say so (completed_partial +
+    which endpoints were limited), not report a silent 'completed'."""
+    from backend.api import routes as routes_mod
+
+    job_id = "flw-capped"
+    await db.upsert_job(job_id, "followers", "bigacc", 16000)
+
+    async def fake_scrape(target, amount, stop_event=None, reset_cursor=False, report=None, **kwargs):
+        report.update({
+            "stop": "sources_exhausted", "unique": 50, "follower_count": 16000,
+            "requested": 16000, "job_cap": 50000,
+            "sources": [{"source": "v1", "new": 50, "end": "limited"},
+                        {"source": "search", "new": 0, "end": "failed"}],
+        })
+        for i in range(50):
+            yield {"instagram_id": str(700 + i), "username": f"c{i}", "is_private": False}
+
+    monkeypatch.setattr("backend.scraper.ig_followers.scrape_followers", fake_scrape)
+    await routes_mod._run_followers_job("bigacc", 16000, False, job_id, asyncio.Event())
+
+    job = await db.get_job(job_id)
+    assert job["status"] == "completed_partial"
+    assert job["progress"] == 50
+    assert "Instagram solo devolvió 50 de 16.000" in job["status_detail"]
+    assert "búsqueda por letras: +0 (error)" in job["status_detail"]

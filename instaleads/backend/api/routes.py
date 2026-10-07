@@ -308,7 +308,7 @@ async def _run_followers_job(
     high-volume per-profile checking never touches the main account.
     """
     from backend.scraper.ig_deduplicator import Deduplicator
-    from backend.scraper.ig_followers import FollowersError, scrape_followers
+    from backend.scraper.ig_followers import FollowersError, describe_report, scrape_followers
     from backend.scraper.ig_profile import get_profile
     from backend.scraper.ig_rate_limiter import DailyLimitReached
 
@@ -322,9 +322,12 @@ async def _run_followers_job(
 
         # ── Fase 1: usernames ────────────────────────────────────────────
         phase1_detail = None
+        phase1_failed = False
+        report: dict = {}
         try:
             async for follower in scrape_followers(
-                target, amount=max_results, stop_event=stop_event, reset_cursor=reset_cursor
+                target, amount=max_results, stop_event=stop_event, reset_cursor=reset_cursor,
+                report=report,
             ):
                 if stop_event.is_set():
                     break
@@ -351,9 +354,13 @@ async def _run_followers_job(
                 await db.update_job_progress(job_id, collected, emails_found, 0)
 
             logger.info(
-                "Followers job %s: fase 1 done — @%s → %d usernames",
-                job_id[:8], target, collected,
+                "Followers job %s: fase 1 done — @%s → %d usernames (report: %s)",
+                job_id[:8], target, collected, report,
             )
+            # Fewer followers than the account has / than requested? Say why
+            # (which endpoints were limited) instead of a silent "completed".
+            if not stop_event.is_set():
+                phase1_detail = describe_report(report)
         except IgAuthError as exc:
             logger.error("Followers job %s: auth error: %s", job_id[:8], exc)
             await db.finish_job(job_id, "auth_required", str(exc))
@@ -365,6 +372,7 @@ async def _run_followers_job(
                 return
             # Keep going: Fase 2 can still enrich what was collected (and
             # leftovers from earlier runs on this same account).
+            phase1_failed = True
             phase1_detail = (
                 f"Instagram cortó la lista de seguidores tras {collected}: {exc}. "
                 "Vuelve a lanzar la búsqueda más tarde; continuará donde se quedó."
@@ -481,7 +489,7 @@ async def _run_followers_job(
             await db.finish_job(job_id, "cancelled", detail)
         elif auth_failed and not emails_found and not phones_found:
             await db.finish_job(job_id, "auth_required", detail)
-        elif phase1_detail and not collected and not checked:
+        elif phase1_failed and not collected and not checked:
             await db.finish_job(job_id, "failed", detail)
         elif detail:
             await db.finish_job(job_id, "completed_partial", detail)

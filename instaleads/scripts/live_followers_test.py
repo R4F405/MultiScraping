@@ -9,7 +9,7 @@ Comprueba que:
 Uso (desde la carpeta instaleads/, con la sesión configurada en el panel o en
 IG_SESSIONID):
 
-    python -m scripts.live_followers_test <cuenta_objetivo> [--max 120] [--enrich 10]
+    python -m scripts.live_followers_test <cuenta_objetivo> [--max 300] [--enrich 10]
 
 Por defecto trabaja sobre una base de datos TEMPORAL: no toca tus leads, ni el
 cursor guardado de esa cuenta, ni los contadores diarios. Usa --use-real-db
@@ -36,7 +36,7 @@ from backend.config.settings import Settings  # noqa: E402
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("target", help="cuenta objetivo (con o sin @); debe tener más de 50 seguidores")
-    parser.add_argument("--max", type=int, default=120, help="seguidores a listar (default 120)")
+    parser.add_argument("--max", type=int, default=300, help="seguidores a listar (default 300)")
     parser.add_argument("--enrich", type=int, default=10, help="perfiles a enriquecer con email/teléfono (default 10)")
     parser.add_argument("--use-real-db", action="store_true", help="usar data/instaleads.db en vez de una BD temporal")
     args = parser.parse_args()
@@ -46,7 +46,9 @@ async def main() -> int:
         Settings.DB_PATH = os.path.join(tempfile.mkdtemp(prefix="ig_live_"), "live.db")
 
     from backend.scraper.ig_client import IgAuthError
-    from backend.scraper.ig_followers import FollowersError, resolve_user_id, scrape_followers
+    from backend.scraper.ig_followers import (
+        SOURCE_LABELS, FollowersError, describe_report, resolve_user, scrape_followers,
+    )
     from backend.scraper.ig_profile import get_profile
     from backend.scraper.ig_session import get_enrichment_session, get_session
     from backend.storage import database as db
@@ -62,15 +64,14 @@ async def main() -> int:
     # ── 1. Listado de seguidores ─────────────────────────────────────────────
     t0 = time.monotonic()
     followers: list[dict] = []
-    strategies: set[str] = set()
+    report: dict = {}
     try:
-        user_id = await resolve_user_id(target)
-        print(f"@{target} → user_id={user_id}")
-        async for f in scrape_followers(target, amount=args.max, reset_cursor=True):
+        info = await resolve_user(target)
+        print(f"@{target} → {info}")
+        async for f in scrape_followers(target, amount=args.max, reset_cursor=True, report=report):
             followers.append(f)
-            cursor = f.get("_next_cursor") or ""
-            if ":" in cursor:
-                strategies.add(cursor.split(":", 1)[0])
+            if len(followers) % 50 == 0:
+                print(f"   … {len(followers)} seguidores")
     except IgAuthError as exc:
         print(f"✗ Sesión rechazada por Instagram: {exc}")
         return 3
@@ -80,8 +81,15 @@ async def main() -> int:
     ok_list = len(unique) > 50
     print(
         f"\n{'✓' if ok_list else '✗'} Seguidores únicos listados: {len(unique)} "
-        f"(objetivo >50) en {time.monotonic() - t0:.0f}s · endpoints: {', '.join(sorted(strategies)) or 'v1 (una página)'}"
+        f"(objetivo >50) en {time.monotonic() - t0:.0f}s · parada: {report.get('stop') or '-'}"
     )
+    for e in report.get("sources", []):
+        extra = f", {e['queries']} búsquedas" if e.get("queries") else ""
+        print(f"   {SOURCE_LABELS.get(e['source'], e['source']):<20} +{e['new']:<6} "
+              f"peticiones={e['requests']:<5} fin={e['end'] or '-'}{extra}")
+    detail = describe_report(report)
+    if detail:
+        print(f"   → {detail}")
     for f in followers[:5]:
         print(f"   @{f['username']}  {'(privada)' if f['is_private'] else ''}")
 

@@ -352,11 +352,12 @@ async def test_scrape_followers_resolves_iterates_and_saves_cursor(monkeypatch):
 
     async def fake_resolve(username):
         assert username.lstrip("@") == "targetacc"
-        return "555"
+        return {"id": "555", "follower_count": 3, "is_private": False}
 
     async def fake_iter(user_id, **kwargs):
         assert user_id == "555"
         assert kwargs["start_cursor"] == "v1:old"
+        assert kwargs["follower_count"] == 3
         for i in range(3):
             yield {"username": f"f{i}", "instagram_id": str(i), "_next_cursor": "v1:next"}
 
@@ -366,7 +367,7 @@ async def test_scrape_followers_resolves_iterates_and_saves_cursor(monkeypatch):
     async def fake_save_cursor(username, cursor, collected_delta=0):
         saved.append((username, cursor, collected_delta))
 
-    monkeypatch.setattr(ig_followers, "resolve_user_id", fake_resolve)
+    monkeypatch.setattr(ig_followers, "resolve_user", fake_resolve)
     monkeypatch.setattr(ig_followers, "iter_followers", fake_iter)
     monkeypatch.setattr(ig_followers.db, "get_followers_cursor", fake_get_cursor)
     monkeypatch.setattr(ig_followers.db, "save_followers_cursor", fake_save_cursor)
@@ -381,6 +382,162 @@ async def test_scrape_followers_unresolvable_raises(monkeypatch):
     async def fake_resolve(username):
         return None
 
-    monkeypatch.setattr(ig_followers, "resolve_user_id", fake_resolve)
+    monkeypatch.setattr(ig_followers, "resolve_user", fake_resolve)
     with pytest.raises(FollowersError):
         _ = [f async for f in scrape_followers("ghost", amount=3)]
+
+
+# ── Breaking the ~50 cap (Oct 2026, instagrapi #2811) ────────────────────────
+
+def _capped_account(n_total=300, n_ma=120, seed=7):
+    """An account whose every list endpoint stops at 50 followers, but whose
+    in-list search (query=prefix) returns up to 50 matches per prefix."""
+    import random as _r
+
+    rnd = _r.Random(seed)
+    alpha = "abcdefghijklmnopqrstuvwxyz0123456789._"
+    names = set()
+    while len(names) < n_ma:
+        names.add("ma" + "".join(rnd.choice(alpha) for _ in range(6)))
+    while len(names) < n_total:
+        names.add(rnd.choice("abcdefghijklnopqrstuvwxyz") + "".join(rnd.choice(alpha) for _ in range(7)))
+    users = [{"pk": str(10_000 + i), "username": u, "full_name": "", "is_private": False}
+             for i, u in enumerate(sorted(names))]
+    return users
+
+
+def _install_capped(monkeypatch, users, cap=50):
+    queries = []
+
+    async def fake_mobile_get(endpoint, params=None, **kwargs):
+        params = params or {}
+        query = params.get("query", "")
+        if query:
+            queries.append(query)
+            matches = [u for u in users if u["username"].startswith(query)]
+            return {"users": matches[:cap], "status": "ok"}
+        if params.get("order") == "date_followed_earliest":
+            return {"users": users[-cap:], "status": "ok"}
+        return {"users": users[:cap], "should_limit_list_of_followers": True, "status": "ok"}
+
+    async def fake_graphql(*args, **kwargs):
+        return {"data": {"xdt_api__v1__friendships__followers": {"users": users[:cap]}}}
+
+    async def fake_web(url):
+        return {"users": users[:12], "status": "ok"}
+
+    monkeypatch.setattr(ig_followers, "ig_mobile_get", fake_mobile_get)
+    monkeypatch.setattr(ig_followers, "ig_mobile_graphql", fake_graphql)
+    monkeypatch.setattr(ig_followers, "ig_get_authenticated", fake_web)
+    return queries
+
+
+@pytest.mark.asyncio
+async def test_prefix_search_recovers_followers_hidden_by_the_cap(monkeypatch):
+    users = _capped_account()
+    queries = _install_capped(monkeypatch, users)
+    report = {}
+
+    collected = [f async for f in iter_followers("999", follower_count=len(users), report=report)]
+
+    assert len(collected) == len(users) == len({f["instagram_id"] for f in collected})
+    by_source = {e["source"]: e for e in report["sources"]}
+    assert by_source["v1"]["new"] == 50 and by_source["v1"]["end"] == "limited"
+    assert by_source["gql"]["new"] == 0
+    assert by_source["v1_earliest"]["new"] == 50          # the other end of the list
+    assert by_source["search"]["new"] == len(users) - 100
+    # "m" and "ma" hit the cap → they were split into longer prefixes.
+    assert "ma" in queries and any(len(q) == 3 and q.startswith("ma") for q in queries)
+    assert report["stop"] == "complete"
+    assert collected[-1]["_next_cursor"].startswith("search:")
+
+
+@pytest.mark.asyncio
+async def test_known_complete_list_does_not_try_other_sources(monkeypatch):
+    calls = []
+
+    async def fake_mobile_get(endpoint, params=None, **kwargs):
+        calls.append(params)
+        return _v1_page(0, 40, None)
+
+    monkeypatch.setattr(ig_followers, "ig_mobile_get", fake_mobile_get)
+    report = {}
+    collected = [f async for f in iter_followers("999", follower_count=41, report=report)]
+    assert len(collected) == 40
+    assert len(calls) == 1          # 40/41 ≥ 95% → complete, no extra requests
+    assert report["stop"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_search_disabled_reports_why_list_is_short(monkeypatch):
+    users = _capped_account()
+    queries = _install_capped(monkeypatch, users)
+    monkeypatch.setattr(ig_followers.Settings, "IG_FOLLOWERS_SEARCH_FALLBACK", False)
+    report = {}
+
+    collected = [f async for f in iter_followers("999", follower_count=16000, report=report)]
+
+    assert len(collected) == 100     # first 50 + last 50 (ordered)
+    assert queries == []
+    assert report["stop"] == "sources_exhausted"
+    detail = ig_followers.describe_report(report)
+    assert "Instagram solo devolvió 100 de 16.000" in detail
+    assert "API móvil: +50 (lista limitada)" in detail
+    assert "Buscar por letras" in detail
+
+
+@pytest.mark.asyncio
+async def test_daily_cap_mid_walk_is_reported(monkeypatch):
+    users = _capped_account()
+    _install_capped(monkeypatch, users)
+    used = {"n": 0}
+
+    async def counter(mode):
+        return used["n"]
+
+    async def bump(mode):
+        used["n"] += 1
+
+    monkeypatch.setattr(ig_followers.db, "get_daily_count", counter)
+    monkeypatch.setattr(ig_followers.db, "increment_daily_count", bump)
+    monkeypatch.setattr(ig_followers.Settings, "IG_LIMIT_DAILY_FOLLOWERS", 8)
+    report = {}
+
+    collected = [f async for f in iter_followers("999", follower_count=len(users), report=report)]
+
+    assert 0 < len(collected) < len(users)
+    assert report["stop"] == "daily_cap"
+    assert "límite diario" in ig_followers.describe_report(report)
+
+
+def test_search_stack_resumes_in_preorder():
+    stack = ig_followers._search_stack("mb")
+    order = [stack.pop() for _ in range(4)]
+    assert order == ["mb", "mc", "md", "me"]
+    rest = []
+    while stack:
+        rest.append(stack.pop())
+    assert rest[rest.index("m_") + 1] == "n"
+    assert rest[-1] == "_"
+    assert decode_cursor("search:mb") == ("search", "mb")
+    assert decode_cursor("search:M!") == ("v1", "")
+
+
+def test_describe_report_job_cap():
+    report = {"stop": "limit", "unique": 5000, "requested": 16000, "job_cap": 5000,
+              "sources": [{"source": "v1", "new": 5000, "end": ""}]}
+    assert "tope por búsqueda (5000" in ig_followers.describe_report(report)
+    report.update(requested=200, unique=200)
+    assert ig_followers.describe_report(report) is None
+
+
+@pytest.mark.asyncio
+async def test_search_cursor_with_search_disabled_restarts_from_v1(monkeypatch):
+    async def fake_mobile_get(endpoint, params=None, **kwargs):
+        assert not (params or {}).get("query")
+        return _v1_page(0, 10, None)
+
+    monkeypatch.setattr(ig_followers, "ig_mobile_get", fake_mobile_get)
+    monkeypatch.setattr(ig_followers.Settings, "IG_FOLLOWERS_SEARCH_FALLBACK", False)
+    collected = [f async for f in iter_followers("999", start_cursor="search:ma")]
+    assert len(collected) == 10
