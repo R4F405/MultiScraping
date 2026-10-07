@@ -15,6 +15,12 @@ services:
   mapleads:
     build: ./mapleads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     env_file:
       - path: .env
         required: false
@@ -26,6 +32,12 @@ services:
   instaleads:
     build: ./instaleads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     env_file:
       - path: .env
         required: false
@@ -37,6 +49,12 @@ services:
   linkedinleads:
     build: ./linkedinleads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     env_file:
       - path: .env
         required: false
@@ -52,6 +70,12 @@ services:
   tiktokleads:
     build: ./tiktokleads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/api/tiktok/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     env_file:
       - path: .env
         required: false
@@ -63,6 +87,12 @@ services:
   scraperleadweb:
     build: ./scraperLead-web
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/auth/login', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     env_file:
       - path: .env
         required: false
@@ -85,6 +115,12 @@ services:
       context: ./nginx
       dockerfile: Dockerfile.coolify
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     expose:
       - "80"
     depends_on:
